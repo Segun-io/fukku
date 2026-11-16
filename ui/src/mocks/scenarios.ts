@@ -5,13 +5,15 @@
 //   /jobs?mock=empty          nobody has uploaded anything
 //   /jobs?mock=admin          the user is an administrator
 //   /jobs?mock=season         adds the season below
+//   /jobs?mock=mapping        adds a season and a film waiting for their files to be checked
 //
 // The choice is kept for the tab (sessionStorage), so it survives a reload; `?mock=` with
 // nothing after it clears it. Names are made up.
 
 import type { Job, JobFile } from "@/api/types";
+import { mappingFilmJobId, mappingJobId } from "./mapping-fixtures";
 
-export const scenarioNames = ["empty", "admin", "season"] as const;
+export const scenarioNames = ["empty", "admin", "season", "mapping"] as const;
 export type Scenario = (typeof scenarioNames)[number];
 
 const storageKey = "fukku.mock";
@@ -78,4 +80,36 @@ export const seasonFiles: JobFile[] = [
       extraction: null,
     };
   }),
+];
+
+/** Two jobs in `awaiting-confirmation`, for the mapping editor (`mapping-fixtures.ts`). */
+export const mappingJobs: Job[] = [
+  {
+    id: mappingJobId,
+    owner: "user1",
+    state: "awaiting-confirmation",
+    attempt: 1,
+    error: null,
+    name: "Lighthouse Letters - Season 1.zip",
+    fileCount: 6,
+    totalSize: 5 * episodeSize,
+    createdAt: "2026-01-01T10:00:00Z",
+    updatedAt: "2026-01-01T10:30:00Z",
+    expiresAt: null,
+    actions: ["cancel"],
+  },
+  {
+    id: mappingFilmJobId,
+    owner: "user1",
+    state: "awaiting-confirmation",
+    attempt: 1,
+    error: null,
+    name: "Sintel.2010.1080p.mkv",
+    fileCount: 1,
+    totalSize: episodeSize,
+    createdAt: "2026-01-01T09:00:00Z",
+    updatedAt: "2026-01-01T09:30:00Z",
+    expiresAt: null,
+    actions: ["cancel"],
+  },
 ];

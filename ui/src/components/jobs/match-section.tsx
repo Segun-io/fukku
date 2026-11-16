@@ -44,7 +44,12 @@ export function MatchSection({ job, className }: { job: JobDetail; className?: s
             app: appName[job.target.app],
           })}
         </p>
-        <div>
+        <div className="flex flex-wrap gap-2">
+          <Button asChild>
+            <Link to="/jobs/$id/mapping" params={{ id: job.id }}>
+              {t("job.mapping")}
+            </Link>
+          </Button>
           <Button
             type="button"
             variant="outline"

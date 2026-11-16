@@ -85,8 +85,8 @@ export function MatchOptions({ jobId, hit, infos }: Props) {
     e.preventDefault();
     if (needsProfile || match.isPending) return;
     match.mutate(request(), {
-      // The confirmation (#44) and the mapping editor (#45) take over from the job page.
-      onSuccess: () => void navigate({ to: "/jobs/$id", params: { id: jobId } }),
+      // The files are checked against the title in the mapping editor (#45).
+      onSuccess: () => void navigate({ to: "/jobs/$id/mapping", params: { id: jobId } }),
     });
   }
 

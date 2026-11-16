@@ -179,7 +179,7 @@ describe("the match page", () => {
     expect(screen.queryByRole("combobox", { name: "Type of show" })).not.toBeInTheDocument();
   });
 
-  it("sends the film choice and goes back to the job", async () => {
+  it("sends the film choice and goes on to the mapping editor", async () => {
     let body: unknown;
     server.events.on("request:start", async ({ request }) => {
       if (request.method === "POST" && request.url.endsWith("/match")) {
@@ -195,7 +195,7 @@ describe("the match page", () => {
       screen.getByRole("checkbox", { name: "Replace it when a better copy appears" }),
     );
     await user.click(screen.getByRole("button", { name: "Use this title" }));
-    await waitFor(() => expect(router.state.location.pathname).toBe(`/jobs/${film}`));
+    await waitFor(() => expect(router.state.location.pathname).toBe(`/jobs/${film}/mapping`));
     expect(body).toEqual({
       app: "radarr",
       tmdbId: 10378,
@@ -203,6 +203,7 @@ describe("the match page", () => {
       rootFolder: "/data/media/movies",
       monitored: false,
     });
+    await router.navigate({ to: "/jobs/$id", params: { id: film } });
     expect(await screen.findByText("Big Buck Bunny (2008) in Radarr")).toBeVisible();
     server.events.removeAllListeners();
   });
@@ -299,7 +300,7 @@ describe("the match page", () => {
 
   it("works with the keyboard alone", async () => {
     const user = userEvent.setup();
-    open(film);
+    const { router } = open(film);
     await user.click(await screen.findByRole("textbox", { name: "Title" }));
     await user.keyboard("big{Enter}");
     const first = await screen.findByRole("radio", { name: /Big Buck Bunny/ });
@@ -313,7 +314,7 @@ describe("the match page", () => {
     await user.tab();
     await user.tab();
     await user.keyboard("{Enter}");
-    expect(await screen.findByText("Big Buck Bunny (2008) in Radarr")).toBeVisible();
+    await waitFor(() => expect(router.state.location.pathname).toBe(`/jobs/${film}/mapping`));
   });
 
   it("refuses a job that is not ready", async () => {
@@ -358,6 +359,8 @@ describe("the job page and the match step", () => {
     await search(user, "big");
     await user.click(await screen.findByRole("radio", { name: /Big Buck Bunny/ }));
     await user.click(screen.getByRole("button", { name: "Use this title" }));
+    await waitFor(() => expect(router.state.location.pathname).toBe(`/jobs/${film}/mapping`));
+    await router.navigate({ to: "/jobs/$id", params: { id: film } });
     await screen.findByText("Big Buck Bunny (2008) in Radarr");
     await user.click(screen.getByRole("button", { name: "Choose a different title" }));
     await waitFor(() => expect(router.state.location.pathname).toBe(`/jobs/${film}/match`));

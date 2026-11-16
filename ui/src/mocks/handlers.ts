@@ -4,8 +4,9 @@
 import { HttpResponse, http } from "msw";
 import type { Job, JobAction, JobState, MatchRequest, Target } from "@/api/types";
 import { jobs as fixtureJobs, jobDetail, session } from "./fixtures";
+import { mappingHandlers, resetMapping } from "./mapping-fixtures";
 import { apps, movieHits, searchMovies, searchSeries, seriesHits } from "./match-fixtures";
-import { type Scenario, seasonFiles, seasonJob } from "./scenarios";
+import { mappingJobs, type Scenario, seasonFiles, seasonJob } from "./scenarios";
 import { filesOf, pendingOf, resetUploads, uploadHandlers } from "./uploads";
 
 let jobs: Job[] = structuredClone(fixtureJobs);
@@ -17,6 +18,7 @@ export function resetMocks() {
   targets = {};
   admin = false;
   resetUploads();
+  resetMapping();
 }
 
 /** Makes the mock user an administrator: sees every job, `mine=true` limits the list. */
@@ -28,6 +30,7 @@ export function setMockAdmin(value: boolean) {
 export function applyScenarios(scenarios: readonly Scenario[]) {
   if (scenarios.includes("empty")) jobs = [];
   if (scenarios.includes("season")) jobs.push(structuredClone(seasonJob));
+  if (scenarios.includes("mapping")) jobs.push(...structuredClone(mappingJobs));
   if (scenarios.includes("admin")) admin = true;
 }
 
@@ -147,6 +150,10 @@ export const handlers = [
     jobs = jobs.filter((j) => j !== job);
     return new HttpResponse(null, { status: 204 });
   }),
+
+  // ---- Proposal (#38) ----
+
+  ...mappingHandlers,
 
   // ---- Match (#37) ----
 
