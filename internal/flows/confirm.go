@@ -41,7 +41,8 @@ type Overridden struct {
 	Language *Notice
 }
 
-// Confirm moves a job from awaiting-confirmation to importing. Every row that is not
+// Confirm moves a job from awaiting-confirmation to importing, as user (email for the
+// audit log). Every row that is not
 // skipped must be importable, or have only rejections and warnings and be listed in
 // req.Overrides. The rows are judged as the proposal shows them now (View), so the warnings
 // are those the user saw; for a show the app is asked for its episodes. The job's lock is
@@ -53,9 +54,9 @@ type Overridden struct {
 // storage_unavailable (the filesystem checks fail), incomplete_rows (rows without a title
 // or episodes: edit or skip them), needs_override (Rows lists them), nothing_to_import;
 // arr_unavailable when the app does not answer.
-func (e *Engine) Confirm(ctx context.Context, user string, job store.Job, req ConfirmRequest) (Confirmation, error) {
+func (e *Engine) Confirm(ctx context.Context, user, email string, job store.Job, req ConfirmRequest) (Confirmation, error) {
 	for range editAttempts {
-		c, err := e.confirm(ctx, user, job.ID, req)
+		c, err := e.confirm(ctx, user, email, job.ID, req)
 		if !errors.Is(err, errRetry) {
 			return c, err
 		}
@@ -63,7 +64,7 @@ func (e *Engine) Confirm(ctx context.Context, user string, job store.Job, req Co
 	return Confirmation{}, rowsChanged()
 }
 
-func (e *Engine) confirm(ctx context.Context, user, jobID string, req ConfirmRequest) (Confirmation, error) {
+func (e *Engine) confirm(ctx context.Context, user, email, jobID string, req ConfirmRequest) (Confirmation, error) {
 	s, err := e.p.edit(ctx, jobID)
 	if err != nil {
 		return Confirmation{}, err
@@ -152,6 +153,7 @@ func (e *Engine) confirm(ctx context.Context, user, jobID string, req ConfirmReq
 			return Confirmation{}, errRetry
 		}
 	}
+	var flags []store.Row
 	for i, r := range cur {
 		want := r
 		want.Skip = views[i].Skip
@@ -160,16 +162,11 @@ func (e *Engine) confirm(ctx context.Context, user, jobID string, req ConfirmReq
 		if want.Skip {
 			want.Result = store.ResultSkipped
 		}
-		if sameRow(want, r) {
-			continue
-		}
-		if err := e.st.UpdateRow(ctx, want); err != nil {
-			return Confirmation{}, err
+		if !sameRow(want, r) {
+			flags = append(flags, want)
 		}
 	}
 	// The subtitle choices go where the subtitles step reads them: the target's options.
-	// The target's identity (app, title, matched at) does not change, so the transition
-	// below still finds it.
 	var choices any // nil: the key goes
 	if subs != nil {
 		choices = subs
@@ -178,20 +175,23 @@ func (e *Engine) confirm(ctx context.Context, user, jobID string, req ConfirmReq
 	if err != nil {
 		return Confirmation{}, err
 	}
-	if string(opts) != string(s.t.Options) {
-		t := s.t
-		t.Options = opts
-		if err := e.st.SetTarget(ctx, jobID, t); err != nil {
-			return Confirmation{}, err
-		}
-		c.Target = t
+	if string(opts) == string(s.t.Options) {
+		opts = nil // unchanged
+	} else {
+		c.Target.Options = opts
 	}
 	c.Subtitles = req.Subtitles
 	note := fmt.Sprintf("%d file(s) confirmed for %s", len(c.Rows), s.t.App)
 	if len(c.Overridden) > 0 {
-		note += fmt.Sprintf(", %d despite rejections or warnings", len(c.Overridden))
+		var ids []string
+		for _, o := range c.Overridden {
+			ids = append(ids, o.RowID)
+		}
+		note += fmt.Sprintf(", %s despite rejections or warnings", strings.Join(ids, ", "))
 	}
-	next, err := e.st.TransitionFor(ctx, jobID, s.t, store.AwaitingConfirmation, store.Importing, store.Change{Actor: user, Note: note})
+	// One transaction: the title is checked before anything is written, then the rows'
+	// flags, the options, the transition and the audit entries.
+	next, err := e.st.ConfirmImport(ctx, jobID, s.t, flags, opts, c.audit(user, email), store.Change{Actor: user, Note: note})
 	if errors.Is(err, store.ErrConflict) || errors.Is(err, store.ErrInvalidTransition) || errors.Is(err, store.ErrNotFound) {
 		return Confirmation{}, wrongState()
 	}
@@ -202,6 +202,45 @@ func (e *Engine) confirm(ctx context.Context, user, jobID string, req ConfirmReq
 		"rows", len(c.Rows), "overridden", len(c.Overridden))
 	c.Job = next
 	return c, nil
+}
+
+// audit is the confirmation's audit entries: import.confirmed, rejection.overridden for
+// each row imported despite its rejections or warnings, and language.overridden, with the
+// custom formats and scores, for each whose language warning (#39) was among them.
+func (c Confirmation) audit(user, email string) []store.AuditEntry {
+	overrides := make([]string, 0, len(c.Overridden))
+	for _, o := range c.Overridden {
+		overrides = append(overrides, o.RowID)
+	}
+	subs := make([]string, 0, len(c.Subtitles))
+	for _, sc := range c.Subtitles {
+		subs = append(subs, fmt.Sprintf("%d:%s forced=%t hi=%t", sc.FileID, sc.Language, sc.Forced, sc.HearingImpaired))
+	}
+	entry := func(action string, d map[string]string) store.AuditEntry {
+		return store.AuditEntry{Actor: user, Email: email, Action: action, Detail: d}
+	}
+	out := []store.AuditEntry{entry("import.confirmed", map[string]string{
+		"app": c.Target.App, "titleId": strconv.Itoa(c.Target.TitleID), "title": c.Target.Title,
+		"rows": strings.Join(c.Rows, ","), "overrides": strings.Join(overrides, ","),
+		"subtitles": strings.Join(subs, "; "),
+	})}
+	for _, o := range c.Overridden {
+		out = append(out, entry("rejection.overridden", map[string]string{
+			"row": o.RowID, "file": o.File,
+			"rejections": strings.Join(o.Rejections, "; "), "warnings": strings.Join(o.Warnings, ","),
+		}))
+		if l := o.Language; l != nil {
+			d := map[string]string{"row": o.RowID, "file": o.File, "customFormats": strings.Join(l.CustomFormats, ", ")}
+			if l.Score != nil {
+				d["score"] = strconv.Itoa(*l.Score)
+			}
+			if l.MinFormatScore != nil {
+				d["minFormatScore"] = strconv.Itoa(*l.MinFormatScore)
+			}
+			out = append(out, entry("language.overridden", d))
+		}
+	}
+	return out
 }
 
 // subtitleChoices validates the subtitle choices of a confirmation (each a subtitle file of

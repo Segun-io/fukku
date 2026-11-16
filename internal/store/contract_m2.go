@@ -48,6 +48,10 @@ type Import struct {
 	CommandID   int       // 0 until the app has answered
 	SubmittedAt time.Time // zero: not submitted
 	FinishedAt  time.Time // zero: not finished
+	// Baseline is what the app tracked for the rows' titles before the first submission
+	// (the import code's JSON; empty: not recorded), so that a file the app had already,
+	// or got by itself meanwhile, is never taken for the import's.
+	Baseline json.RawMessage
 }
 
 // Post-processing step statuses.
@@ -112,6 +116,16 @@ type M2 interface {
 	// UpdateRow replaces Skip, Edit, Proposal, Override and Result of the row
 	// (r.JobID, r.ID); its FileID and place do not change. ErrNotFound: no such row.
 	UpdateRow(ctx context.Context, r Row) error
+
+	// ConfirmImport is the confirmation's one write, in one transaction: the job must be
+	// awaiting confirmation (else ErrConflict) and have the target t (same App, TitleID and
+	// MatchedAt, checked before anything is written; else ErrConflict). Then the Skip,
+	// Override and Result of each of rows are written (by ID; Edit and Proposal are left as
+	// they are; a row the job does not have: ErrNotFound), the target's Options are replaced
+	// by options when it is not nil, the job moves to importing with c, and the audit
+	// entries are stored (their JobID is set to the job's) and logged. Nothing is changed when
+	// it fails. Returns the job as it is after.
+	ConfirmImport(ctx context.Context, jobID string, t Target, rows []Row, options json.RawMessage, audit []AuditEntry, c Change) (Job, error)
 
 	// PutImport inserts or replaces the job's import record.
 	PutImport(ctx context.Context, i Import) error

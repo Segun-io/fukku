@@ -21,6 +21,7 @@ var m2Tests = []struct {
 	{"TransitionFor", testTransitionFor},
 	{"Rows", testRows},
 	{"Import", testImport},
+	{"ConfirmImport", testConfirmImport},
 	{"PostSteps", testPostSteps},
 	{"ActiveJobsFor", testActiveJobsFor},
 	{"DeleteJobM2", testDeleteJobM2},
@@ -311,8 +312,17 @@ func testImport(t *testing.T, s store.Store) {
 		t.Fatal(err)
 	}
 	got = must(s.Import(ctx, j.ID))(t)
-	if got.CommandID != 77 || !got.SubmittedAt.Equal(sub) || !got.FinishedAt.Equal(fin) {
+	if got.CommandID != 77 || !got.SubmittedAt.Equal(sub) || !got.FinishedAt.Equal(fin) || got.Baseline != nil {
 		t.Fatalf("replaced import %+v", got)
+	}
+	// The baseline is stored as given and comes back as a copy.
+	base := json.RawMessage(`{"movieFileId":12}`)
+	if err := s.PutImport(ctx, store.Import{JobID: j.ID, SubmittedAt: sub, Baseline: base}); err != nil {
+		t.Fatal(err)
+	}
+	base[2] = 'X'
+	if got = must(s.Import(ctx, j.ID))(t); !sameJSON(got.Baseline, `{"movieFileId":12}`) {
+		t.Fatalf("baseline %s", got.Baseline)
 	}
 	if err := s.PutImport(ctx, store.Import{JobID: unknownJob}); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("import of an unknown job: %v, want ErrNotFound", err)
@@ -606,5 +616,86 @@ func testTransitionFor(t *testing.T, s store.Store) {
 	}
 	if _, err := s.TransitionFor(ctx, unknownJob, tg, store.Matched, store.Failed, fail); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("unknown job: %v", err)
+	}
+}
+
+// testConfirmImport: the confirmation's one write. The title is checked before anything is
+// written; the rows' flags, the options, the transition and the audit entries all happen,
+// or nothing does.
+func testConfirmImport(t *testing.T, s store.Store) {
+	ctx := t.Context()
+	j := drive(t, s, newJob(t, s, "user1").ID, store.Probed)
+	fa, fb := addVideo(t, s, j.ID, "a.mkv"), addVideo(t, s, j.ID, "b.mkv")
+	at := time.Date(2026, 3, 4, 5, 6, 7, 8, time.UTC)
+	tg := store.Target{App: "sonarr", TitleID: 12, Title: "Some Show", Options: json.RawMessage(`{"added":true}`), MatchedAt: at}
+	if err := s.SetTarget(ctx, j.ID, tg); err != nil {
+		t.Fatal(err)
+	}
+	rows := []store.Row{
+		{ID: "r1", FileID: fa.ID, Edit: json.RawMessage(`{"seasonNumber":1}`), Proposal: json.RawMessage(`{"a":1}`)},
+		{ID: "r2", FileID: fb.ID},
+	}
+	j = must(s.Transition(ctx, j.ID, store.Probed, store.Matched, store.Change{Actor: "user1"}))(t)
+	j = must(s.PutProposal(ctx, j.ID, store.Matched, store.AwaitingConfirmation, tg, rows, store.Change{}))(t)
+	flags := []store.Row{{ID: "r1", Override: true}, {ID: "r2", Skip: true, Result: store.ResultSkipped}}
+	opts := json.RawMessage(`{"added":true,"subtitles":{"3":{"language":"es"}}}`)
+	audit := []store.AuditEntry{
+		{Actor: "user1", Email: "user1@example.com", Action: "import.confirmed", Detail: map[string]string{"rows": "r1"}},
+		{Actor: "user1", Action: "rejection.overridden", JobID: unknownJob, Detail: map[string]string{"row": "r1"}},
+	}
+	before := len(must(s.AuditLog(ctx, j.ID))(t))
+
+	// Refusals change nothing: another title (even one with the same id matched later), a
+	// row the job does not have, a job in another state.
+	other := tg
+	other.MatchedAt = at.Add(time.Second)
+	if _, err := s.ConfirmImport(ctx, j.ID, other, flags, opts, audit, store.Change{Actor: "user1"}); !errors.Is(err, store.ErrConflict) {
+		t.Fatalf("another title: %v, want ErrConflict", err)
+	}
+	if _, err := s.ConfirmImport(ctx, j.ID, tg, []store.Row{{ID: "r9"}}, opts, audit, store.Change{Actor: "user1"}); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("an unknown row: %v, want ErrNotFound", err)
+	}
+	if _, err := s.ConfirmImport(ctx, j.ID, tg, flags, opts, []store.AuditEntry{{Actor: "user1"}}, store.Change{Actor: "user1"}); err == nil {
+		t.Fatal("an audit entry without an action was accepted")
+	}
+	if _, err := s.ConfirmImport(ctx, unknownJob, tg, nil, nil, nil, store.Change{}); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("an unknown job: %v, want ErrNotFound", err)
+	}
+	if got := must(s.Job(ctx, j.ID))(t); got.State != store.AwaitingConfirmation {
+		t.Fatalf("a refusal moved the job to %s", got.State)
+	}
+	if got := must(s.Rows(ctx, j.ID))(t); got[0].Override || got[1].Skip {
+		t.Fatalf("a refusal changed the rows %+v", got)
+	}
+	if got := must(s.Target(ctx, j.ID))(t); !sameJSON(got.Options, `{"added":true}`) {
+		t.Fatalf("a refusal changed the options %s", got.Options)
+	}
+	if n := len(must(s.AuditLog(ctx, j.ID))(t)); n != before {
+		t.Fatalf("a refusal wrote %d audit entries", n-before)
+	}
+
+	next, err := s.ConfirmImport(ctx, j.ID, tg, flags, opts, audit, store.Change{Actor: "user1", Note: "2 confirmed"})
+	if err != nil || next.State != store.Importing {
+		t.Fatalf("ConfirmImport = %+v, %v", next, err)
+	}
+	got := must(s.Rows(ctx, j.ID))(t)
+	if !got[0].Override || got[0].Skip || !sameJSON(got[0].Edit, `{"seasonNumber":1}`) || !sameJSON(got[0].Proposal, `{"a":1}`) ||
+		!got[1].Skip || got[1].Result != store.ResultSkipped {
+		t.Fatalf("rows %+v", got)
+	}
+	if tgt := must(s.Target(ctx, j.ID))(t); !sameJSON(tgt.Options, string(opts)) || !tgt.MatchedAt.Equal(at) {
+		t.Fatalf("target %+v (%s)", tgt, tgt.Options)
+	}
+	h := must(s.History(ctx, j.ID))(t)
+	if last := h[len(h)-1]; last.From != store.AwaitingConfirmation || last.To != store.Importing || last.Actor != "user1" || last.Note != "2 confirmed" {
+		t.Fatalf("event %+v", last)
+	}
+	log := must(s.AuditLog(ctx, j.ID))(t)
+	if len(log) != before+2 || log[before].Action != "import.confirmed" || log[before].Email != "user1@example.com" ||
+		log[before+1].Action != "rejection.overridden" || log[before+1].JobID != j.ID || log[before+1].Detail["row"] != "r1" {
+		t.Fatalf("audit %+v", log)
+	}
+	if _, err := s.ConfirmImport(ctx, j.ID, tg, nil, nil, nil, store.Change{}); !errors.Is(err, store.ErrConflict) {
+		t.Fatalf("twice: %v, want ErrConflict", err)
 	}
 }

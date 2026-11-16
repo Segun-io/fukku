@@ -241,6 +241,22 @@ func TestAStalledImportCannotBeCancelled(t *testing.T) {
 		t.Errorf("cancel offered: %s", rec.Body)
 	}
 	e.want(e.send("user1", "users", "POST", "/api/jobs/"+j.ID+"/cancel", ``, true), http.StatusConflict, "wrong_state")
+
+	// An admin may give up on it; the audit log says so.
+	rec = e.send("admin1", "admins", "GET", "/api/jobs/"+j.ID, "", false)
+	if !strings.Contains(rec.Body.String(), `"actions":["cancel"]`) {
+		t.Errorf("cancel not offered to an admin: %s", rec.Body)
+	}
+	if rec := e.send("admin1", "admins", "POST", "/api/jobs/"+j.ID+"/cancel", ``, true); rec.Code != http.StatusOK {
+		t.Fatalf("admin cancel: %d %s", rec.Code, rec.Body)
+	}
+	if got, _ := e.st.Job(t.Context(), j.ID); got.State != store.Cancelled {
+		t.Fatalf("job %s", got.State)
+	}
+	log, _ := e.st.AuditLog(t.Context(), j.ID)
+	if last := log[len(log)-1]; last.Action != "import.abandoned" || last.Actor != "admin1" || last.Detail["from"] != "stalled" {
+		t.Errorf("audit %+v", last)
+	}
 }
 
 // The language warning is overridden like a rejection, with an audit entry of its own; the
