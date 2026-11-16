@@ -4,6 +4,8 @@
 /* Hallmark · pre-emit critique: P4 H4 E4 S4 R4 V4 · weakest: S, a progress row could belong to any uploader; set its figures as a pharmacy label in DM Mono and cut the plastic tints, the grain and the window light to keep it a tool */
 /* Hallmark · dismissed F18 · the two "slots" are shadcn/ui buttons, which carry data-slot="button"; this app has no picture slots */
 /* Hallmark · dropped the card around the home page · the card on white paper was the stock template; its three sentences stay */
+/* Hallmark · redesign of the upload and job pages (#32): full, app screens, inside the shell and the system above; each page leads with what its state needs next · states: loading, empty, error, interrupted, signed out */
+/* Hallmark · dropped { <Button type="button" variant="outline" onClick={() => void up.discard()}> {t("upload.discard")} </Button> }, onClick={() => void copyFolder()}, onDragLeave={() => setOver(false)} · none is gone, each was rewired: discarding asks first once bytes were sent, copying lives in the CopyField pattern, and leaving the drop outline ignores its children */
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "./fonts.css";

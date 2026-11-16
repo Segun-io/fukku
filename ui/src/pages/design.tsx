@@ -1,11 +1,14 @@
 import { type ReactNode, useEffect, useState } from "react";
 import { ConfirmStep } from "@/components/patterns/confirm-step";
+import { CopyField } from "@/components/patterns/copy-field";
 import { FileList, type FileListItem } from "@/components/patterns/file-list";
+import { FilePicker } from "@/components/patterns/file-picker";
 import {
   FileProgress,
   FileProgressList,
   type UploadStatus,
 } from "@/components/patterns/file-progress";
+import { SelectField } from "@/components/patterns/select-field";
 import { type JobEvent, StatusTimeline } from "@/components/patterns/status-timeline";
 import { InsecureDevBanner, OfflineBanner, SignInAgain } from "@/components/shell/banners";
 import { ShellHeader } from "@/components/shell/header";
@@ -21,6 +24,7 @@ const GB = 1e9;
 const MB = 1e6;
 const film = "Some Film (2001).mkv";
 const noop = () => {};
+const accepted = [".mkv", ".mp4", ".srt", ".zip"];
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
@@ -220,6 +224,7 @@ export function DesignPage() {
             onRemove={noop}
           />
           <FileProgress name={film} size={80 * GB} sent={80 * GB} status="done" />
+          <FileProgress name={film} size={80 * GB} sent={31.4 * GB} status="unfinished" />
         </FileProgressList>
 
         <Example title={t("patterns.demo.progress.live")}>
@@ -290,6 +295,52 @@ export function DesignPage() {
 
       <Section title={t("patterns.demo.files.title")}>
         <FileList files={files} />
+      </Section>
+
+      <Section title={t("patterns.demo.picker.title")}>
+        <Example title={t("patterns.demo.picker.full")}>
+          <FilePicker
+            as="h3"
+            title={t("upload.drop.title")}
+            hint={t("upload.drop.hint")}
+            chooseLabel={t("upload.choose")}
+            accepted={t("upload.drop.accepted", { types: accepted.join(" ") })}
+            accept={accepted.join(",")}
+            onFiles={noop}
+          />
+        </Example>
+        <Example title={t("patterns.demo.picker.compact")}>
+          <FilePicker
+            as="h3"
+            size="compact"
+            primary={false}
+            title={t("upload.drop.title")}
+            hint={t("upload.drop.hint")}
+            chooseLabel={t("upload.choose")}
+            accepted={t("upload.drop.accepted", { types: accepted.join(" ") })}
+            accept={accepted.join(",")}
+            onFiles={noop}
+          />
+        </Example>
+      </Section>
+
+      <Section title={t("patterns.demo.copy.title")}>
+        <CopyField
+          label={t("job.manual.folder", { app: "Radarr" })}
+          value="/data/intake/jobs/0000000000000000000000000000002a/files"
+          copyLabel={t("job.manual.copy")}
+          copyName={t("job.manual.copyFor", { app: "Radarr" })}
+          copiedText={t("job.manual.copied")}
+          failedText={t("job.manual.copyFailed")}
+        />
+      </Section>
+
+      <Section title={t("patterns.demo.select.title")}>
+        <SelectField label={t("jobs.filter.state")} name="demo-state" defaultValue="">
+          <option value="">{t("jobs.filter.allStates")}</option>
+          <option value="uploading">{t("state.uploading")}</option>
+          <option value="failed">{t("state.failed")}</option>
+        </SelectField>
       </Section>
 
       <Section title={t("patterns.demo.shell.title")}>

@@ -19,7 +19,8 @@ What it looks like (the header shows "Patterns" only in development builds):
 
 ![The shell with the job list, 1280 px wide, light mode](design/shell-desktop-light.webp)
 
-When a pattern or a token changes its look, take these again.
+When a pattern or a token changes its look, take these again. The upload and job pages,
+before and after the direction was applied to them, are in §13.
 
 ## 1. Direction
 
@@ -107,9 +108,9 @@ A state has exactly one of four meanings. Pick the meaning first; the colour fol
 | Meaning | Colour | Icon (lucide) | States |
 | --- | --- | --- | --- |
 | **Moving or done** | green | `Upload`, `CircleCheck`, `Check` | uploading, uploaded, accepted, a finished step |
-| **Waiting**: it continues by itself, or waits for its turn | grey (`text-muted-foreground`, `bg-muted`) | `Clock`, `Pause`, `WifiOff`, `Hourglass`, `Ban` | queued, paused, waiting for the connection, stalled, cancelled, not checked yet |
+| **Waiting**: it continues by itself, or waits for its turn | grey (`text-muted-foreground`, `bg-muted`) | `Clock`, `Pause`, `WifiOff`, `Hourglass`, `Ban`, `CircleDashed` | queued, paused, waiting for the connection, stalled, cancelled, not checked yet, an upload nobody is sending right now |
 | **Needs a person** | red | `CircleAlert`, `CircleX` | upload stopped, job failed, file refused |
-| **Read before you decide** | yellow | `TriangleAlert`, `LogIn` | warnings in a confirmation, sign in again |
+| **Read before you decide** | yellow | `TriangleAlert`, `LogIn`, `FilePlus2` | warnings in a confirmation, sign in again, choose the files of an interrupted upload again |
 
 A paused or stalled thing is never red: nothing is wrong, and red would ask for an action
 that does not exist. The alarm yellow is not one of the four; it marks a server that must
@@ -213,6 +214,18 @@ of a household.
   scrolls sideways before it wraps. *Subida* is the transfer of a file; *envío* is the
   whole upload with its files and decisions.
 
+- **One word per thing, in both languages.** The pages use these and no synonyms:
+
+  | In the system | English | Spanish |
+  | --- | --- | --- |
+  | a job | an upload | *un envío* |
+  | the transfer of one file | an upload, uploading | *una subida*, *subiendo* |
+  | probing, probed | checking the files, checked | *revisando los archivos*, *revisado* (never *comprobar*) |
+  | stalled | stalled: it waits and continues by itself | *en espera* (never *detenido*, which is what a failure does) |
+  | failed | failed: it stopped and needs you | *fallido*, *se detuvo* |
+  | refused | refused, with the reason | *rechazado* |
+  | discard, cancel | "Discard this upload" before it was sent on, "Cancel upload" after | *descartar*, *cancelar* |
+
 ### Formatting
 
 All from `useT()` (`ui/src/i18n/`); never build these strings by hand.
@@ -267,6 +280,7 @@ not finished.
 | `reconnecting` | grey, "Waiting for the connection" | "It continues by itself from 31.4 GB." | Remove |
 | `failed` | red, "Upload stopped" | the reason, from `note` | Try again, Remove |
 | `done` | green, "Uploaded" | none | none |
+| `unfinished` | grey, "Not finished" | "31.4 GB is on the server. It continues from there." | none |
 
 - `note` adds one sentence: `patterns.progress.hint.slow` when the time left is long (the
   page decides when: for example above `upload.largeFileHintThreshold`), and
@@ -280,6 +294,14 @@ not finished.
   the server deletes them: the page asks first, or offers an undo.
 - With many files, the list is still one `FileProgressList`; finished rows may be moved to
   a `FileList`.
+- **A row is only as tall as what it has to say**, so a season of 24 files stays readable
+  on a phone. `done` is the name, "Uploaded" and the size: no tray, no figures. `queued`
+  with nothing sent is the name, "Waiting its turn", the size and an empty tray, with
+  Remove next to the status. A row changes height when its file changes state, never while
+  its figures change.
+- `unfinished` is for a page that shows an upload it is not sending: the job page lists the
+  uploads of a job that way, from `jobDetail.uploads`, with no actions. Whether another tab
+  is sending it is not known there, so the row claims neither "Uploading" nor "Paused".
 
 ### Status timeline: `StatusTimeline`
 
@@ -319,7 +341,40 @@ the upload page for finished files.
   reason under its name, in words translated from the refusal code (issues #3 and #4).
 - `from` names the archive a file was taken out of.
 - Long names wrap anywhere; nothing is cut off, because the end of a file name is often
-  the part that matters.
+  the part that matters. The one exception is the archive's name in "From …", which is cut
+  to one line (the full name is in its `title`): the archive is in the list in full, and a
+  season repeats that line on every row.
+
+### File picker: `FilePicker`
+
+Where files are chosen: a dashed outline (the same one an empty state has: it stands where
+content will be) with the system's file dialog behind one button. Files can also be dropped
+anywhere on it; dropping is never the only way.
+
+- `size="full"` while nothing is chosen: the title, the hint, the button, what is accepted.
+  `size="compact"` once there are files under it: one line, so the files are what the page
+  shows. The title is still read out, and the button keeps its name in both sizes.
+- `primary` says whether choosing is the main action of the page right now. It is while
+  nothing is chosen and while an interrupted upload waits for its files; once "Start
+  upload" is on the page the button is an outline one. One green button per page.
+- Pass `as` when the page's outline needs another heading level.
+
+### Copy field: `CopyField`
+
+A value the user carries to another app by hand: the folder to choose in Radarr or Sonarr.
+
+- The value is in the figure face on raised paper, whole and selectable; it wraps anywhere
+  and is never shortened, because one wrong character makes it useless.
+- "Copy" says what happened in words next to the button ("Copied", or what to do when the
+  browser refuses), in a place kept free for it. Its accessible name says what it copies.
+- More actions for the same value are its children: the link that opens the other app (in
+  a new tab, with `ExternalLink`).
+
+### Select field: `SelectField`
+
+A caption over a native `<select>` that looks like the language switch. Use it for a filter
+or a choice among a handful of fixed values. Native on purpose: keyboard, screen reader and
+the phone's own picker work without code.
 
 ## 11. Accessibility
 
@@ -344,3 +399,88 @@ the upload page for finished files.
 3. Each region in its four states.
 4. Figures update without anything moving.
 5. `make check`.
+
+
+## 13. The pages
+
+How the three pages of M1 are put together from the patterns. A new page follows the same
+two rules.
+
+- **A page leads with what its state needs next and ends with what is only for the
+  record.** The order of the sections depends on the state, not on the order in which the
+  data arrives.
+- **What needs the user comes before what informs.** At most one green button is on the
+  page at a time.
+
+### Upload (`/upload`)
+
+One column of the flow's width. From top to bottom:
+
+1. What stops everything until the user acts: `SignInAgain`, an upload that cannot continue
+   (error `Notice`, "Start over"), an interrupted upload (caution `Notice` with the files
+   to choose again, each with its size, and "Discard this upload").
+2. `FilePicker`: full while nothing is chosen, compact afterwards.
+3. What the picker refused: an error `Notice` directly under it, one line per file with the
+   reason, and "Hide this list". The good files are not affected and stand below.
+4. "Your files": the strip of file labels, with "2 of 5 files uploaded" at the heading.
+5. The large-file advice (caution `Notice`), next to the decision it belongs to.
+6. The one action: "Start upload" (full width on a phone), later "Discard this upload" as
+   an outline button under a hairline. Discarding asks first once bytes were sent.
+
+### Your uploads (`/jobs`)
+
+The full width of the shell. `SelectField` filters, the count, then rows divided by
+hairlines: the name, the state in words (`StateBadge`), then the figures. On a phone they
+read in that order; above 40rem the state stands at the right edge, so the states can be
+read down one column. The whole row opens the upload; the focus ring is drawn around the
+row.
+
+### One upload (`/jobs/$id`)
+
+One column of the flow's width. The header is the name, the state with one sentence, the
+figures, how long it is kept, and the actions `job.actions` allows (each opens a
+`ConfirmStep` in place). Then:
+
+| State | Order of the sections |
+| --- | --- |
+| uploading | timeline, unfinished uploads (`FileProgress` as `unfinished`, "Continue uploading"), files |
+| uploaded, checking, stalled, failed | timeline (the reason is in it, at the step where it happened), files |
+| checked (M1 ends here) | **import it by hand** (`CopyField` per app), files, timeline |
+| done, cancelled | files, timeline |
+
+Under the file list: what an archive left out, then what was found in each video, as a
+disclosure that is open for up to three videos and closed for a season.
+
+### Looking at the pages
+
+`npm run dev:mock` shows every state without a server. A file whose name carries a code in
+square brackets is refused with it (`Film [insufficient_space].mkv`), `[signed_out]` ends
+the session a third of the way in, and `?mock=` starts from other data: `/jobs?mock=empty`,
+`?mock=admin`, `?mock=season` (24 episodes with long names).
+
+### Before and after
+
+Each state at 360 px and at 1280 px, in light and dark, in English and Spanish. "Before"
+is the page as it was built for function; "after" is the same state with the direction
+applied. The pictures are in `docs/design/pages/`.
+
+| State | 360, light, English | 360, dark, Spanish | Desktop, light, Spanish | Desktop, dark, English |
+| --- | --- | --- | --- | --- |
+| Upload, nothing chosen | [before](design/pages/before/upload-empty-360-light-en.webp), [after](design/pages/after/upload-empty-360-light-en.webp) | [before](design/pages/before/upload-empty-360-dark-es.webp), [after](design/pages/after/upload-empty-360-dark-es.webp) | [before](design/pages/before/upload-empty-desktop-light-es.webp), [after](design/pages/after/upload-empty-desktop-light-es.webp) | [before](design/pages/before/upload-empty-desktop-dark-en.webp), [after](design/pages/after/upload-empty-desktop-dark-en.webp) |
+| Upload, files chosen | [before](design/pages/before/upload-chosen-360-light-en.webp), [after](design/pages/after/upload-chosen-360-light-en.webp) |  |  | [before](design/pages/before/upload-chosen-desktop-dark-en.webp), [after](design/pages/after/upload-chosen-desktop-dark-en.webp) |
+| Upload in progress | [before](design/pages/before/upload-progress-360-light-en.webp), [after](design/pages/after/upload-progress-360-light-en.webp) | [before](design/pages/before/upload-progress-360-dark-es.webp), [after](design/pages/after/upload-progress-360-dark-es.webp) | [before](design/pages/before/upload-progress-desktop-light-es.webp), [after](design/pages/after/upload-progress-desktop-light-es.webp) | [before](design/pages/before/upload-progress-desktop-dark-en.webp), [after](design/pages/after/upload-progress-desktop-dark-en.webp) |
+| Upload, one paused, one stopped, two refused | [before](design/pages/before/upload-paused-refused-360-light-en.webp), [after](design/pages/after/upload-paused-refused-360-light-en.webp) | [before](design/pages/before/upload-paused-refused-360-dark-es.webp), [after](design/pages/after/upload-paused-refused-360-dark-es.webp) | [before](design/pages/before/upload-paused-refused-desktop-light-es.webp), [after](design/pages/after/upload-paused-refused-desktop-light-es.webp) | [before](design/pages/before/upload-paused-refused-desktop-dark-en.webp), [after](design/pages/after/upload-paused-refused-desktop-dark-en.webp) |
+| Upload, sign in again | [before](design/pages/before/upload-signed-out-360-light-en.webp), [after](design/pages/after/upload-signed-out-360-light-en.webp) | [before](design/pages/before/upload-signed-out-360-dark-es.webp), [after](design/pages/after/upload-signed-out-360-dark-es.webp) | [before](design/pages/before/upload-signed-out-desktop-light-es.webp), [after](design/pages/after/upload-signed-out-desktop-light-es.webp) | [before](design/pages/before/upload-signed-out-desktop-dark-en.webp), [after](design/pages/after/upload-signed-out-desktop-dark-en.webp) |
+| Upload, interrupted by a reload | [before](design/pages/before/upload-interrupted-360-light-en.webp), [after](design/pages/after/upload-interrupted-360-light-en.webp) | [before](design/pages/before/upload-interrupted-360-dark-es.webp), [after](design/pages/after/upload-interrupted-360-dark-es.webp) | [before](design/pages/before/upload-interrupted-desktop-light-es.webp), [after](design/pages/after/upload-interrupted-desktop-light-es.webp) | [before](design/pages/before/upload-interrupted-desktop-dark-en.webp), [after](design/pages/after/upload-interrupted-desktop-dark-en.webp) |
+| Your uploads | [before](design/pages/before/jobs-list-360-light-en.webp), [after](design/pages/after/jobs-list-360-light-en.webp) | [before](design/pages/before/jobs-list-360-dark-es.webp), [after](design/pages/after/jobs-list-360-dark-es.webp) | [before](design/pages/before/jobs-list-desktop-light-es.webp), [after](design/pages/after/jobs-list-desktop-light-es.webp) | [before](design/pages/before/jobs-list-desktop-dark-en.webp), [after](design/pages/after/jobs-list-desktop-dark-en.webp) |
+| Your uploads, empty | [before](design/pages/before/jobs-empty-360-light-en.webp), [after](design/pages/after/jobs-empty-360-light-en.webp) | [before](design/pages/before/jobs-empty-360-dark-es.webp), [after](design/pages/after/jobs-empty-360-dark-es.webp) | [before](design/pages/before/jobs-empty-desktop-light-es.webp), [after](design/pages/after/jobs-empty-desktop-light-es.webp) | [before](design/pages/before/jobs-empty-desktop-dark-en.webp), [after](design/pages/after/jobs-empty-desktop-dark-en.webp) |
+| An upload, checked | [before](design/pages/before/job-probed-360-light-en.webp), [after](design/pages/after/job-probed-360-light-en.webp) | [before](design/pages/before/job-probed-360-dark-es.webp), [after](design/pages/after/job-probed-360-dark-es.webp) | [before](design/pages/before/job-probed-desktop-light-es.webp), [after](design/pages/after/job-probed-desktop-light-es.webp) | [before](design/pages/before/job-probed-desktop-dark-en.webp), [after](design/pages/after/job-probed-desktop-dark-en.webp) |
+| An upload, checked, a refused file | [before](design/pages/before/job-refused-360-light-en.webp), [after](design/pages/after/job-refused-360-light-en.webp) | [before](design/pages/before/job-refused-360-dark-es.webp), [after](design/pages/after/job-refused-360-dark-es.webp) | [before](design/pages/before/job-refused-desktop-light-es.webp), [after](design/pages/after/job-refused-desktop-light-es.webp) | [before](design/pages/before/job-refused-desktop-dark-en.webp), [after](design/pages/after/job-refused-desktop-dark-en.webp) |
+| An upload, failed | [before](design/pages/before/job-failed-360-light-en.webp), [after](design/pages/after/job-failed-360-light-en.webp) | [before](design/pages/before/job-failed-360-dark-es.webp), [after](design/pages/after/job-failed-360-dark-es.webp) | [before](design/pages/before/job-failed-desktop-light-es.webp), [after](design/pages/after/job-failed-desktop-light-es.webp) | [before](design/pages/before/job-failed-desktop-dark-en.webp), [after](design/pages/after/job-failed-desktop-dark-en.webp) |
+| An upload, still uploading | [before](design/pages/before/job-uploading-360-light-en.webp), [after](design/pages/after/job-uploading-360-light-en.webp) | [before](design/pages/before/job-uploading-360-dark-es.webp), [after](design/pages/after/job-uploading-360-dark-es.webp) | [before](design/pages/before/job-uploading-desktop-light-es.webp), [after](design/pages/after/job-uploading-desktop-light-es.webp) | [before](design/pages/before/job-uploading-desktop-dark-en.webp), [after](design/pages/after/job-uploading-desktop-dark-en.webp) |
+| An upload, 24 files | [before](design/pages/before/job-season-360-light-en.webp), [after](design/pages/after/job-season-360-light-en.webp) |  |  | [before](design/pages/before/job-season-desktop-dark-en.webp), [after](design/pages/after/job-season-desktop-dark-en.webp) |
+| An upload, deleting it | [before](design/pages/before/job-confirm-360-light-en.webp), [after](design/pages/after/job-confirm-360-light-en.webp) |  |  | [before](design/pages/before/job-confirm-desktop-dark-en.webp), [after](design/pages/after/job-confirm-desktop-dark-en.webp) |
+
+![The upload page with an upload in progress, 360 px wide, light mode](design/pages/after/upload-progress-360-light-en.webp)
+
+When one of these pages changes its look, take its pictures again.

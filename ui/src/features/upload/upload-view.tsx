@@ -1,14 +1,13 @@
 import { useNavigate } from "@tanstack/react-router";
-import { CircleAlert, FilePlus2, Info, TriangleAlert } from "lucide-react";
-import { useId, useRef, useState } from "react";
+import { CircleAlert, CircleCheck, FilePlus2, TriangleAlert } from "lucide-react";
 import { isKnownErrorCode, type Session } from "@/api/types";
 import { ErrorMessage } from "@/components/error-message";
+import { FilePicker } from "@/components/patterns/file-picker";
 import { FileProgress, FileProgressList } from "@/components/patterns/file-progress";
 import { SignInAgain } from "@/components/shell/banners";
 import { Notice } from "@/components/shell/notice";
 import { Button } from "@/components/ui/button";
 import { type TFunction, useT } from "@/i18n";
-import { cn } from "@/lib/utils";
 import { acceptedExtensions, awaitingFiles, type Entry, secondsLeft, showLargeHint } from "./queue";
 import { useUpload } from "./use-upload";
 
@@ -17,72 +16,6 @@ function reasonText(t: TFunction, code: string | undefined): string {
   if (code === "file_mismatch") return t("upload.reason.file_mismatch");
   if (code && isKnownErrorCode(code)) return t(`errors.${code}`);
   return t("errors.unknown");
-}
-
-type PickerProps = { accept: string; onFiles: (files: File[]) => void; disabled?: boolean };
-
-/** Choose files with the picker or drop them here. */
-function Picker({ accept, onFiles, disabled }: PickerProps) {
-  const { t } = useT();
-  const inputId = useId();
-  const input = useRef<HTMLInputElement>(null);
-  const [over, setOver] = useState(false);
-
-  const take = (list: FileList | null) => {
-    if (list && list.length > 0) onFiles([...list]);
-    if (input.current) input.current.value = "";
-  };
-
-  return (
-    <section
-      aria-labelledby={`${inputId}-title`}
-      onDragOver={(e) => {
-        if (disabled) return;
-        e.preventDefault();
-        setOver(true);
-      }}
-      onDragLeave={() => setOver(false)}
-      onDrop={(e) => {
-        e.preventDefault();
-        setOver(false);
-        if (!disabled) take(e.dataTransfer.files);
-      }}
-      className={cn(
-        "rounded-xl border border-dashed border-input px-5 py-8 text-center sm:px-8",
-        over && "border-primary bg-primary-soft",
-      )}
-    >
-      <h2 id={`${inputId}-title`} className="text-lg leading-tight tracking-[-0.02em]">
-        {t("upload.drop.title")}
-      </h2>
-      <p className="mx-auto mt-2 max-w-[52ch] text-ink-2">{t("upload.drop.hint")}</p>
-      <div className="mt-5 flex justify-center">
-        <label
-          htmlFor={inputId}
-          className={cn(
-            "inline-flex h-10 cursor-pointer items-center justify-center gap-2 rounded-md bg-primary px-6 text-sm font-medium text-primary-foreground hover:bg-primary/90 has-[:focus-visible]:ring-[3px] has-[:focus-visible]:ring-ring/50",
-            disabled && "pointer-events-none opacity-50",
-          )}
-        >
-          <FilePlus2 aria-hidden="true" className="size-4" />
-          {t("upload.choose")}
-          <input
-            ref={input}
-            id={inputId}
-            type="file"
-            multiple
-            accept={accept}
-            disabled={disabled}
-            className="sr-only"
-            onChange={(e) => take(e.target.files)}
-          />
-        </label>
-      </div>
-      <p className="mt-4 text-sm text-muted-foreground">
-        {t("upload.drop.accepted", { types: accept.split(",").join(" ") })}
-      </p>
-    </section>
-  );
 }
 
 function rowFor(
@@ -120,7 +53,14 @@ function rowFor(
   );
 }
 
-/** The upload page, once the session (and so the server's rules) is known. */
+/**
+ * The upload page, once the session (and so the server's rules) is known.
+ *
+ * From top to bottom: what needs the user before anything can move (sign in again, an
+ * upload that cannot continue, an interrupted upload waiting for its files), the picker,
+ * what the picker refused, the strip of file labels, and last the one action of the page.
+ * Once there are files, the picker shrinks to one line, so the files are what the page shows.
+ */
 export function UploadView({ config }: { config: Session["upload"] }) {
   const { t, formatBytes } = useT();
   const navigate = useNavigate();
@@ -130,14 +70,26 @@ export function UploadView({ config }: { config: Session["upload"] }) {
   const { state } = up;
   const accept = acceptedExtensions(state.rules).join(",");
   const awaiting = awaitingFiles(state);
+  const listed = state.entries.filter((e) => e.status !== "awaiting");
   const busy = state.phase === "submitting" || state.phase === "submitted";
   const done = state.entries.filter((e) => e.status === "done").length;
 
   const confirmRemove = (entry: Entry) =>
     entry.sent === 0 || window.confirm(t("upload.remove.confirm", { name: entry.name }));
 
+  // Discarding deletes what the server has of this upload: it asks first, as removing one
+  // file does, when this page knows that bytes were sent.
+  const discard = () => {
+    const sent = state.entries.some((e) => e.sent > 0);
+    if (!sent || window.confirm(t("upload.discard.confirm"))) void up.discard();
+  };
+
   if (up.restoring) {
-    return <p role="status">{t("upload.restoring")}</p>;
+    return (
+      <p role="status" className="text-ink-2">
+        {t("upload.restoring")}
+      </p>
+    );
   }
 
   return (
@@ -165,33 +117,42 @@ export function UploadView({ config }: { config: Session["upload"] }) {
       {awaiting.length > 0 && (
         <Notice
           tone="caution"
-          icon={Info}
+          icon={FilePlus2}
           title={t("upload.resume.title")}
           action={
-            <Button type="button" variant="outline" onClick={() => void up.discard()}>
+            <Button type="button" variant="outline" onClick={discard}>
               {t("upload.discard")}
             </Button>
           }
         >
           <p>{t("upload.resume.body")}</p>
-          <ul className="mt-2 grid gap-1">
+          <ul className="mt-3 divide-y divide-caution-edge/40 border-y border-caution-edge/40 text-foreground">
             {awaiting.map((e) => (
-              <li key={e.key}>
-                <span translate="no" className="font-medium [overflow-wrap:anywhere]">
+              <li
+                key={e.key}
+                className="grid gap-x-4 py-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-baseline"
+              >
+                <span translate="no" className="min-w-0 font-medium [overflow-wrap:anywhere]">
                   {e.name}
-                </span>{" "}
-                <span className="figure">({formatBytes(e.size)})</span>
+                </span>
+                <span className="figure text-ink-2">{formatBytes(e.size)}</span>
               </li>
             ))}
           </ul>
         </Notice>
       )}
 
-      {showLargeHint(state) && (
-        <Notice tone="caution" icon={TriangleAlert} title={t("upload.large.title")}>
-          {t("upload.large.body")}
-        </Notice>
-      )}
+      <FilePicker
+        title={t("upload.drop.title")}
+        hint={t("upload.drop.hint")}
+        chooseLabel={t("upload.choose")}
+        accepted={t("upload.drop.accepted", { types: accept.split(",").join(" ") })}
+        accept={accept}
+        onFiles={up.addFiles}
+        disabled={busy || state.jobError !== null}
+        size={state.entries.length > 0 ? "compact" : "full"}
+        primary={listed.length === 0 || awaiting.length > 0}
+      />
 
       {state.rejected.length > 0 && (
         <Notice
@@ -205,11 +166,14 @@ export function UploadView({ config }: { config: Session["upload"] }) {
             </Button>
           }
         >
-          <ul className="grid gap-1">
+          <ul className="grid gap-2">
             {state.rejected.map((r, i) => (
               // biome-ignore lint/suspicious/noArrayIndexKey: the same name can be refused twice
               <li key={`${r.name}-${i}`}>
-                <span translate="no" className="font-medium [overflow-wrap:anywhere]">
+                <span
+                  translate="no"
+                  className="font-medium text-foreground [overflow-wrap:anywhere]"
+                >
                   {r.name}
                 </span>
                 : {reasonText(t, r.code)}
@@ -219,36 +183,46 @@ export function UploadView({ config }: { config: Session["upload"] }) {
         </Notice>
       )}
 
-      <Picker accept={accept} onFiles={up.addFiles} disabled={busy || state.jobError !== null} />
-
-      {state.entries.some((e) => e.status !== "awaiting") && (
+      {listed.length > 0 && (
         <section aria-labelledby="upload-files" className="grid gap-3">
-          <h2 id="upload-files" className="text-lg leading-tight tracking-[-0.02em]">
-            {t("upload.files.title")}
-          </h2>
-          {state.phase !== "choosing" && (
-            <p aria-live="polite" className="text-sm text-ink-2">
-              {t("upload.summary", { done, count: state.entries.length })}
-            </p>
-          )}
+          <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+            <h2 id="upload-files">{t("upload.files.title")}</h2>
+            {state.phase !== "choosing" && (
+              <p aria-live="polite" className="text-sm text-muted-foreground">
+                {t("upload.summary", { done, count: state.entries.length })}
+              </p>
+            )}
+          </div>
           <FileProgressList>
-            {state.entries
-              .filter((e) => e.status !== "awaiting")
-              .map((e) => rowFor(e, up, { t, formatBytes }, confirmRemove))}
+            {listed.map((e) => rowFor(e, up, { t, formatBytes }, confirmRemove))}
           </FileProgressList>
         </section>
       )}
 
+      {showLargeHint(state) && (
+        <Notice tone="caution" icon={TriangleAlert} title={t("upload.large.title")}>
+          {t("upload.large.body")}
+        </Notice>
+      )}
+
       {state.phase === "choosing" && state.entries.length > 0 && (
-        <div className="flex flex-wrap items-center gap-3">
-          <Button type="button" size="lg" disabled={up.creating} onClick={() => void up.start()}>
+        <div className="grid gap-1">
+          <Button
+            type="button"
+            size="lg"
+            className="w-full sm:w-auto sm:justify-self-start"
+            disabled={up.creating}
+            onClick={() => void up.start()}
+          >
             {up.creating ? t("upload.starting") : t("upload.start")}
           </Button>
           {up.startError && <ErrorMessage error={up.startError} />}
         </div>
       )}
 
-      {state.phase === "submitting" && <p role="status">{t("upload.submitting")}</p>}
+      {state.phase === "submitting" && (
+        <Notice role="status" tone="done" icon={CircleCheck} title={t("upload.submitting")} />
+      )}
 
       {state.submitError && (
         <Notice
@@ -267,8 +241,8 @@ export function UploadView({ config }: { config: Session["upload"] }) {
       )}
 
       {state.phase === "uploading" && state.entries.length > 0 && awaiting.length === 0 && (
-        <div>
-          <Button type="button" variant="ghost" onClick={() => void up.discard()}>
+        <div className="border-t pt-5">
+          <Button type="button" variant="outline" onClick={discard}>
             {t("upload.discard")}
           </Button>
         </div>

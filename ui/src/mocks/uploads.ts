@@ -1,7 +1,9 @@
 // MSW handlers for the tus endpoint of #10: create (POST), HEAD, PATCH, DELETE and the refusals.
 // The bytes are not kept, only how many arrived. In `npm run dev:mock` and in tests, a file name
 // with a code in square brackets is refused at creation with that code, e.g.
-// `Film [insufficient_space].mkv`, so each refusal can be seen without a server.
+// `Film [insufficient_space].mkv`, so each refusal can be seen without a server. A name with
+// `[signed_out]` is answered 401 once, a third of the way in: the page shows "sign in again",
+// and continues when the tab is looked at again.
 
 import { delay, HttpResponse, http } from "msw";
 import type { Job, JobFile, JobUpload } from "@/api/types";
@@ -15,9 +17,12 @@ type MockUpload = {
 };
 
 let uploads: MockUpload[] = [];
+/** Uploads that already got their one 401 (`[signed_out]` in the name). */
+let signedOutOnce = new Set<string>();
 
 export function resetUploads() {
   uploads = [];
+  signedOutOnce = new Set();
 }
 
 /** The uploads of a job, for a test to look at. */
@@ -143,6 +148,11 @@ export function uploadHandlers(find: (id: string) => Job | undefined) {
       }
       if (Number(request.headers.get("Upload-Offset")) !== upload.offset) {
         return failure(409, "offset_mismatch", "Upload-Offset does not match; send HEAD first.");
+      }
+      const endsSession = upload.name.includes("[signed_out]") && upload.offset >= upload.size / 3;
+      if (endsSession && !signedOutOnce.has(upload.id)) {
+        signedOutOnce.add(upload.id);
+        return failure(401, "signed_out", "The session ended.");
       }
       const chunk = (await request.arrayBuffer()).byteLength;
       if (slow) await delay(400);

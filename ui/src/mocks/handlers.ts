@@ -4,6 +4,7 @@
 import { HttpResponse, http } from "msw";
 import type { Job, JobAction, JobState } from "@/api/types";
 import { jobs as fixtureJobs, jobDetail, session } from "./fixtures";
+import { type Scenario, seasonFiles, seasonJob } from "./scenarios";
 import { filesOf, pendingOf, resetUploads, uploadHandlers } from "./uploads";
 
 let jobs: Job[] = structuredClone(fixtureJobs);
@@ -18,6 +19,13 @@ export function resetMocks() {
 /** Makes the mock user an administrator: sees every job, `mine=true` limits the list. */
 export function setMockAdmin(value: boolean) {
   admin = value;
+}
+
+/** `npm run dev:mock` only: starts from other data than the fixtures (see `scenarios.ts`). */
+export function applyScenarios(scenarios: readonly Scenario[]) {
+  if (scenarios.includes("empty")) jobs = [];
+  if (scenarios.includes("season")) jobs.push(structuredClone(seasonJob));
+  if (scenarios.includes("admin")) admin = true;
 }
 
 /** The mock API's rule (#11): a user sees their own jobs, an admin everyone's. */
@@ -91,6 +99,7 @@ export const handlers = [
     const job = jobs.find((j) => j.id === params.id && visible(j));
     if (!job) return notFound();
     const detail = jobDetail(job);
+    if (job.id === seasonJob.id) detail.files = seasonFiles;
     if (job.state === "uploading") {
       // The files and unfinished uploads the mock tus endpoint holds for this job.
       detail.files = [...detail.files, ...filesOf(job.id)];

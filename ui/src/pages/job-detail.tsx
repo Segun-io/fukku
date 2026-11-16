@@ -10,6 +10,7 @@ import { ManualImportSection } from "@/components/jobs/manual-import";
 import { ProbeDetails } from "@/components/jobs/probe-details";
 import { StateBadge } from "@/components/jobs/state-badge";
 import { FileList, type FileListItem } from "@/components/patterns/file-list";
+import { FileProgress, FileProgressList } from "@/components/patterns/file-progress";
 import { jobPath, StatusTimeline, standingAt } from "@/components/patterns/status-timeline";
 import { EmptyState, ErrorState, LoadingState } from "@/components/shell/states";
 import { Button } from "@/components/ui/button";
@@ -18,6 +19,15 @@ import { jobErrorText, refusalText, skipReasonText } from "@/lib/job-text";
 
 /** M1 ends at `probed`: its timeline shows the steps up to there. */
 const m1Steps = jobPath.slice(0, 4);
+
+/** States in which nothing more happens by itself: the history is the last thing to read. */
+const settled: readonly JobDetail["state"][] = ["probed", "done", "cancelled"];
+
+/** Up to this many videos show what was found in them without being asked. */
+const openProbes = 3;
+
+/** A section of the page: a hairline above, then its heading. */
+const section = "grid gap-4 border-t pt-8";
 
 function BackLink() {
   const { t } = useT();
@@ -69,8 +79,14 @@ export function JobDetailPage() {
   return <JobView job={job.data} />;
 }
 
+/**
+ * One upload. The page leads with what the user needs now and ends with what is only for
+ * the record: while the upload moves, or after it stopped, the timeline comes first; once
+ * the files are checked, the next step (importing by hand, in M1) comes first and the
+ * timeline last.
+ */
 function JobView({ job }: { job: JobDetail }) {
-  const { t, formatBytes, formatDate, formatPercent } = useT();
+  const { t, formatBytes, formatDate } = useT();
   const session = useSession();
   const showOwner = session.data?.user.admin === true && job.owner !== session.data.user.name;
   const standing = standingAt(job.state, job.history);
@@ -94,6 +110,19 @@ function JobView({ job }: { job: JobDetail }) {
   const probes = job.files.filter((f) => f.kind === "video" && f.status === "ok" && f.probe);
   const archivesWithSkips = job.files.filter(
     (f) => f.kind === "archive" && (f.extraction?.skipped?.length ?? 0) > 0,
+  );
+
+  const isSettled = settled.includes(job.state);
+  const progress = (
+    <section className={section}>
+      <h2>{t("job.progress")}</h2>
+      <StatusTimeline
+        state={job.state}
+        history={job.history}
+        steps={timelineSteps}
+        detail={errorText ? t(errorText.key, errorText.params) : undefined}
+      />
+    </section>
   );
 
   return (
@@ -120,35 +149,26 @@ function JobView({ job }: { job: JobDetail }) {
         <JobActions job={job} />
       </header>
 
-      <section className="grid gap-3">
-        <h2>{t("job.progress")}</h2>
-        <StatusTimeline
-          state={job.state}
-          history={job.history}
-          steps={timelineSteps}
-          detail={errorText ? t(errorText.key, errorText.params) : undefined}
-        />
-      </section>
+      {job.state === "probed" && (
+        <ManualImportSection items={job.manualImport} className="border-t pt-8" />
+      )}
+
+      {!isSettled && progress}
 
       {job.state === "uploading" && job.uploads.length > 0 && (
-        <section className="grid gap-3 border-t pt-8">
+        <section className={section}>
           <h2>{t("job.uploads.title")}</h2>
-          <ul className="divide-y border-y">
+          <FileProgressList>
             {job.uploads.map((u) => (
-              <li key={u.id} className="flex flex-wrap items-baseline justify-between gap-x-4 py-3">
-                <span translate="no" className="font-medium [overflow-wrap:anywhere]">
-                  {u.name}
-                </span>
-                <span className="figure text-sm text-muted-foreground">
-                  {t("job.uploads.item", {
-                    done: formatBytes(u.offset, u.size),
-                    total: formatBytes(u.size),
-                  })}
-                  {u.size > 0 && ` (${formatPercent(u.offset / u.size)})`}
-                </span>
-              </li>
+              <FileProgress
+                key={u.id}
+                name={u.name}
+                size={u.size}
+                sent={u.offset}
+                status="unfinished"
+              />
             ))}
-          </ul>
+          </FileProgressList>
           <p className="max-w-[65ch] text-ink-2">{t("job.uploads.hint")}</p>
           <div>
             <Button asChild>
@@ -158,7 +178,7 @@ function JobView({ job }: { job: JobDetail }) {
         </section>
       )}
 
-      <section className="grid gap-3 border-t pt-8">
+      <section className={section}>
         <h2>{t("job.files")}</h2>
         {items.length === 0 ? (
           <p className="text-ink-2">{t("job.files.none")}</p>
@@ -185,15 +205,24 @@ function JobView({ job }: { job: JobDetail }) {
             </ul>
           </div>
         ))}
+        {probes.length > 0 && (
+          <div className="divide-y border-y">
+            {probes.map(
+              (f) =>
+                f.probe && (
+                  <ProbeDetails
+                    key={f.id}
+                    name={f.name}
+                    probe={f.probe}
+                    open={probes.length <= openProbes}
+                  />
+                ),
+            )}
+          </div>
+        )}
       </section>
 
-      {probes.length > 0 && (
-        <div className="grid gap-6">
-          {probes.map((f) => f.probe && <ProbeDetails key={f.id} name={f.name} probe={f.probe} />)}
-        </div>
-      )}
-
-      {job.state === "probed" && <ManualImportSection items={job.manualImport} />}
+      {isSettled && progress}
     </article>
   );
 }

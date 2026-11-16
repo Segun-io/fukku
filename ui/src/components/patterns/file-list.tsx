@@ -60,7 +60,7 @@ export function FileList({ files, className }: { files: FileListItem[]; classNam
             <li
               key={file.id}
               data-status={file.status}
-              className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 py-3 [contain-intrinsic-size:auto_5rem] [content-visibility:auto] sm:grid-cols-[auto_minmax(0,1fr)_7rem_10rem]"
+              className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 py-3 [contain-intrinsic-size:auto_5rem] [content-visibility:auto] sm:grid-cols-[auto_minmax(0,1fr)_5.5rem_8.5rem]"
             >
               <KindIcon aria-hidden="true" className="mt-1 size-5 text-muted-foreground" />
               <div className="min-w-0">
@@ -70,10 +70,12 @@ export function FileList({ files, className }: { files: FileListItem[]; classNam
                 >
                   {file.name}
                 </p>
-                <p className="text-sm text-muted-foreground">
-                  {t(`patterns.files.kind.${file.kind}`)}
+                <p className="flex gap-x-3 text-sm text-muted-foreground">
+                  <span className="shrink-0">{t(`patterns.files.kind.${file.kind}`)}</span>
                   {file.from && (
-                    <span className="ml-3 [overflow-wrap:anywhere]">
+                    // The one name that is cut to a line: the archive is in the list in full,
+                    // and a season repeats it on every row.
+                    <span translate="no" title={file.from} className="min-w-0 truncate">
                       {t("patterns.files.from", { archive: file.from })}
                     </span>
                   )}

@@ -1,6 +1,7 @@
 import {
   CircleAlert,
   CircleCheck,
+  CircleDashed,
   Clock,
   type LucideIcon,
   Pause,
@@ -24,8 +25,16 @@ import { cn } from "@/lib/utils";
  *   reconnecting  the connection dropped; it continues by itself
  *   failed        the server refused it or gave up; it needs the user
  *   done          every byte is on the server
+ *   unfinished    part of it is on the server and this page is not sending it (a job page)
  */
-export type UploadStatus = "queued" | "uploading" | "paused" | "reconnecting" | "failed" | "done";
+export type UploadStatus =
+  | "queued"
+  | "uploading"
+  | "paused"
+  | "reconnecting"
+  | "failed"
+  | "done"
+  | "unfinished";
 
 export type FileProgressProps = {
   name: string;
@@ -70,6 +79,7 @@ const statusLook: Record<
   reconnecting: { icon: WifiOff, tone: "text-muted-foreground", tray: "waiting" },
   failed: { icon: CircleAlert, tone: "text-destructive", tray: "failed" },
   done: { icon: CircleCheck, tone: "text-primary", tray: "moving" },
+  unfinished: { icon: CircleDashed, tone: "text-muted-foreground", tray: "waiting" },
 };
 
 /**
@@ -77,8 +87,12 @@ const statusLook: Record<
  *
  * Nothing moves while the numbers change. The figures are set in the figure face with
  * fixed-width digits and a fixed number of decimals, each one has its own place, and the
- * speed line keeps its height while a file uploads, with or without a speed to show. Render the rows inside
- * <FileProgressList>.
+ * speed line keeps its height while a file uploads, with or without a speed to show.
+ *
+ * A row is only as tall as what it has to say, so that a season of 24 files stays readable
+ * on a phone: a finished file is its name, "Uploaded" and its size; a file that waits its
+ * turn with nothing sent has no line of figures. A row changes height when its file changes
+ * state, never while its figures change. Render the rows inside <FileProgressList>.
  */
 export function FileProgress({
   name,
@@ -101,6 +115,12 @@ export function FileProgress({
   const percent = formatPercent(fraction);
   const sentText = formatBytes(sent, size);
 
+  // A finished file has nothing left to show but its size; a file that waits with nothing
+  // sent has no figures yet. Both say their size next to the status instead.
+  const finished = status === "done";
+  const untouched = status === "queued" && sent === 0;
+  const compact = finished || untouched;
+
   let second: React.ReactNode = null;
   if (status === "uploading") {
     second = (
@@ -119,6 +139,8 @@ export function FileProgress({
     second = <span>{t("patterns.progress.hint.paused", { sent: sentText })}</span>;
   } else if (status === "reconnecting") {
     second = <span>{t("patterns.progress.hint.reconnecting", { sent: sentText })}</span>;
+  } else if (status === "unfinished") {
+    second = <span>{t("patterns.progress.hint.unfinished", { sent: sentText })}</span>;
   } else if (status === "failed" && note) {
     second = <span className="text-destructive">{note}</span>;
   }
@@ -127,44 +149,55 @@ export function FileProgress({
     <li
       data-status={status}
       className={cn(
-        "grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-4 gap-y-2.5 px-4 py-4 sm:px-5",
+        "grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-4 px-4 py-4 sm:px-5",
         className,
       )}
     >
-      <div className="col-span-2 min-w-0 sm:col-span-1">
-        <p translate="no" className="font-medium [overflow-wrap:anywhere]">
-          {name}
-        </p>
-        <p aria-live="polite" className={cn("mt-0.5 flex items-center gap-1.5 text-sm", look.tone)}>
-          <Icon aria-hidden="true" className="size-4 shrink-0" />
-          <span className="font-medium">{t(`patterns.progress.status.${status}`)}</span>
-        </p>
-      </div>
-
-      <div
-        role="progressbar"
-        aria-label={name}
-        aria-valuemin={0}
-        aria-valuemax={100}
-        aria-valuenow={Math.round(fraction * 100)}
-        aria-valuetext={t("patterns.progress.valueText", { percent })}
-        data-state={look.tray}
-        className="tray col-span-2"
-        style={{ "--filled": fraction * 100 } as React.CSSProperties}
-      >
-        <span />
-      </div>
-
-      <p className="col-span-2 flex items-baseline justify-between gap-4 text-sm">
-        <span className="figure">
-          {t("patterns.progress.of", { sent: sentText, total: formatBytes(size, size) })}
-        </span>
-        <span className="figure min-w-[5ch] text-right font-medium">{percent}</span>
+      <p translate="no" className="col-span-2 font-medium [overflow-wrap:anywhere] sm:col-span-1">
+        {name}
       </p>
+      <p
+        aria-live="polite"
+        className={cn(
+          "col-start-1 row-start-2 mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 self-center text-sm",
+          !untouched && "max-sm:col-span-2",
+        )}
+      >
+        <span className={cn("flex items-center gap-1.5 font-medium", look.tone)}>
+          <Icon aria-hidden="true" className="size-4 shrink-0" />
+          {t(`patterns.progress.status.${status}`)}
+        </span>
+        {compact && <span className="figure text-muted-foreground">{formatBytes(size)}</span>}
+      </p>
+
+      {!finished && (
+        <div
+          role="progressbar"
+          aria-label={name}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={Math.round(fraction * 100)}
+          aria-valuetext={t("patterns.progress.valueText", { percent })}
+          data-state={look.tray}
+          className="tray col-span-2 mt-2.5"
+          style={{ "--filled": fraction * 100 } as React.CSSProperties}
+        >
+          <span />
+        </div>
+      )}
+
+      {!compact && (
+        <p className="col-span-2 mt-2.5 flex items-baseline justify-between gap-4 text-sm">
+          <span className="figure">
+            {t("patterns.progress.of", { sent: sentText, total: formatBytes(size, size) })}
+          </span>
+          <span className="figure min-w-[5ch] text-right font-medium">{percent}</span>
+        </p>
+      )}
 
       {second && (
         <p
-          className="col-span-2 flex min-h-[1lh] max-w-[65ch] items-baseline justify-between gap-4 text-sm text-muted-foreground data-[figures]:max-w-none"
+          className="col-span-2 mt-2 flex min-h-[1lh] max-w-[65ch] items-baseline justify-between gap-4 text-sm text-muted-foreground data-[figures]:max-w-none"
           data-figures={status === "uploading" ? "" : undefined}
         >
           {second}
@@ -172,12 +205,13 @@ export function FileProgress({
       )}
 
       {note && status !== "failed" && (
-        <p className="col-span-2 max-w-[65ch] text-sm text-ink-2">{note}</p>
+        <p className="col-span-2 mt-2 max-w-[65ch] text-sm text-ink-2">{note}</p>
       )}
 
       <RowActions
         name={name}
         status={status}
+        beside={untouched}
         onPause={onPause}
         onResume={onResume}
         onRetry={onRetry}
@@ -190,10 +224,24 @@ export function FileProgress({
 type RowActionsProps = Pick<
   FileProgressProps,
   "name" | "status" | "onPause" | "onResume" | "onRetry" | "onRemove"
->;
+> & {
+  /** On a phone: next to the status instead of under the figures (a row with no figures). */
+  beside: boolean;
+};
 
-/** The one action the state allows, then Remove. Last in the row on a phone, top right above 40rem. */
-function RowActions({ name, status, onPause, onResume, onRetry, onRemove }: RowActionsProps) {
+/**
+ * The one action the state allows, then Remove. Top right above 40rem; on a phone the last
+ * thing in the row, or next to the status when the row has no figures.
+ */
+function RowActions({
+  name,
+  status,
+  beside,
+  onPause,
+  onResume,
+  onRetry,
+  onRemove,
+}: RowActionsProps) {
   const { t } = useT();
   const main: { key: TKey; label: TKey; icon: LucideIcon; run: () => void } | null =
     status === "uploading" && onPause
@@ -218,12 +266,19 @@ function RowActions({ name, status, onPause, onResume, onRetry, onRemove }: RowA
               run: onRetry,
             }
           : null;
-  const removable = onRemove && status !== "done";
+  const removable = onRemove && status !== "done" && status !== "unfinished";
   if (!main && !removable) return null;
   const MainIcon = main?.icon;
 
   return (
-    <div className="col-span-2 flex flex-wrap gap-2 max-sm:[&>[data-variant=ghost]:first-child]:-ml-2.5 sm:col-span-1 sm:col-start-2 sm:row-start-1 sm:justify-end">
+    <div
+      className={cn(
+        "flex flex-wrap gap-2 sm:col-start-2 sm:row-span-2 sm:row-start-1 sm:justify-end",
+        beside
+          ? "col-start-2 row-start-2 justify-end max-sm:-mr-2.5"
+          : "max-sm:col-span-2 max-sm:mt-3 max-sm:[&>[data-variant=ghost]:first-child]:-ml-2.5",
+      )}
+    >
       {main && MainIcon && (
         <Button
           type="button"

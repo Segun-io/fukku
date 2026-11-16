@@ -187,7 +187,7 @@ describe("a failed job", () => {
     await user.click(await screen.findByRole("button", { name: "Try again" }));
     await user.click(within(screen.getByRole("form")).getByRole("button", { name: "Try again" }));
     expect(
-      await screen.findByText("That is not possible in the job's current state."),
+      await screen.findByText("That is not possible while the upload is in this state."),
     ).toBeVisible();
   });
 
