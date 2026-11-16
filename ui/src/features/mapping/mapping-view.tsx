@@ -262,7 +262,7 @@ export function MappingView({ jobId, proposal }: { jobId: string; proposal: Prop
         <div className="flex flex-wrap items-center gap-x-5 gap-y-3">
           {canContinue ? (
             <Button asChild size="lg">
-              <Link to="/jobs/$id" params={{ id: jobId }}>
+              <Link to="/jobs/$id/confirm" params={{ id: jobId }}>
                 {t("mapping.continue")}
               </Link>
             </Button>

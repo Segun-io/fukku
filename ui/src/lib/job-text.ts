@@ -13,6 +13,8 @@ export const jobErrorCodes = [
   "task_timeout",
   "task_failed",
   "no_usable_files",
+  "import_failed",
+  "arr_unavailable",
 ] as const;
 
 /** Refusal codes of a whole archive (#3). */
@@ -51,13 +53,15 @@ export const skipReasonCodes = [
 
 const known = (list: readonly string[], code: string) => list.includes(code);
 
-export type CodeText = { key: TKey; params?: { code: string } };
+export type CodeText = { key: TKey; params?: Record<string, string> };
 
 /**
  * The sentence for an error code of a failed or stalled job. An unknown code (a newer
  * server) falls back to a generic sentence that carries the code, so that it can be reported.
  */
-export function jobErrorText(code: string): CodeText {
+export function jobErrorText(code: string, app = ""): CodeText {
+  // The app that does not answer is named in the sentence.
+  if (code === "arr_unavailable") return { key: "jobError.arr_unavailable", params: { app } };
   if (known(jobErrorCodes, code)) return { key: `jobError.${code}` as TKey };
   return { key: "jobError.unknown", params: { code } };
 }
@@ -112,7 +116,16 @@ export function visibleActions(actions: readonly JobAction[]): PageAction[] {
 // ---- Polling ----------------------------------------------------------------------------
 
 /** States in which something is happening that the page follows closely. */
-const moving: readonly JobState[] = ["uploading", "uploaded", "probing", "stalled"];
+const moving: readonly JobState[] = [
+  "uploading",
+  "uploaded",
+  "probing",
+  "matched",
+  "importing",
+  "imported",
+  "post-processing",
+  "stalled",
+];
 /** States a job stays in until a person acts: nothing to poll for. */
 const settled: readonly JobState[] = ["probed", "done", "cancelled", "failed"];
 

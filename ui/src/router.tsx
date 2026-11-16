@@ -8,6 +8,7 @@ import {
 } from "@tanstack/react-router";
 import { AppShell } from "@/components/shell/app-shell";
 import { NotFound } from "@/components/shell/states";
+import { ConfirmPage } from "@/features/confirm/confirm-page";
 import { AdminPage } from "@/pages/admin";
 import { JobDetailPage } from "@/pages/job-detail";
 import { JobsPage } from "@/pages/jobs";
@@ -58,6 +59,12 @@ const mappingRoute = createRoute({
   component: MappingPage,
 });
 
+const confirmRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/jobs/$id/confirm",
+  component: ConfirmPage,
+});
+
 // The pattern examples (docs/design.md) exist in development builds only: `npm run dev`.
 // In a production build this branch, and the page behind it, are removed.
 const devRoutes = import.meta.env.DEV
@@ -78,6 +85,7 @@ const routeTree = rootRoute.addChildren([
   matchRoute,
   mappingRoute,
   adminRoute,
+  confirmRoute,
   ...devRoutes,
 ]);
 

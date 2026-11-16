@@ -10,6 +10,7 @@ export const session: Session = {
   insecureDev: false,
   uiLanguages: ["en", "es"],
   apps: { radarr: true, sonarr: true },
+  subtitleManager: true,
   upload: {
     endpoint: "/api/uploads/",
     chunkSize: 16777216,
@@ -243,7 +244,18 @@ const filesByJob: Record<string, JobFile[]> = {
 
 /** The states a job passed on its way to `state`, as the store records them. */
 function historyFor(job: Job): JobDetail["history"] {
-  const path: JobState[] = ["uploading", "uploaded", "probing", "probed", "matched"];
+  const path: JobState[] = [
+    "uploading",
+    "uploaded",
+    "probing",
+    "probed",
+    "matched",
+    "awaiting-confirmation",
+    "importing",
+    "imported",
+    "post-processing",
+    "done",
+  ];
   const reached: JobState[] =
     job.state === "failed" || job.state === "stalled"
       ? ["uploading", "uploaded", "probing", job.state]
