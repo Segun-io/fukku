@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"path"
+	"slices"
 	"sync"
 
 	"github.com/segun-io/fukku/internal/arr"
@@ -454,13 +455,21 @@ func (f *FakeSeries) Complete(id int) {
 }
 
 // give makes r's file the file of each of r's episodes.
+// The file gets an EpisodeFile record (in Files) with the row's size, as Sonarr's would.
 func (f *FakeSeries) give(r arr.Row) {
 	f.nextFile++
+	id := 9000 + f.nextFile
 	for _, ep := range r.EpisodeIDs {
 		for sid, eps := range f.Eps {
 			for i := range eps {
 				if eps[i].ID == ep {
-					f.Eps[sid][i].FileID = 9000 + f.nextFile
+					f.Eps[sid][i].FileID = id
+					if f.Files == nil {
+						f.Files = map[int][]arr.EpisodeFile{}
+					}
+					if !slices.ContainsFunc(f.Files[sid], func(x arr.EpisodeFile) bool { return x.ID == id }) {
+						f.Files[sid] = append(f.Files[sid], arr.EpisodeFile{ID: id, Path: path.Join("/tv", path.Base(r.Path)), Size: r.Size})
+					}
 				}
 			}
 		}

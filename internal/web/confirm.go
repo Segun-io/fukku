@@ -3,10 +3,7 @@ package web
 import (
 	"context"
 	"errors"
-	"fmt"
 	"net/http"
-	"strconv"
-	"strings"
 	"time"
 
 	"github.com/segun-io/fukku/internal/flows"
@@ -66,44 +63,15 @@ func (s *Server) confirmJob(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	c, err := s.deps.Imports.Confirm(r.Context(), u.Name, j, req)
+	c, err := s.deps.Imports.Confirm(r.Context(), u.Name, u.Email, j, req)
 	if err != nil {
 		s.confirmError(w, r, err)
 		return
 	}
-	// The job is importing whether or not the client is still there: so are its audit entries.
+	// The job is importing, with its audit entries (stored in the same transaction),
+	// whether or not the client is still there.
 	dctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 30*time.Second)
 	defer cancel()
-	overrides := make([]string, 0, len(c.Overridden))
-	for _, o := range c.Overridden {
-		overrides = append(overrides, o.RowID)
-	}
-	subs := make([]string, 0, len(c.Subtitles))
-	for _, sc := range c.Subtitles {
-		subs = append(subs, fmt.Sprintf("%d:%s forced=%t hi=%t", sc.FileID, sc.Language, sc.Forced, sc.HearingImpaired))
-	}
-	s.audit(dctx, u, "import.confirmed", j.ID, map[string]string{
-		"app": c.Target.App, "titleId": strconv.Itoa(c.Target.TitleID), "title": c.Target.Title,
-		"rows": strings.Join(c.Rows, ","), "overrides": strings.Join(overrides, ","),
-		"subtitles": strings.Join(subs, "; "),
-	})
-	for _, o := range c.Overridden {
-		s.audit(dctx, u, "rejection.overridden", j.ID, map[string]string{
-			"row": o.RowID, "file": o.File,
-			"rejections": strings.Join(o.Rejections, "; "), "warnings": strings.Join(o.Warnings, ","),
-		})
-		// The language warning (#39) is overridden like a rejection; its facts get their own entry.
-		if l := o.Language; l != nil {
-			d := map[string]string{"row": o.RowID, "file": o.File, "customFormats": strings.Join(l.CustomFormats, ", ")}
-			if l.Score != nil {
-				d["score"] = strconv.Itoa(*l.Score)
-			}
-			if l.MinFormatScore != nil {
-				d["minFormatScore"] = strconv.Itoa(*l.MinFormatScore)
-			}
-			s.audit(dctx, u, "language.overridden", j.ID, d)
-		}
-	}
 	files, uploads, err := s.parts(dctx, c.Job)
 	if err != nil {
 		s.internalError(w, r, err)

@@ -47,7 +47,7 @@ func TestConfirmStoresSubtitleChoices(t *testing.T) {
 		"no language":      {{FileID: sub.ID}},
 		"a name":           {{FileID: sub.ID, Language: "Spanish"}},
 	} {
-		if _, err := x.eng.Confirm(x.ctx, "user1", j, ConfirmRequest{Subtitles: choices}); Code(err) != CodeBadRequest {
+		if _, err := x.eng.Confirm(x.ctx, "user1", "", j, ConfirmRequest{Subtitles: choices}); Code(err) != CodeBadRequest {
 			t.Errorf("%s: %v", name, err)
 		}
 	}
@@ -55,7 +55,7 @@ func TestConfirmStoresSubtitleChoices(t *testing.T) {
 		t.Fatal("a refused confirmation moved the job")
 	}
 
-	c, err := x.eng.Confirm(x.ctx, "user1", j, ConfirmRequest{Subtitles: []SubtitleChoice{{FileID: sub.ID, Language: "ES", HearingImpaired: true}}})
+	c, err := x.eng.Confirm(x.ctx, "user1", "", j, ConfirmRequest{Subtitles: []SubtitleChoice{{FileID: sub.ID, Language: "ES", HearingImpaired: true}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,12 +96,12 @@ func TestLanguageWarningNeedsAnOverride(t *testing.T) {
 	x.ready(j)
 	row := x.rows(j)[0].ID
 
-	_, err := x.eng.Confirm(x.ctx, "user1", j, ConfirmRequest{})
+	_, err := x.eng.Confirm(x.ctx, "user1", "", j, ConfirmRequest{})
 	var refusal *Error
 	if !errors.As(err, &refusal) || refusal.Code != CodeNeedsOverride || !slices.Equal(refusal.Rows, []string{row}) {
 		t.Fatalf("without the override: %v", err)
 	}
-	c, err := x.eng.Confirm(x.ctx, "user1", j, ConfirmRequest{Overrides: []string{row}})
+	c, err := x.eng.Confirm(x.ctx, "user1", "", j, ConfirmRequest{Overrides: []string{row}})
 	if err != nil {
 		t.Fatal(err)
 	}

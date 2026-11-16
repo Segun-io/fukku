@@ -3,6 +3,7 @@ package storetest
 import (
 	"cmp"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -266,6 +267,7 @@ func (f *Fake) PutImport(ctx context.Context, i store.Import) error {
 		return store.ErrNotFound
 	}
 	i.SubmittedAt, i.FinishedAt = norm(i.SubmittedAt), norm(i.FinishedAt)
+	i.Baseline = cloneJSON(i.Baseline)
 	f.m2.imports[i.JobID] = i
 	return nil
 }
@@ -279,7 +281,64 @@ func (f *Fake) Import(ctx context.Context, jobID string) (store.Import, error) {
 	if !ok {
 		return store.Import{}, store.ErrNotFound
 	}
+	i.Baseline = cloneJSON(i.Baseline)
 	return i, nil
+}
+
+func (f *Fake) ConfirmImport(ctx context.Context, jobID string, t store.Target, rows []store.Row, options json.RawMessage, audit []store.AuditEntry, c store.Change) (store.Job, error) {
+	if err := f.lock(ctx); err != nil {
+		return store.Job{}, err
+	}
+	defer f.mu.Unlock()
+	if c.ExpiresAt != nil {
+		return store.Job{}, errors.New("storetest: ConfirmImport does not change the retention date")
+	}
+	j, ok := f.jobs[jobID]
+	if !ok {
+		return store.Job{}, store.ErrNotFound
+	}
+	if j.State != store.AwaitingConfirmation || !f.hasTarget(jobID, t) {
+		return store.Job{}, store.ErrConflict
+	}
+	stored := f.m2.rows[jobID]
+	at := make([]int, len(rows))
+	for k, r := range rows {
+		i := slices.IndexFunc(stored, func(x store.Row) bool { return x.ID == r.ID })
+		if i < 0 {
+			return store.Job{}, store.ErrNotFound
+		}
+		at[k] = i
+	}
+	for _, e := range audit {
+		if e.Action == "" {
+			return store.Job{}, errors.New("storetest: an audit entry needs an action")
+		}
+		if _, err := json.Marshal(e.Detail); err != nil {
+			return store.Job{}, err
+		}
+	}
+	next, err := f.transition(jobID, store.AwaitingConfirmation, store.Importing, c)
+	if err != nil {
+		return store.Job{}, err
+	}
+	for k, r := range rows {
+		stored[at[k]].Skip, stored[at[k]].Override, stored[at[k]].Result = r.Skip, r.Override, r.Result
+	}
+	if options != nil {
+		tg := f.m2.targets[jobID]
+		tg.Options = cloneJSON(options)
+		f.m2.targets[jobID] = tg
+	}
+	for _, e := range audit {
+		e.ID = int64(len(f.audit) + 1)
+		e.JobID, e.Actor = jobID, actorOr(e.Actor)
+		e.At = norm(e.At)
+		if e.At.IsZero() {
+			e.At = f.clock()
+		}
+		f.audit = append(f.audit, cloneAudit(e))
+	}
+	return next, nil
 }
 
 func (f *Fake) PutPostStep(ctx context.Context, p store.PostStep) error {

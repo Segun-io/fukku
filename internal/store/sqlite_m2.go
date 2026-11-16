@@ -341,10 +341,10 @@ func (s *sqliteStore) PutImport(ctx context.Context, i Import) error {
 		return err
 	}
 	if _, err := tx.ExecContext(ctx,
-		`INSERT INTO imports (job_id, command_id, submitted_at, finished_at) VALUES (?, ?, ?, ?)
+		`INSERT INTO imports (job_id, command_id, submitted_at, finished_at, baseline) VALUES (?, ?, ?, ?, ?)
 		 ON CONFLICT (job_id) DO UPDATE SET command_id = excluded.command_id,
-		   submitted_at = excluded.submitted_at, finished_at = excluded.finished_at`,
-		i.JobID, i.CommandID, nanos(normTime(i.SubmittedAt)), nanos(normTime(i.FinishedAt))); err != nil {
+		   submitted_at = excluded.submitted_at, finished_at = excluded.finished_at, baseline = excluded.baseline`,
+		i.JobID, i.CommandID, nanos(normTime(i.SubmittedAt)), nanos(normTime(i.FinishedAt)), report(i.Baseline)); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -353,17 +353,89 @@ func (s *sqliteStore) PutImport(ctx context.Context, i Import) error {
 func (s *sqliteStore) Import(ctx context.Context, jobID string) (Import, error) {
 	i := Import{JobID: jobID}
 	var submitted, finished sql.NullInt64
+	var baseline []byte
 	err := s.r.QueryRowContext(ctx,
-		"SELECT command_id, submitted_at, finished_at FROM imports WHERE job_id = ?", jobID).
-		Scan(&i.CommandID, &submitted, &finished)
+		"SELECT command_id, submitted_at, finished_at, baseline FROM imports WHERE job_id = ?", jobID).
+		Scan(&i.CommandID, &submitted, &finished, &baseline)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Import{}, ErrNotFound
 	}
 	if err != nil {
 		return Import{}, err
 	}
-	i.SubmittedAt, i.FinishedAt = fromNanos(submitted), fromNanos(finished)
+	i.SubmittedAt, i.FinishedAt, i.Baseline = fromNanos(submitted), fromNanos(finished), rawJSON(baseline)
 	return i, nil
+}
+
+func (s *sqliteStore) ConfirmImport(ctx context.Context, jobID string, t Target, rows []Row, options json.RawMessage, audit []AuditEntry, c Change) (Job, error) {
+	if c.ExpiresAt != nil {
+		return Job{}, errors.New("store: ConfirmImport does not change the retention date")
+	}
+	for _, e := range audit {
+		if e.Action == "" {
+			return Job{}, errors.New("store: an audit entry needs an action")
+		}
+	}
+	tx, err := s.w.BeginTx(ctx, nil)
+	if err != nil {
+		return Job{}, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	cur, err := scanJob(tx.QueryRowContext(ctx, "SELECT "+jobCols+" FROM jobs WHERE id = ?", jobID))
+	if err != nil {
+		return Job{}, err
+	}
+	if cur.State != AwaitingConfirmation {
+		return Job{}, ErrConflict
+	}
+	if err := hasTarget(ctx, tx, jobID, t); err != nil {
+		return Job{}, err
+	}
+	for _, r := range rows {
+		res, err := tx.ExecContext(ctx, "UPDATE import_rows SET skip = ?, override = ?, result = ? WHERE job_id = ? AND id = ?",
+			boolInt(r.Skip), boolInt(r.Override), r.Result, jobID, r.ID)
+		if err := affectedOne(res, err); err != nil {
+			return Job{}, err
+		}
+	}
+	if options != nil {
+		if _, err := tx.ExecContext(ctx, "UPDATE targets SET options = ? WHERE job_id = ?", report(options), jobID); err != nil {
+			return Job{}, err
+		}
+	}
+	next, err := s.transitionTx(ctx, tx, jobID, AwaitingConfirmation, Importing, c)
+	if err != nil {
+		return Job{}, err
+	}
+	entries := make([]AuditEntry, 0, len(audit))
+	for _, e := range audit {
+		e.JobID, e.Actor = jobID, actorOr(e.Actor)
+		e.At = normTime(e.At)
+		if e.At.IsZero() {
+			e.At = s.clock()
+		}
+		var detail any
+		if len(e.Detail) > 0 {
+			b, err := json.Marshal(e.Detail)
+			if err != nil {
+				return Job{}, err
+			}
+			detail = string(b)
+		}
+		if _, err := tx.ExecContext(ctx,
+			"INSERT INTO audit (at, actor, email, action, job_id, detail) VALUES (?, ?, ?, ?, ?, ?)",
+			nanos(e.At), e.Actor, e.Email, e.Action, e.JobID, detail); err != nil {
+			return Job{}, err
+		}
+		entries = append(entries, e)
+	}
+	if err := tx.Commit(); err != nil {
+		return Job{}, err
+	}
+	for _, e := range entries {
+		s.log.InfoContext(ctx, "audit", auditAttrs(e)...)
+	}
+	return next, nil
 }
 
 // ---- post-processing ------------------------------------------------------------------

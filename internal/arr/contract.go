@@ -160,6 +160,7 @@ type AddSeries struct {
 type EpisodeFile struct {
 	ID   int
 	Path string // as Sonarr sees it
+	Size int64
 }
 
 type SeriesManager interface {

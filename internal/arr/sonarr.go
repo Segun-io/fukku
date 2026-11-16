@@ -158,13 +158,14 @@ func (s *sonarr) EpisodeFiles(ctx context.Context, seriesID int) ([]EpisodeFile,
 	var out []struct {
 		ID   int    `json:"id"`
 		Path string `json:"path"`
+		Size int64  `json:"size"`
 	}
 	if err := s.get(ctx, "/episodefile", url.Values{"seriesId": {strconv.Itoa(seriesID)}}, &out); err != nil {
 		return nil, err
 	}
 	files := make([]EpisodeFile, 0, len(out))
 	for _, f := range out {
-		files = append(files, EpisodeFile{ID: f.ID, Path: f.Path})
+		files = append(files, EpisodeFile{ID: f.ID, Path: f.Path, Size: f.Size})
 	}
 	return files, nil
 }

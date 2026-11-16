@@ -190,7 +190,7 @@ func testImportCrash(t *testing.T, c importCase, slow int) {
 
 				f := &fuse{left: n}
 				dying := x.engineOn(fusedStore{x.st, f}, fusedMovies{x.movies, f}, fusedSeries{x.series, f})
-				if _, err := dying.Confirm(x.ctx, "user1", j, ConfirmRequest{}); err != nil && !f.blown() {
+				if _, err := dying.Confirm(x.ctx, "user1", "", j, ConfirmRequest{}); err != nil && !f.blown() {
 					t.Fatalf("after %d calls: confirm: %v", n, err)
 				}
 				for range 50 {
@@ -404,7 +404,7 @@ func TestAppAwayAtEveryCall(t *testing.T) {
 					// The confirmation reads a show's episodes: refused while the app is away,
 					// so the user tries again.
 					for range 2 {
-						if _, err := x.eng.Confirm(x.ctx, "user1", j, ConfirmRequest{}); err == nil {
+						if _, err := x.eng.Confirm(x.ctx, "user1", "", j, ConfirmRequest{}); err == nil {
 							break
 						} else if Code(err) != CodeArrUnavailable {
 							t.Fatalf("at %d: confirm: %v", at, err)

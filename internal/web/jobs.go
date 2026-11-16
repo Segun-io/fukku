@@ -157,7 +157,7 @@ func (s *Server) view(u auth.User, j store.Job, files []store.File, uploads []st
 			v.TotalSize += f.Size
 		}
 	}
-	v.Actions = actions(j, len(files) > 0 && len(uploads) == 0)
+	v.Actions = actions(j, u.Admin, len(files) > 0 && len(uploads) == 0)
 	return v
 }
 
@@ -191,10 +191,10 @@ func jobName(files []store.File, uploads []store.Upload) *string {
 
 // actions is what a user may do with a job now. canSubmit: the job has a file and no
 // unfinished upload.
-func actions(j store.Job, canSubmit bool) []string {
+func actions(j store.Job, admin, canSubmit bool) []string {
 	state := j.State
 	out := []string{}
-	if canCancel(j) {
+	if canCancel(j, admin) {
 		out = append(out, "cancel")
 	}
 	if state == store.Failed {
@@ -210,13 +210,19 @@ func actions(j store.Job, canSubmit bool) []string {
 }
 
 // canCancel reports whether a job may be cancelled. A job stalled on its way through the
-// import may not: an import command of it may still be running in the app, and cancelling
-// removes the job's files. (A job that failed there may: its command has ended.)
-func canCancel(j store.Job) bool {
-	if j.State == store.Stalled && slices.Contains([]store.State{store.Importing, store.Imported, store.PostProcessing}, j.Resume) {
-		return false
+// import may be cancelled by an admin only: an import command of it may still be running
+// in the app, and cancelling removes the job's files. (A job that failed there may be
+// cancelled by its user: its command has ended.)
+func canCancel(j store.Job, admin bool) bool {
+	if stalledImport(j) {
+		return admin
 	}
 	return slices.Contains(cancellable, j.State)
+}
+
+// stalledImport reports whether j is stalled while importing or after it.
+func stalledImport(j store.Job) bool {
+	return j.State == store.Stalled && slices.Contains([]store.State{store.Importing, store.Imported, store.PostProcessing}, j.Resume)
 }
 
 func (s *Server) fileView(f store.File) fileJSON {
@@ -520,8 +526,13 @@ func (s *Server) cancelJob(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if !canCancel(j) {
+	if !canCancel(j, u.Admin) {
 		wrongState(w)
+		return
+	}
+	if stalledImport(j) {
+		// An admin gives up on an import that may still be running: audited as such.
+		s.move(w, r, u, j, store.Cancelled, "import.abandoned")
 		return
 	}
 	s.move(w, r, u, j, store.Cancelled, "job.cancelled")

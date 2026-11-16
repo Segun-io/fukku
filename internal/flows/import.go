@@ -29,18 +29,22 @@ import (
 // monitoring is set, and the post-processing steps run (poststep.go).
 //
 // The importing step is safe to repeat at every point, because each pass decides from
-// what the store and the app say now, in this order:
+// what the store and the app say now:
 //
-//  1. Ask first: are the rows' files where the app tracks them? (A film: Movie(id).File is
-//     set; a show: every episode of the row has a file; with importMode move, the job's
-//     file is gone too.) All there: imported.
-//  2. The stored command: poll it. Running: wait. Ended without every file: the rows are
-//     marked and the job fails with import_failed and the app's message.
-//  3. No stored id after a submission (a crash after the call, before its id was stored):
-//     the app's recent ManualImport commands for the job's folder; the newest is adopted.
-//  4. Otherwise the checks (sentinels and same filesystem, the title not busy, the sources
-//     still there), then the submission: the import record says "submitting" before the
-//     call, and gets the command's id right after it.
+//   - Nothing submitted yet: the checks (sentinels and same filesystem, the title not busy,
+//     the sources still there), then the submission. The import record says "submitting",
+//     with what the app tracks for the title then (the baseline), before the call, and gets
+//     the command's id right after it.
+//   - A stored command: poll it. Running: wait. Ended (or unknown to the app): ask the app
+//     what arrived. A row has arrived when the app tracks a file for it (the film, or each
+//     of its episodes) that is not the baseline's, of the job's file's size, and with
+//     importMode move the job's file is gone: a file the app had before, or got by itself
+//     meanwhile, never counts. Everything there: imported. Else the rows are marked and the
+//     job fails with import_failed and the app's message.
+//   - Submitted but no command (a crash after the call, before its id was stored; or a
+//     retry after a reported failure): what arrived (all: imported), else the app's recent
+//     ManualImport commands for the job's folder (the newest is adopted), else a new
+//     submission of what is missing.
 //
 // A failure of a command is reported once: the transition to failed carries a note naming
 // the command (failNote), so after the user's retry the same command is not reported again
@@ -126,9 +130,10 @@ func (e *Engine) forget(jobID string) {
 // planned is one row to import: the row, the app's item as it is sent, and the job's file
 // as Fukku sees it.
 type planned struct {
-	row store.Row
-	ar  arr.Row
-	src string
+	row  store.Row
+	ar   arr.Row
+	src  string
+	size int64 // the job's file's size
 }
 
 // work is what one pass of the importing step works on, read under the job's lock.
@@ -139,6 +144,7 @@ type work struct {
 	plan []planned
 	imp  store.Import // zero: no record
 	bad  error        // a row that cannot be imported: the job fails
+	hist []store.Event
 }
 
 // load reads the job's target, rows, files and import record under the job's lock, and
@@ -197,7 +203,7 @@ func (e *Engine) plan(job store.Job, t store.Target, rows []store.Row, files []s
 		}
 		ar.Path = e.p.appPath(t.App, job.ID, f.Path)
 		src := filepath.Join(jobdir.Dir(e.p.cfg.Paths.IntakeRoot, job.ID), filepath.FromSlash(f.Path))
-		out = append(out, planned{row: r, ar: ar, src: src})
+		out = append(out, planned{row: r, ar: ar, src: src, size: f.Size})
 	}
 	return out, nil
 }
@@ -254,96 +260,173 @@ func (e *Engine) Importing(ctx context.Context, job store.Job) error {
 	if w.bad != nil {
 		return e.fail(ctx, job, w.t, CodeImportFailed, "refused before the import: "+w.bad.Error())
 	}
-
-	// 1. Ask first.
-	got, err := e.arrived(ctx, w.t, w.plan)
-	if err != nil {
-		return e.appError(ctx, job, w, "files", err)
+	if w.imp.SubmittedAt.IsZero() {
+		return e.submit(ctx, job, w, make([]bool, len(w.plan))) // nothing of ours can have arrived
 	}
-	if !slices.Contains(got, false) {
-		return e.finish(ctx, job, w)
-	}
-
-	// 2 and 3. The command: the stored one, or one a crash lost the id of.
+	base := baselineOf(w.imp)
 	hist, err := e.st.History(ctx, job.ID)
 	if err != nil {
 		return err
 	}
+	w.hist = hist
 	reported := reportedCommands(hist)
 	cur := w.imp.CommandID
 	if reported[cur] {
 		cur = 0 // reported to the user, who retried: what is missing is submitted again
 	}
-	if cur == 0 && !w.imp.SubmittedAt.IsZero() {
-		found, err := e.findCommand(ctx, w.app, job, w.t, reported)
-		if err != nil {
-			return e.appError(ctx, job, w, "commands", err)
-		}
-		if found != 0 {
-			w.imp.JobID, w.imp.CommandID, w.imp.FinishedAt = job.ID, found, time.Time{}
-			if err := e.st.PutImport(ctx, w.imp); err != nil {
-				return err
-			}
-			e.log.Info("import_command_found", "job", job.ID, "app", w.t.App, "command", found)
-			cur = found
-		}
-	}
+
+	// 1. The stored command first: while it runs there is nothing to decide; once it has
+	// ended, the app is asked what arrived, and that decides.
 	if cur != 0 {
 		cmd, err := w.app.Command(ctx, cur)
-		if arr.StatusOf(err) == http.StatusNotFound {
-			return e.failed(ctx, job, w, got, cur, "the app no longer knows the import command (it may have restarted)")
+		gone := arr.StatusOf(err) == http.StatusNotFound
+		if err != nil && !gone {
+			return e.appError(ctx, job, w, "command", err, true)
 		}
-		if err != nil {
-			return e.appError(ctx, job, w, "command", err)
-		}
-		switch cmd.Status {
-		case "queued", "started", "":
+		if !gone && (cmd.Status == "queued" || cmd.Status == "started" || cmd.Status == "") {
 			return nil
-		case "completed":
-			return e.failed(ctx, job, w, got, cur, "the import finished, but not every file arrived")
 		}
-		msg := cmd.Message
-		if msg == "" {
-			msg = "the import " + cmd.Status
+		got, err := e.arrived(ctx, w.t, w.plan, base)
+		if err != nil {
+			return e.appError(ctx, job, w, "files", err, false)
 		}
-		return e.failed(ctx, job, w, got, cur, msg)
+		if !slices.Contains(got, false) {
+			return e.finish(ctx, job, w)
+		}
+		why := cmd.Message
+		switch {
+		case gone:
+			why = "the app no longer knows the import command (it may have restarted)"
+		case cmd.Status == "completed":
+			why = "the import finished, but not every file arrived"
+		case why == "":
+			why = "the import " + cmd.Status
+		}
+		return e.failed(ctx, job, w, got, cur, why)
 	}
 
-	// 4. Submit.
+	// 2. Submitted, but no command to poll (a crash lost its id, or the user retried after
+	// a reported failure): what has arrived, then a command the app knows for the job's
+	// folder, then a new submission of what is missing.
+	got, err := e.arrived(ctx, w.t, w.plan, base)
+	if err != nil {
+		return e.appError(ctx, job, w, "files", err, true)
+	}
+	if !slices.Contains(got, false) {
+		return e.finish(ctx, job, w)
+	}
+	found, err := e.findCommand(ctx, w.app, job, w.t, reported)
+	if err != nil {
+		return e.appError(ctx, job, w, "commands", err, true)
+	}
+	if found != 0 {
+		w.imp.JobID, w.imp.CommandID, w.imp.FinishedAt = job.ID, found, time.Time{}
+		if err := e.st.PutImport(ctx, w.imp); err != nil {
+			return err
+		}
+		e.log.Info("import_command_found", "job", job.ID, "app", w.t.App, "command", found)
+		return nil // polled from the next pass on
+	}
 	return e.submit(ctx, job, w, got)
 }
 
-// arrived reports, for each planned row, whether the app tracks its file now (see 1.).
-func (e *Engine) arrived(ctx context.Context, t store.Target, plan []planned) ([]bool, error) {
+// tracked is what the app tracks for the rows' title: the film's file, or each episode's
+// file id (0: none). The one taken before the first submission is the import's baseline.
+type tracked struct {
+	Movie    *trackedFile   `json:"movie,omitempty"`
+	Episodes map[string]int `json:"episodes,omitempty"`
+}
+
+type trackedFile struct {
+	ID   int   `json:"id"`
+	Size int64 `json:"size"`
+}
+
+// baselineOf reads an import's baseline. One that was not recorded (an import submitted by
+// an earlier version) counts as "nothing tracked".
+func baselineOf(imp store.Import) tracked {
+	var b tracked
+	if len(imp.Baseline) > 0 {
+		_ = json.Unmarshal(imp.Baseline, &b)
+	}
+	return b
+}
+
+// look asks the app what it tracks for the title now.
+func (e *Engine) look(ctx context.Context, t store.Target) (tracked, error) {
+	var now tracked
+	switch t.App {
+	case AppRadarr:
+		m, err := e.p.radarr.Movie(ctx, t.TitleID)
+		if err != nil {
+			return now, err
+		}
+		if m.File != nil {
+			now.Movie = &trackedFile{ID: m.File.ID, Size: m.File.Size}
+		}
+	case AppSonarr:
+		eps, err := e.p.sonarr.Episodes(ctx, t.TitleID)
+		if err != nil {
+			return now, err
+		}
+		now.Episodes = map[string]int{}
+		for _, ep := range eps {
+			now.Episodes[strconv.Itoa(ep.ID)] = ep.FileID
+		}
+	}
+	return now, nil
+}
+
+// arrived reports, for each planned row, whether the import brought its file: the app
+// tracks a file for it (the film, or every episode of the row) that it did not track before
+// the first submission (base), of the job's file's size (when the app gives one), and with
+// importMode move the job's file is gone. A file the app had already, or got by itself
+// meanwhile (a download of another release), does not count.
+func (e *Engine) arrived(ctx context.Context, t store.Target, plan []planned, base tracked) ([]bool, error) {
+	now, err := e.look(ctx, t)
+	if err != nil {
+		return nil, err
+	}
 	move := e.cfgMode(t.App) == "move"
 	gone := func(p string) bool {
 		_, err := os.Lstat(p) // the directory entry only: the web process never opens media
 		return errors.Is(err, fs.ErrNotExist)
 	}
+	sameSize := func(app, ours int64) bool { return app == 0 || app == ours }
 	out := make([]bool, len(plan))
 	switch t.App {
 	case AppRadarr:
-		m, err := e.p.radarr.Movie(ctx, t.TitleID)
-		if err != nil {
-			return nil, err
-		}
+		f := now.Movie
+		fresh := f != nil && (base.Movie == nil || f.ID != base.Movie.ID)
 		for i, pl := range plan {
-			out[i] = m.File != nil && (!move || gone(pl.src))
+			out[i] = fresh && sameSize(f.Size, pl.size) && (!move || gone(pl.src))
 		}
 	case AppSonarr:
-		eps, err := e.p.sonarr.Episodes(ctx, t.TitleID)
-		if err != nil {
-			return nil, err
-		}
-		idx := episodeIndex(eps)
+		var sizes map[int]int64 // episode file id → size, read when a candidate needs it
 		for i, pl := range plan {
-			ok := len(pl.ar.EpisodeIDs) > 0
+			ok := len(pl.ar.EpisodeIDs) > 0 && (!move || gone(pl.src))
 			for _, id := range pl.ar.EpisodeIDs {
-				if idx[id].FileID == 0 {
+				key := strconv.Itoa(id)
+				fid := now.Episodes[key]
+				if !ok || fid == 0 || fid == base.Episodes[key] {
+					ok = false
+					break
+				}
+				if sizes == nil {
+					files, err := e.p.sonarr.EpisodeFiles(ctx, t.TitleID)
+					if err != nil {
+						return nil, err
+					}
+					sizes = map[int]int64{}
+					for _, f := range files {
+						sizes[f.ID] = f.Size
+					}
+				}
+				if !sameSize(sizes[fid], pl.size) {
 					ok = false
 				}
 			}
-			out[i] = ok && (!move || gone(pl.src))
+			out[i] = ok
 		}
 	}
 	return out, nil
@@ -369,7 +452,9 @@ func (e *Engine) findCommand(ctx context.Context, app arr.Importer, job store.Jo
 	return best, nil
 }
 
-// submit runs the checks and submits the rows that have not arrived.
+// submit runs the checks and submits the rows that have not arrived. The first submission
+// records what the app tracks for the title before it (the baseline); a later one (after
+// a reported failure) keeps it.
 func (e *Engine) submit(ctx context.Context, job store.Job, w work, got []bool) error {
 	if err := e.checkStorage(); err != nil {
 		return e.fail(ctx, job, w.t, CodeImportFailed, "refused before the import: "+err.Error())
@@ -383,7 +468,7 @@ func (e *Engine) submit(ctx context.Context, job store.Job, w work, got []bool) 
 		busy, err = e.p.sonarr.Busy(ctx, w.t.TitleID)
 	}
 	if err != nil {
-		return e.appError(ctx, job, w, "busy check", err)
+		return e.appError(ctx, job, w, "busy check", err, false)
 	}
 	if busy {
 		return e.fail(ctx, job, w.t, CodeTitleBusy, "the app is downloading this title; import it when the download is done")
@@ -399,9 +484,19 @@ func (e *Engine) submit(ctx context.Context, job store.Job, w work, got []bool) 
 		}
 		send = append(send, pl.ar)
 	}
+	baseline := w.imp.Baseline
+	if w.imp.SubmittedAt.IsZero() || len(baseline) == 0 {
+		now, err := e.look(ctx, w.t)
+		if err != nil {
+			return e.appError(ctx, job, w, "files", err, false)
+		}
+		if baseline, err = json.Marshal(now); err != nil {
+			return err
+		}
+	}
 	// "Submitting" is stored before the call, so that after a crash the next pass looks for
 	// the command among the app's before it submits again.
-	imp := store.Import{JobID: job.ID, SubmittedAt: e.now()}
+	imp := store.Import{JobID: job.ID, SubmittedAt: e.now(), Baseline: baseline}
 	if err := e.st.PutImport(ctx, imp); err != nil {
 		return err
 	}
@@ -506,21 +601,53 @@ func (e *Engine) fail(ctx context.Context, job store.Job, t store.Target, code, 
 	return e.p.move(ctx, job, &t, store.Failed, store.Change{ErrorCode: code, ErrorText: t.App + ": " + text})
 }
 
-// appError ends a pass whose call to the app failed. The job stalls when the app does not
-// answer, and also when an import may be running (submitted, not finished): a job is never
-// given up on halfway, whatever the app answers. Otherwise an answer that refuses the call
-// fails the job with import_failed.
-func (e *Engine) appError(ctx context.Context, job store.Job, w work, call string, err error) error {
+// appError ends a pass whose call to the app failed. An app that does not answer stalls
+// the job (arr_unavailable), whatever the state of the import. An answer that refuses the
+// call (a 4xx other than 401, 403 and 429: the film was deleted, say) fails it with
+// import_failed, unless an import may still be running (running): then the job stalls too,
+// so that a command half way is not given up on at the first refusal, but the refusals in a
+// row are counted, and at server.arrStallLimit the job fails with a message that says so.
+func (e *Engine) appError(ctx context.Context, job store.Job, w work, call string, err error, running bool) error {
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
 	text := fmt.Sprintf("%s (%s): %v", w.t.App, call, err)
-	running := !w.imp.SubmittedAt.IsZero() && w.imp.FinishedAt.IsZero()
-	if !Unavailable(err) && !running {
+	if Unavailable(err) {
+		return e.p.move(ctx, job, &w.t, store.Stalled, store.Change{ErrorCode: CodeArrUnavailable, ErrorText: text})
+	}
+	if !running {
 		e.forget(job.ID)
 		return e.p.move(ctx, job, &w.t, store.Failed, store.Change{ErrorCode: CodeImportFailed, ErrorText: text})
 	}
-	return e.p.move(ctx, job, &w.t, store.Stalled, store.Change{ErrorCode: CodeArrUnavailable, ErrorText: text})
+	if n := refusals(w.hist, job.State) + 1; n >= max(e.p.cfg.Server.ArrStallLimit, 1) {
+		e.forget(job.ID)
+		return e.p.move(ctx, job, &w.t, store.Failed, store.Change{
+			ErrorCode: CodeImportFailed,
+			ErrorText: fmt.Sprintf("%s; refused %d times in a row while an import may be running: check the title in %s", text, n, w.t.App),
+		})
+	}
+	return e.p.move(ctx, job, &w.t, store.Stalled, store.Change{ErrorCode: CodeArrUnavailable, ErrorText: text, Note: refusalNote + call})
+}
+
+// refusalNote starts the note of a stall for a refusal while an import may be running.
+const refusalNote = "the app refused: "
+
+// refusals counts the stalls for a refusal in a row out of state at the end of the history:
+// resuming from them does not interrupt the run; a stall for another reason or entering
+// the state otherwise does.
+func refusals(h []store.Event, state store.State) int {
+	n := 0
+	for i := len(h) - 1; i >= 0; i-- {
+		ev := h[i]
+		switch {
+		case ev.From == store.Stalled && ev.To == state:
+		case ev.From == state && ev.To == store.Stalled && strings.HasPrefix(ev.Note, refusalNote):
+			n++
+		default:
+			return n
+		}
+	}
+	return n
 }
 
 // failNote is the note of the transition that reports command id's failure.

@@ -57,8 +57,8 @@ func TestMigrateFromEmpty(t *testing.T) {
 	if v := scalar[int](t, s.w, "PRAGMA user_version"); v != len(ms) {
 		t.Fatalf("schema version %d, want %d", v, len(ms))
 	}
-	if !strings.Contains(logs, "msg=store_migrated version=2") || len(ms) != 2 {
-		t.Fatalf("want both migrations applied (%d files):\n%s", len(ms), logs)
+	if !strings.Contains(logs, "msg=store_migrated version=3") || len(ms) != 3 {
+		t.Fatalf("want every migration applied (%d files):\n%s", len(ms), logs)
 	}
 	for _, table := range []string{"jobs", "files", "uploads", "events", "audit", "targets", "import_rows", "imports", "post_steps"} {
 		if n := scalar[int](t, s.r, "SELECT count(*) FROM sqlite_schema WHERE type = 'table' AND name = '"+table+"'"); n != 1 {
@@ -96,11 +96,11 @@ func TestMigrateFromM1(t *testing.T) {
 	}
 
 	s, logs := openLogged(t, dir)
-	if strings.Contains(logs, "version=1") || !strings.Contains(logs, "msg=store_migrated version=2") {
-		t.Fatalf("want only 0002 applied:\n%s", logs)
+	if strings.Contains(logs, "version=1") || !strings.Contains(logs, "msg=store_migrated version=2") || !strings.Contains(logs, "msg=store_migrated version=3") {
+		t.Fatalf("want only 0002 and 0003 applied:\n%s", logs)
 	}
-	if v := scalar[int](t, s.w, "PRAGMA user_version"); v != 2 {
-		t.Fatalf("schema version %d, want 2", v)
+	if v := scalar[int](t, s.w, "PRAGMA user_version"); v != 3 {
+		t.Fatalf("schema version %d, want 3", v)
 	}
 	j, err := s.Job(ctx, id)
 	if err != nil || j.Owner != "user1" || j.State != Probed {
