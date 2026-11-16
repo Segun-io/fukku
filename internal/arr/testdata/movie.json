@@ -1,0 +1,3 @@
+{"id":7,"title":"Big Buck Bunny","originalLanguage":{"id":1,"name":"English"},"year":2008,"tmdbId":10378,"monitored":true,"qualityProfileId":4,"path":"/data/media/movies/Big Buck Bunny (2008)","tags":[1],
+ "hasFile":true,"movieFileId":12,
+ "movieFile":{"id":12,"movieId":7,"relativePath":"Big Buck Bunny (2008) WEBDL-1080p.mkv","path":"/data/media/movies/Big Buck Bunny (2008)/Big Buck Bunny (2008) WEBDL-1080p.mkv","size":123456789,"dateAdded":"2026-01-01T00:00:00Z","quality":{"quality":{"id":3,"name":"WEBDL-1080p","source":"webdl","resolution":1080},"revision":{"version":1,"real":0,"isRepack":false}},"languages":[{"id":1,"name":"English"}],"mediaInfo":{"audioChannels":2,"runTime":"9:00","videoCodec":"h264"}}}

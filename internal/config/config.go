@@ -53,15 +53,17 @@ type Auth struct {
 
 // Arr configures one Radarr or Sonarr instance. It is enabled when URL is set.
 type Arr struct {
-	URL                string   `yaml:"url"`
-	PublicURL          string   `yaml:"publicUrl"`
-	APIKey             Secret   `yaml:"apiKey"`
-	QualityProfile     string   `yaml:"qualityProfile"`
-	RootFolder         string   `yaml:"rootFolder"`
-	Tag                string   `yaml:"tag"`
-	MonitorAfterImport bool     `yaml:"monitorAfterImport"`
-	ImportMode         string   `yaml:"importMode"`
-	RequestTimeout     Duration `yaml:"requestTimeout"`
+	URL                string `yaml:"url"`
+	PublicURL          string `yaml:"publicUrl"`
+	APIKey             Secret `yaml:"apiKey"`
+	QualityProfile     string `yaml:"qualityProfile"`
+	RootFolder         string `yaml:"rootFolder"`
+	Tag                string `yaml:"tag"`
+	MonitorAfterImport bool   `yaml:"monitorAfterImport"`
+	ImportMode         string `yaml:"importMode"`
+	// MinimumAvailability is when a film Fukku adds counts as available (Radarr only; Sonarr ignores it).
+	MinimumAvailability string   `yaml:"minimumAvailability"`
+	RequestTimeout      Duration `yaml:"requestTimeout"`
 }
 
 type Subtitles struct {

@@ -134,6 +134,7 @@ func validateArr(p *problems, name string, a Arr) {
 		httpURL(p, name+".publicUrl", a.PublicURL)
 	}
 	oneOf(p, name+".importMode", a.ImportMode, "move", "copy")
+	oneOf(p, name+".minimumAvailability", a.MinimumAvailability, "announced", "inCinemas", "released")
 	positive(p, name+".requestTimeout", int64(a.RequestTimeout))
 }
 

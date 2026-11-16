@@ -81,6 +81,7 @@ same settings.
 | `radarr.tag` | `FUKKU_RADARR_TAG` | `fukku` | Tag put on titles Fukku adds, so they are easy to list |
 | `radarr.monitorAfterImport` | `FUKKU_RADARR_MONITOR_AFTER_IMPORT` | `true` | Default of "replace when a better copy appears" for a new film (flow 1) |
 | `radarr.importMode` | `FUKKU_RADARR_IMPORT_MODE` | `move` | `move` or `copy` for Manual Import |
+| `radarr.minimumAvailability` | `FUKKU_RADARR_MINIMUM_AVAILABILITY` | `released` | When a film Fukku adds counts as available for searches: `announced`, `inCinemas` or `released` |
 | `radarr.requestTimeout` | `FUKKU_RADARR_REQUEST_TIMEOUT` | `30s` | Timeout of one API request |
 | `sonarr.url` | `FUKKU_SONARR_URL` | (empty) | Base URL, e.g. `http://sonarr:8989` |
 | `sonarr.publicUrl` | `FUKKU_SONARR_PUBLIC_URL` | (empty) | Address of Sonarr that a browser can open, e.g. `https://sonarr.example.com`; `sonarr.url` is for the server and may not open in a browser. A finished job links to its Manual Import page (`/wanted/missing`). Empty means no link, only the folder to copy |
@@ -90,6 +91,7 @@ same settings.
 | `sonarr.tag` | `FUKKU_SONARR_TAG` | `fukku` | Tag put on shows Fukku adds |
 | `sonarr.monitorAfterImport` | `FUKKU_SONARR_MONITOR_AFTER_IMPORT` | `false` | New shows are added with nothing monitored (flow 3) |
 | `sonarr.importMode` | `FUKKU_SONARR_IMPORT_MODE` | `move` | `move` or `copy` for Manual Import |
+| `sonarr.minimumAvailability` | `FUKKU_SONARR_MINIMUM_AVAILABILITY` | `released` | Not used: Sonarr has no equivalent. Kept because both apps share one settings type |
 | `sonarr.requestTimeout` | `FUKKU_SONARR_REQUEST_TIMEOUT` | `30s` | Timeout of one API request |
 
 ## subtitles

@@ -7,10 +7,11 @@ import "time"
 func Defaults() Config {
 	arr := func(monitor bool) Arr {
 		return Arr{
-			Tag:                "fukku",
-			MonitorAfterImport: monitor,
-			ImportMode:         "move",
-			RequestTimeout:     Duration(30 * time.Second),
+			Tag:                 "fukku",
+			MonitorAfterImport:  monitor,
+			ImportMode:          "move",
+			MinimumAvailability: "released",
+			RequestTimeout:      Duration(30 * time.Second),
 		}
 	}
 	return Config{

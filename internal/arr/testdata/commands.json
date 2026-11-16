@@ -1,0 +1,2 @@
+[{"id":40,"name":"RefreshMovie","status":"completed","result":"successful","message":"Completed"},
+ {"id":41,"name":"ManualImport","status":"failed","result":"unsuccessful","message":"Destination already exists"}]

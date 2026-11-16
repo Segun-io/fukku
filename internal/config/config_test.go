@@ -202,6 +202,7 @@ func TestValidationErrors(t *testing.T) {
 		"chunk > file":       {env: []string{"FUKKU_UPLOAD_CHUNK_SIZE=2GiB", "FUKKU_UPLOAD_MAX_FILE_SIZE=1GiB"}, role: RoleWorker, want: "upload.chunkSize"},
 		"bad extension":      {env: []string{"FUKKU_UPLOAD_VIDEO_EXTENSIONS=mkv"}, role: RoleWorker, want: "upload.videoExtensions"},
 		"bad policy":         {env: []string{"FUKKU_SEASON_DUB_POLICY=yolo"}, role: RoleWorker, want: "seasonDub.policy"},
+		"bad availability":   {env: append([]string{"FUKKU_RADARR_MINIMUM_AVAILABILITY=soon"}, validWeb...), role: RoleWeb, want: "radarr.minimumAvailability"},
 		"combined mismatch":  {env: []string{"FUKKU_MODE=combined"}, role: RoleWorker, want: "fukku combined"},
 	}
 	for name, c := range cases {
