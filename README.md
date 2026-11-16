@@ -37,6 +37,9 @@ fukku web --config fukku.yaml                    # the web process
 fukku worker --config fukku.yaml                 # the worker process
 ```
 
+The web process keeps its state in one SQLite file in `server.dataDir` (local disk only);
+how to back it up while Fukku runs is in [docs/backup.md](docs/backup.md).
+
 ## Try it locally
 
 Fukku runs next to a local Radarr, Sonarr, Bazarr and Jellyfin (fake API keys, 127.0.0.1 only)
@@ -87,6 +90,7 @@ time and never committed.
 | `internal/config` | the settings catalogue, YAML and `FUKKU_*` loading, validation |
 | `internal/web`, `internal/worker` | the two processes |
 | `internal/spool` | the task and result files between the two processes; `spooltest` has an in-memory queue |
+| `internal/store` | the SQLite store: jobs and their state machine, files, uploads, audit log; `storetest` has the in-memory fake and the conformance suite |
 | `internal/jobdir` | the layout of the intake root (`.incoming/`, `jobs/<id>/files`, `archives`, `work`) |
 | `internal/extract`, `internal/safename` | safe zip extraction in the worker; the file-name cleaner |
 | `ui/` | the React single-page app, embedded in the binary |

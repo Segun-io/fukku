@@ -40,7 +40,7 @@ redacted. A test keeps this table and the code in step.
 | `server.uiLanguages` | `FUKKU_SERVER_UI_LANGUAGES` | `en, es` | UI languages offered; the first is the fallback |
 | `server.logFormat` | `FUKKU_SERVER_LOG_FORMAT` | `logfmt` | `logfmt` or `json` |
 | `server.metrics` | `FUKKU_SERVER_METRICS` | `false` | Serve Prometheus metrics on `/metrics` |
-| `server.dataDir` | `FUKKU_SERVER_DATA_DIR` | `/var/lib/fukku` | Database and local state. Must be local disk, never network storage (SQLite) |
+| `server.dataDir` | `FUKKU_SERVER_DATA_DIR` | `/var/lib/fukku` | Database (`fukku.db`) and local state. Must be local disk, never network storage (SQLite). The web process refuses to start when it is not writable, when another process has it open (lock file `fukku.lock`), or when it is on a network filesystem. That check is best effort, by filesystem type, on Linux: NFS, SMB/CIFS, AFS, Coda, NCP, Ceph, 9p (also WSL's Windows drives), GPFS and Lustre are refused; FUSE is allowed, since it is mostly local. Backup: [backup.md](backup.md) |
 | `server.jobStuckAfter` | `FUKKU_SERVER_JOB_STUCK_AFTER` | `1h` | A failed or stalled job older than this logs `job_stuck` once a minute |
 
 ## auth

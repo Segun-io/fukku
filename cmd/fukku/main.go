@@ -26,6 +26,7 @@ import (
 
 	"github.com/segun-io/fukku/internal/config"
 	"github.com/segun-io/fukku/internal/spool"
+	"github.com/segun-io/fukku/internal/store"
 	"github.com/segun-io/fukku/internal/version"
 	"github.com/segun-io/fukku/internal/web"
 	"github.com/segun-io/fukku/internal/worker"
@@ -138,7 +139,12 @@ func runWeb(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 		return err
 	}
 	defer func() { _ = q.Close() }()
-	return web.New(cfg, log, ui.FS(), web.Deps{Queue: q}).Run(ctx)
+	st, err := store.Open(ctx, store.Options{Dir: cfg.Server.DataDir, Log: log})
+	if err != nil {
+		return err
+	}
+	err = web.New(cfg, log, ui.FS(), web.Deps{Queue: q, Store: st}).Run(ctx)
+	return errors.Join(err, st.Close())
 }
 
 // runCombined runs the same web process and worker as split mode, in one process.

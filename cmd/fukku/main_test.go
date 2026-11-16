@@ -43,6 +43,7 @@ func TestCombined(t *testing.T) {
 	cfg.Mode = "combined"
 	cfg.Server.ListenAddress = "127.0.0.1:0"
 	cfg.Worker.SpoolDir = filepath.Join(t.TempDir(), "spool")
+	cfg.Server.DataDir = filepath.Join(t.TempDir(), "data")
 	cfg.Paths.IntakeRoot = t.TempDir()
 	cfg.Worker.PollInterval = config.Duration(5 * time.Millisecond)
 	const job = "0123456789abcdef0123456789abcdef"
