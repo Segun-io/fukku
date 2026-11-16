@@ -555,7 +555,9 @@ The full width of the shell: this is the one table of the app. `BackToJob`, `Flo
 
 From 64rem the strip is a `<table>` whose rows are laid out with CSS grid (`display: grid`
 on the `tr`, named areas): the column headers name the controls, and the headers of the
-file and of the notes are read out but not shown. Below 64rem the same cells are a list;
+file and of the notes are read out but not shown. Because an element laid out as a grid can
+lose its table role in a browser, the roles are written out (`table`, `rowgroup`, `row`,
+`columnheader`, `cell`); do the same wherever a table's rows are not `display: table-row`. Below 64rem the same cells are a list;
 each control carries its caption, and season and episodes share a line. Six states of a
 row, each a `StatusLabel`: "No problems found.", "Needs attention", "Refused", "Skipped",
 "Checking…", "Not checked" (with "Try again" and "Undo my change" under the row).

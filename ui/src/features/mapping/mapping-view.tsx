@@ -255,13 +255,27 @@ export function MappingView({ jobId, proposal }: { jobId: string; proposal: Prop
               {t("mapping.filter.empty")}
             </p>
           ) : wide ? (
-            <table className="block overflow-hidden rounded-xl border bg-card shadow-sm">
-              <caption className="sr-only">{t("mapping.table.label")}</caption>
-              <thead className="block border-b bg-muted">
-                <tr className={cn("grid items-center gap-x-3 px-4", layout.columns, layout.head)}>
+            // The rows are laid out with CSS grid, and an element whose `display` is not the
+            // table's own can lose its table role in a browser. The roles are written out, so
+            // the files stay a table of rows and cells for a screen reader whatever the CSS.
+            <table
+              // biome-ignore lint/a11y/noRedundantRoles: kept when `display` is not `table`
+              role="table"
+              aria-label={t("mapping.table.label")}
+              className="block overflow-hidden rounded-xl border bg-card shadow-sm"
+            >
+              {/* biome-ignore lint/a11y/noRedundantRoles: kept when `display` is not `table` */}
+              <thead role="rowgroup" className="block border-b bg-muted">
+                <tr
+                  // biome-ignore lint/a11y/noRedundantRoles: kept when `display` is not `table`
+                  role="row"
+                  className={cn("grid items-center gap-x-3 px-4", layout.columns, layout.head)}
+                >
                   {table.getVisibleLeafColumns().map((col) => (
                     <th
                       key={col.id}
+                      // biome-ignore lint/a11y/noRedundantRoles: kept when `display` is not `table`
+                      role="columnheader"
                       scope="col"
                       className={cn(
                         "text-left text-sm font-medium text-ink-2",
@@ -279,17 +293,25 @@ export function MappingView({ jobId, proposal }: { jobId: string; proposal: Prop
                   ))}
                 </tr>
               </thead>
-              <tbody className="block divide-y">
+              {/* biome-ignore lint/a11y/noRedundantRoles: kept when `display` is not `table` */}
+              <tbody role="rowgroup" className="block divide-y">
                 {rows.map((row) => (
                   <tr
                     key={row.id}
+                    // biome-ignore lint/a11y/noRedundantRoles: kept when `display` is not `table`
+                    role="row"
                     data-selected={row.getIsSelected() || undefined}
                     className={cn(rowLook, layout.columns, layout.wide)}
                   >
                     {row.getVisibleCells().map((cell) => {
                       const Cell = cells[cell.column.id] ?? Nothing;
                       return (
-                        <td key={cell.id} className={cn("p-0", place[cell.column.id])}>
+                        <td
+                          key={cell.id}
+                          // biome-ignore lint/a11y/noRedundantRoles: kept when `display` is not `table`
+                          role="cell"
+                          className={cn("p-0", place[cell.column.id])}
+                        >
                           <Cell
                             item={row.original}
                             selected={row.getIsSelected()}

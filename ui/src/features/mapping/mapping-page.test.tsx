@@ -65,6 +65,39 @@ describe("the mapping editor", () => {
     expect(rowOf(e03).getByText("No problems found.")).toBeVisible();
   });
 
+  it("is a table of rows, column headers and cells by role, whatever the CSS lays out", async () => {
+    open();
+    await loaded();
+    // The roles are attributes, not only what the elements imply: the rows are CSS grids.
+    const table = screen.getByRole("table", { name: "Files and where they will go" });
+    expect(table).toHaveAttribute("role", "table");
+    const groups = within(table).getAllByRole("rowgroup");
+    expect(groups).toHaveLength(2);
+    for (const group of groups) expect(group).toHaveAttribute("role", "rowgroup");
+
+    const rows = within(table).getAllByRole("row");
+    expect(rows).toHaveLength(6);
+    for (const row of rows) expect(row).toHaveAttribute("role", "row");
+
+    const headers = within(rows[0] as HTMLElement).getAllByRole("columnheader");
+    for (const header of headers) expect(header).toHaveAttribute("role", "columnheader");
+    // The first header holds "select all"; the file and the notes are named for a screen reader.
+    expect(headers.slice(1).map((h) => h.textContent)).toEqual([
+      "File",
+      "Season",
+      "Episodes",
+      "Quality",
+      "Languages",
+      "Skip",
+      "Check",
+    ]);
+
+    const cells = within(rows[1] as HTMLElement).getAllByRole("cell");
+    expect(cells).toHaveLength(headers.length);
+    for (const cell of cells) expect(cell).toHaveAttribute("role", "cell");
+    expect(cells[1]).toHaveTextContent(e01);
+  });
+
   it("says that the season and the episodes come from the file names", async () => {
     open();
     await loaded();
