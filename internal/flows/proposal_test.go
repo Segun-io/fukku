@@ -1,7 +1,6 @@
 package flows
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"slices"
@@ -518,30 +517,6 @@ func TestEditRecheckFailureKeepsTheRow(t *testing.T) {
 	e.series.Err = map[string]error{"Episodes": errors.New("timed out")}
 	if _, err := e.p.View(e.ctx, j); Code(err) != CodeArrUnavailable {
 		t.Errorf("view without episodes: %v", err)
-	}
-}
-
-func TestLanguageHook(t *testing.T) {
-	e := newEnv(t)
-	var seen []string
-	e.p.Language = func(_ context.Context, target store.Target, r arr.Row) []string {
-		seen = append(seen, r.Path)
-		if target.TitleID == showID && slices.ContainsFunc(r.Languages, func(l arr.Language) bool { return l.ID == spanish.ID }) {
-			return []string{"language"}
-		}
-		return nil
-	}
-	j, p := seasonJob(e, 2)
-	if len(seen) != 2 || len(p.Rows[0].Warnings) != 0 {
-		t.Errorf("hook saw %v; row %+v", seen, p.Rows[0])
-	}
-	got := e.edit(j, p.Rows[0].ID, Edit{LanguageIDs: &[]int{spanish.ID}})
-	wantCodes(t, "dub", got.Warnings, "language")
-	if got.Importable {
-		t.Errorf("a warned row is importable: %+v", got)
-	}
-	if rc := e.series.RecheckCalls(); rc[len(rc)-1][0].Languages[0] != spanish {
-		t.Errorf("re-checked %+v", rc[len(rc)-1][0])
 	}
 }
 

@@ -96,6 +96,7 @@ func Defaults() Config {
 			LookupCacheTTL:           Duration(5 * time.Minute),
 			RuntimeMismatchTolerance: 0.25,
 			DVDOrderShare:            0.5,
+			LanguageWarning:          true,
 		},
 		Merge: Merge{
 			Enabled:                     true,

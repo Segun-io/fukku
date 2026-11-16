@@ -97,6 +97,7 @@ type Movie struct {
 	Title            string
 	Year             int
 	OriginalLanguage string
+	QualityProfileID int // 0: the app did not say
 	Monitored        bool
 	Overview         string
 	HasFile          bool       // the app says the film has a file (set on lookup results too)
@@ -137,6 +138,7 @@ type Series struct {
 	Title            string
 	Year             int
 	OriginalLanguage string
+	QualityProfileID int // 0: the app did not say
 	Overview         string
 	Type             string // standard, anime, daily
 	Path             string

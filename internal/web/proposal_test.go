@@ -43,6 +43,7 @@ func newProposalEnv(t *testing.T) *proposalEnv {
 		{ID: 102, SeasonNumber: 1, Number: 2, Title: "Two", RuntimeMs: 1_320_000},
 		{ID: 103, SeasonNumber: 1, Number: 3, Title: "Three", RuntimeMs: 1_320_000},
 	}}
+	series.Library = []arr.Series{{ID: 11, Title: "Some Show", Year: 2010}}
 	series.Proposed = map[string][]arr.Row{}
 	p := flows.NewProposals(cfg, nil, st, nil, series, nil)
 	h := New(cfg, slog.New(slog.DiscardHandler), fstest.MapFS{}, Deps{Store: st, Proposals: p}).Handler()

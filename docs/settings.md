@@ -181,6 +181,7 @@ same settings.
 | `match.doubleEpisodeTolerance` | `FUKKU_MATCH_DOUBLE_EPISODE_TOLERANCE` | `0.15` | Relative tolerance around that ratio |
 | `match.lookupCacheTtl` | `FUKKU_MATCH_LOOKUP_CACHE_TTL` | `5m` | How long the title search (`/api/lookup/…`) reuses an answer of Radarr or Sonarr for the same search term. `0` turns the cache off |
 | `match.runtimeMismatchTolerance` | `FUKKU_MATCH_RUNTIME_MISMATCH_TOLERANCE` | `0.25` | A file whose duration is further than this, relative, from its episodes' expected runtime gets the warning `runtime_mismatch` (unless it looks like a double episode). Sonarr's runtimes are whole minutes and often rounded, so keep some room |
+| `match.languageWarning` | `FUKKU_MATCH_LANGUAGE_WARNING` | `true` | A proposal row whose custom-format score is below its quality profile's `minFormatScore` gets the warning `language`, shown with the matching custom formats and the score, and needs an explicit override to be imported (audit entry `rejection.overridden`). Sonarr and Radarr give no rejection for a dub, even at −10000 against a minimum of 0, so this is the only signal. `false` turns the check off |
 | `match.dvdOrderShare` | `FUKKU_MATCH_DVD_ORDER_SHARE` | `0.5` | When more than this share of a season's comparable rows (at least two) are runtime mismatches, the proposal hints that the files may be in DVD order (Sonarr knows aired order only) |
 
 ## merge

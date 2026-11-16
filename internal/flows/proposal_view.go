@@ -79,6 +79,10 @@ type Rejection struct {
 // Notice is a warning or a hint.
 type Notice struct {
 	Code string `json:"code"`
+	// The facts of the warning `language` (WarnLanguage); absent on the others.
+	CustomFormats  []string `json:"customFormats,omitempty"`
+	Score          *int     `json:"score,omitempty"`
+	MinFormatScore *int     `json:"minFormatScore,omitempty"`
 }
 
 // View returns the job's proposal: pending while the matched step has not finished
@@ -215,7 +219,7 @@ type rowEval struct {
 	offered  bool
 	edit     Edit
 	duration int64
-	warnings []string
+	warnings []Notice
 }
 
 // views computes every row's view and the job's hints. Warnings need all the rows: two
@@ -234,10 +238,10 @@ func (s *session) views(ctx context.Context) ([]RowView, []Notice, error) {
 		e := rowEval{row: r, ar: ar, offered: offered, edit: decodeEdit(r.Edit), duration: probeOf(s.files[r.FileID]).DurationMs}
 		switch {
 		case !offered:
-			e.warnings = append(e.warnings, WarnNotOffered)
+			e.warnings = append(e.warnings, Notice{Code: WarnNotOffered})
 		case s.show():
 			if hasExistingFile(ar, s.idx) {
-				e.warnings = append(e.warnings, WarnExistingFile)
+				e.warnings = append(e.warnings, Notice{Code: WarnExistingFile})
 			}
 			var runtime int64
 			known := len(ar.EpisodeIDs) > 0
@@ -253,9 +257,9 @@ func (s *session) views(ctx context.Context) ([]RowView, []Notice, error) {
 				ratio := float64(e.duration) / float64(runtime)
 				switch {
 				case len(ar.EpisodeIDs) == 1 && math.Abs(ratio-m.DoubleEpisodeRatio) <= m.DoubleEpisodeTolerance*m.DoubleEpisodeRatio:
-					e.warnings = append(e.warnings, WarnDoubleEpisode)
+					e.warnings = append(e.warnings, Notice{Code: WarnDoubleEpisode})
 				case math.Abs(ratio-1) > m.RuntimeMismatchTolerance:
-					e.warnings = append(e.warnings, WarnRuntimeMismatch)
+					e.warnings = append(e.warnings, Notice{Code: WarnRuntimeMismatch})
 					mismatches++
 				}
 			}
@@ -274,22 +278,29 @@ func (s *session) views(ctx context.Context) ([]RowView, []Notice, error) {
 		evals[i] = e
 	}
 	views := make([]RowView, len(evals))
+	lang := s.languageRule()
 	for i := range evals {
 		e := &evals[i]
 		if e.offered && !e.row.Skip && slices.ContainsFunc(e.ar.EpisodeIDs, func(id int) bool { return claims[id] > 1 }) {
-			e.warnings = append(e.warnings, WarnDuplicateEpisode)
+			e.warnings = append(e.warnings, Notice{Code: WarnDuplicateEpisode})
 		}
 		if e.offered && !e.row.Skip && films > 1 {
-			e.warnings = append(e.warnings, WarnDuplicateFilm)
+			e.warnings = append(e.warnings, Notice{Code: WarnDuplicateFilm})
 		}
-		if e.offered && s.p.Language != nil {
-			e.warnings = append(e.warnings, s.p.Language(ctx, s.t, e.ar)...)
+		if e.offered {
+			n, err := lang.check(ctx, e.ar)
+			if err != nil {
+				return nil, nil, err
+			}
+			if n != nil {
+				e.warnings = append(e.warnings, *n)
+			}
 		}
 		views[i] = s.view(*e)
 	}
 	hints := []Notice{}
 	if comparable >= 2 && float64(mismatches) > m.DVDOrderShare*float64(comparable) {
-		hints = append(hints, Notice{HintDVDOrder})
+		hints = append(hints, Notice{Code: HintDVDOrder})
 	}
 	return views, hints, nil
 }
@@ -307,9 +318,7 @@ func (s *session) view(e rowEval) RowView {
 		ID: e.row.ID, FileID: e.row.FileID, Name: path.Base(f.Path), DurationMs: e.duration, Skip: e.row.Skip,
 		Languages: []Ref{}, CustomFormats: []string{}, Rejections: []Rejection{}, Warnings: []Notice{},
 	}
-	for _, w := range e.warnings {
-		v.Warnings = append(v.Warnings, Notice{w})
-	}
+	v.Warnings = append(v.Warnings, e.warnings...)
 	if s.show() {
 		eps := []EpisodeView{}
 		v.Episodes = &eps

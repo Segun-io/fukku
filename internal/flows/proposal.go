@@ -54,6 +54,7 @@ const (
 	WarnDoubleEpisode    = "double_episode"    // about doubleEpisodeRatio times one episode's runtime
 	WarnRuntimeMismatch  = "runtime_mismatch"  // far from the expected runtime, and not a double
 	WarnDuplicateEpisode = "duplicate_episode" // another row that is not skipped claims an episode of this one
+	WarnLanguage         = "language"          // custom-format score below the profile's minimum (language.go)
 	WarnDuplicateFilm    = "duplicate_film"    // another file of the film is not skipped either; a film has one file
 )
 
@@ -82,11 +83,6 @@ func rowsChanged() error {
 // appFailure is a failed call to app, or an answer of it Fukku will not use.
 func appFailure(app string, err error) error { return arrFailure(fmt.Errorf("%s: %w", app, err)) }
 
-// LanguageCheck is the hook for the language warning (#39, decided in #21). It is called
-// for every row the app offered, each time the warnings are computed (after every
-// re-check and on every read), and returns the codes of the warnings to add.
-type LanguageCheck func(ctx context.Context, target store.Target, row arr.Row) []string
-
 // Proposals runs the proposal: the runner step for matched, the view and the edits. Build
 // one per process with NewProposals and share it between the runner and the web server,
 // with the JobLocks the match flow uses. Writes to one job's rows take the job's lock,
@@ -101,9 +97,6 @@ type Proposals struct {
 	sonarr arr.SeriesManager // nil: not configured
 	locks  *JobLocks
 	now    func() time.Time
-
-	// Language is #39's hook; nil adds no warning.
-	Language LanguageCheck
 }
 
 // NewProposals builds the proposal flow. locks is shared with the match flow (nil: its own).

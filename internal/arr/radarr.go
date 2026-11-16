@@ -46,6 +46,7 @@ type movieJSON struct {
 	Title            string         `json:"title"`
 	Year             int            `json:"year"`
 	OriginalLanguage *languageJSON  `json:"originalLanguage"`
+	QualityProfileID int            `json:"qualityProfileId"`
 	Monitored        bool           `json:"monitored"`
 	Overview         string         `json:"overview"`
 	HasFile          bool           `json:"hasFile"`
@@ -54,7 +55,7 @@ type movieJSON struct {
 }
 
 func (j movieJSON) movie() Movie {
-	m := Movie{ID: j.ID, TMDBID: j.TMDBID, Title: j.Title, Year: j.Year, Monitored: j.Monitored, Overview: j.Overview, HasFile: j.HasFile, Path: j.Path}
+	m := Movie{ID: j.ID, TMDBID: j.TMDBID, Title: j.Title, Year: j.Year, Monitored: j.Monitored, Overview: j.Overview, HasFile: j.HasFile, Path: j.Path, QualityProfileID: j.QualityProfileID}
 	if j.OriginalLanguage != nil {
 		m.OriginalLanguage = j.OriginalLanguage.Name
 	}

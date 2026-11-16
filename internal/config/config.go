@@ -159,6 +159,9 @@ type Match struct {
 	// DVDOrderShare: when more than this share of the rows that can be compared are
 	// runtime mismatches, the proposal hints at DVD order.
 	DVDOrderShare float64 `yaml:"dvdOrderShare"`
+	// LanguageWarning: warn on a proposal row whose custom-format score is below its quality
+	// profile's minimum, and ask for an override to import it (decision #21).
+	LanguageWarning bool `yaml:"languageWarning"`
 }
 
 type Merge struct {
