@@ -41,6 +41,9 @@ x-fukku-hardening: &fukku-hardening
 
 services:
   radarr:
+    # A fixed hostname: Docker's random hex names can look like numbers (e.g. 8e5397)
+    # and break apps that store the hostname in YAML.
+    hostname: radarr
     <<: *servarr
     image: linuxserver/radarr:6.4.4.10685-ls327@sha256:7a20f20de63706eee2ff6e4ac1f989a70c961f456aa47ccb6c78f2bb7657d9ae
     environment:
@@ -55,6 +58,9 @@ services:
     ports: ["127.0.0.1:17878:7878"]
 
   sonarr:
+    # A fixed hostname: Docker's random hex names can look like numbers (e.g. 8e5397)
+    # and break apps that store the hostname in YAML.
+    hostname: sonarr
     <<: *servarr
     image: linuxserver/sonarr:4.0.20.3014-ls5@sha256:c7d1df25e428da6c9ace05daea0d34e59522978a3843ea1944812f855af4086c
     environment:
@@ -69,6 +75,9 @@ services:
     ports: ["127.0.0.1:18989:8989"]
 
   bazarr:
+    # A fixed hostname: Docker's random hex names can look like numbers (e.g. 8e5397)
+    # and break apps that store the hostname in YAML.
+    hostname: bazarr
     <<: *servarr
     image: linuxserver/bazarr:v1.6.2-ls372@sha256:832820dec70bce9e912c6eee7a95baf6551e03dbc63325a7208daaa455423752
     # API key and the Radarr/Sonarr connections are seeded into config.yaml by up.sh.
@@ -78,6 +87,9 @@ services:
     ports: ["127.0.0.1:16767:6767"]
 
   jellyfin:
+    # A fixed hostname: Docker's random hex names can look like numbers (e.g. 8e5397)
+    # and break apps that store the hostname in YAML.
+    hostname: jellyfin
     image: jellyfin/jellyfin:12.4.20261026-211555@sha256:fea863d0cd9ec445985d9c75fc6ed64e38a1d2766cf0c250a33d553f4fc1b771
     restart: unless-stopped
     user: ${PUID:-1000}:${PGID:-1000}

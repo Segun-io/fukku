@@ -12,4 +12,5 @@ paths = [
   '''^ui/dist/''',
   '''^bin/''',
   '''^test/env/\.run/''',
+  '''^\.claude/''', # local agent worktrees (each has its own generated test files)
 ]

@@ -7,3 +7,4 @@ ui/dist/*
 *.test
 coverage.out
 .hallmark/
+.claude/
