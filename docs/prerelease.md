@@ -2,7 +2,7 @@
 
 `.github/workflows/prerelease.yml` builds the product image and can publish it to GHCR as a
 private pre-release, so a real host can pull it by digest (plan D5). Releases proper, with
-signing and public images, are M4 (#66). Multi-arch is #19: this image is `linux/amd64` only.
+signing and public images, are M4 (#66). CI builds and smoke-tests both architectures ([image.md](image.md)); this workflow still publishes `linux/amd64` only until the release workflow (#66) pushes a multi-arch manifest.
 
 **Every actual publish needs the maintainer's explicit OK.** The workflow starts only by hand
 (`workflow_dispatch`); nothing triggers it from a push, tag, schedule or pull request.
@@ -16,8 +16,8 @@ Actions tab, workflow `prerelease`, "Run workflow" (or `gh workflow run prerelea
 | `ref` | `main` | branch, tag or commit to build |
 | `publish` | `false` | `false` is a dry run; `true` pushes to GHCR |
 
-- **Dry run (`publish: false`)** builds the image, runs the smoke test (version, ffprobe and
-  mkvmerge with no network, read-only, no capabilities), attaches the SBOM as an artifact and
+- **Dry run (`publish: false`)** builds the image, runs the smoke test (`tools/image-smoke.sh`: version, ffmpeg,
+  ffprobe and mkvmerge with no network, read-only, no capabilities), attaches the SBOM as an artifact and
   prints the tag it would use. Nothing is pushed.
 - **Publish (`publish: true`)** does the same, then the `publish` job waits for approval of the
   `prerelease` environment and pushes the very image that passed the smoke test. It signs in

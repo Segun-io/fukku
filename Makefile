@@ -137,6 +137,10 @@ build: ui ## build bin/fukku for this machine
 image: ## build the product image as fukku:dev
 	docker build --build-arg VERSION=$(VERSION) --build-arg COMMIT=$(COMMIT) -t fukku:dev .
 
+.PHONY: image-smoke
+image-smoke: ## smoke-test fukku:dev (what CI runs on each architecture)
+	tools/image-smoke.sh fukku:dev
+
 ## ---- test environment (plan §14) --------------------------------------------------
 
 .PHONY: env-up
