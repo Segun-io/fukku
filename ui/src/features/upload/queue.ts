@@ -464,3 +464,19 @@ export function secondsLeft(e: Entry): number | undefined {
 export function awaitingFiles(state: QueueState): Entry[] {
   return state.entries.filter((e) => e.status === "awaiting");
 }
+
+/**
+ * What a row shows. While signed out everything that was moving or waiting its turn is
+ * paused until the session is back (plan §10, docs/design.md); `byUser` tells that pause from
+ * one the user chose, which has a Resume button.
+ */
+export function displayStatus(
+  state: Pick<QueueState, "signedOut">,
+  e: Entry,
+): { status: UploadStatus; pausedBySignOut: boolean } {
+  if (e.status === "awaiting") return { status: "paused", pausedBySignOut: false };
+  if (state.signedOut && live.includes(e.status)) {
+    return { status: "paused", pausedBySignOut: true };
+  }
+  return { status: e.status, pausedBySignOut: false };
+}

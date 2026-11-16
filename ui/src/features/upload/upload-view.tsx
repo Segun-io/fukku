@@ -8,7 +8,14 @@ import { SignInAgain } from "@/components/shell/banners";
 import { Notice } from "@/components/shell/notice";
 import { Button } from "@/components/ui/button";
 import { type TFunction, useT } from "@/i18n";
-import { acceptedExtensions, awaitingFiles, type Entry, secondsLeft, showLargeHint } from "./queue";
+import {
+  acceptedExtensions,
+  awaitingFiles,
+  displayStatus,
+  type Entry,
+  secondsLeft,
+  showLargeHint,
+} from "./queue";
 import { useUpload } from "./use-upload";
 
 /** The reason a file failed or was refused, in the user's language. */
@@ -26,13 +33,17 @@ function rowFor(
 ) {
   const { state } = up;
   const choosing = state.phase === "choosing";
-  const status = entry.status === "awaiting" ? "paused" : entry.status;
+  const { status, pausedBySignOut } = displayStatus(state, entry);
   const note =
     entry.status === "failed"
       ? reasonText(t, entry.code)
-      : entry.status === "uploading" && entry.resumedFrom
-        ? t("patterns.progress.hint.resumed", { sent: formatBytes(entry.resumedFrom, entry.size) })
-        : undefined;
+      : pausedBySignOut
+        ? t("upload.pausedSignedOut")
+        : entry.status === "uploading" && entry.resumedFrom
+          ? t("patterns.progress.hint.resumed", {
+              sent: formatBytes(entry.resumedFrom, entry.size),
+            })
+          : undefined;
   return (
     <FileProgress
       key={entry.key}
@@ -44,7 +55,7 @@ function rowFor(
       secondsLeft={secondsLeft(entry)}
       note={note}
       onPause={choosing ? undefined : () => up.pause(entry.key)}
-      onResume={() => up.resume(entry.key)}
+      onResume={pausedBySignOut ? undefined : () => up.resume(entry.key)}
       onRetry={() => up.retry(entry.key)}
       onRemove={() => {
         if (confirmRemove(entry)) up.remove(entry.key);
@@ -77,11 +88,10 @@ export function UploadView({ config }: { config: Session["upload"] }) {
   const confirmRemove = (entry: Entry) =>
     entry.sent === 0 || window.confirm(t("upload.remove.confirm", { name: entry.name }));
 
-  // Discarding deletes what the server has of this upload: it asks first, as removing one
-  // file does, when this page knows that bytes were sent.
+  // Discarding deletes what the server has of this upload, which this page may not know
+  // (after a reload it shows no sent bytes): it always asks first.
   const discard = () => {
-    const sent = state.entries.some((e) => e.sent > 0);
-    if (!sent || window.confirm(t("upload.discard.confirm"))) void up.discard();
+    if (window.confirm(t("upload.discard.confirm"))) void up.discard();
   };
 
   if (up.restoring) {

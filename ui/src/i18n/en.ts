@@ -166,6 +166,7 @@ const en = {
   "upload.submitting": "Every file arrived. Finishing the upload…",
   "upload.submitFailed.title": "The files arrived, but the upload could not be finished",
   "upload.discard": "Discard this upload",
+  "upload.pausedSignedOut": "Paused until you sign in again. It continues from where it stopped.",
   "upload.discard.confirm": "Discard this upload? What was already sent is deleted.",
   "upload.startOver": "Start over",
   "upload.remove.confirm": "Remove {name}? What was already sent is deleted.",

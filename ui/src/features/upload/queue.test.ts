@@ -6,6 +6,7 @@ import {
   backoffMs,
   checkFile,
   classify,
+  displayStatus,
   type FileInfo,
   initialState,
   maxServerAttempts,
@@ -305,6 +306,30 @@ describe("signed out", () => {
     );
     expect(entry(s, "a.mkv").status).toBe("paused");
     expect(toStart(s)).toEqual(["k-b.mkv"]);
+  });
+});
+
+describe("rows while signed out", () => {
+  it("queued and moving files show as paused by the sign-out, the rest as they are", () => {
+    let s = uploading(["a.mkv", "b.mkv", "c.mkv", "d.mkv"]);
+    s = run(
+      s,
+      { type: "start", key: "k-a.mkv", now: 0 },
+      { type: "done", key: "k-b.mkv" },
+      { type: "pause", key: "k-c.mkv" },
+    );
+    const show = (name: string) => displayStatus(s, entry(s, name));
+    expect(show("a.mkv")).toEqual({ status: "uploading", pausedBySignOut: false });
+    expect(show("d.mkv")).toEqual({ status: "queued", pausedBySignOut: false });
+
+    s = run(s, { type: "signedOut" });
+    expect(show("a.mkv")).toEqual({ status: "paused", pausedBySignOut: true });
+    expect(show("d.mkv")).toEqual({ status: "paused", pausedBySignOut: true });
+    expect(show("b.mkv")).toEqual({ status: "done", pausedBySignOut: false });
+    expect(show("c.mkv")).toEqual({ status: "paused", pausedBySignOut: false });
+
+    s = run(s, { type: "signedIn" });
+    expect(show("d.mkv")).toEqual({ status: "queued", pausedBySignOut: false });
   });
 });
 

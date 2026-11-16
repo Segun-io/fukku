@@ -164,6 +164,8 @@ const es: Record<keyof typeof en, string> = {
   "upload.submitting": "Llegaron todos los archivos. Terminando la subida…",
   "upload.submitFailed.title": "Los archivos llegaron, pero no se pudo terminar la subida",
   "upload.discard": "Descartar esta subida",
+  "upload.pausedSignedOut":
+    "En pausa hasta que vuelvas a iniciar sesión. Continúa desde donde se quedó.",
   "upload.discard.confirm": "¿Descartar esta subida? Lo que ya se envió se borra.",
   "upload.startOver": "Empezar de nuevo",
   "upload.remove.confirm": "¿Quitar {name}? Lo que ya se envió se borra.",

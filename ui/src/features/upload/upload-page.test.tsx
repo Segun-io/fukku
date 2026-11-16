@@ -10,6 +10,7 @@ afterEach(() => {
   server.events.removeAllListeners();
   vi.useRealTimers();
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 const MODIFIED = 1_700_000_000_000;
@@ -139,6 +140,11 @@ describe("the upload page", () => {
     const notice = await screen.findAllByRole("link", { name: "Sign in again" }, { timeout: 8000 });
     expect(notice.length).toBeGreaterThan(0);
     expect(router.state.location.pathname).toBe("/upload");
+    // The row is paused until the session is back, not "waiting its turn", and cannot be resumed by hand.
+    expect(screen.getByText("Paused")).toBeInTheDocument();
+    expect(screen.getByText(/Paused until you sign in again/)).toBeInTheDocument();
+    expect(screen.queryByText("Waiting its turn")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Resume/ })).not.toBeInTheDocument();
 
     signedOut = false;
     document.dispatchEvent(new Event("visibilitychange"));
@@ -273,7 +279,16 @@ describe("after a reload", () => {
     await interrupted();
     renderApp("/upload");
     await screen.findByText("Your upload was interrupted");
+    // After a reload the page shows no sent bytes, and still asks first.
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
     await user.click(screen.getByRole("button", { name: "Discard this upload" }));
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(screen.getByText("Your upload was interrupted")).toBeInTheDocument();
+    expect(localStorage.getItem(storageKey)).not.toBeNull();
+
+    confirm.mockReturnValue(true);
+    await user.click(screen.getByRole("button", { name: "Discard this upload" }));
+    expect(confirm).toHaveBeenCalledTimes(2);
     expect(await screen.findByText("Choose your files")).toBeInTheDocument();
     expect(localStorage.getItem(storageKey)).toBeNull();
   });
