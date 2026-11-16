@@ -19,7 +19,7 @@ type expectation struct {
 	offsetMs    int64
 	tag, name   string
 	keepDefault bool
-	coverageMs  int64 // how much shorter than the film an added audio track may be
+	coverageMs  int64 // merge.coverageTolerance
 }
 
 // verify checks the output of a merge against the plan's rules (§8 2a) and returns what
@@ -38,9 +38,8 @@ type expectation struct {
 //     with none read as "und", name), each with the default flag it was given;
 //   - then the added tracks, each of its type and codec (text subtitles may become SubRip),
 //     with the language tag, the name and the default flag the task asked for;
-//   - each added audio track covers the film: by mkvmerge's statistics of the output it
-//     starts no later than the offset and ends no earlier than the video (less a negative
-//     offset), both within the coverage tolerance, so a truncated dub is caught.
+//   - each added audio track covers the film, by the output's own timestamps and mkvmerge's
+//     statistics, within merge.coverageTolerance (see covers), so a truncated dub is caught.
 //
 // mkvmerge's exit code is checked before (mux_failed).
 func verify(e expectation, out media.Probe, outID identification) []string {
@@ -113,10 +112,7 @@ func verify(e expectation, out media.Probe, outID identification) []string {
 			add("track %d has the default flag %t, want %t", i, ot.Properties.DefaultTrack, wantDefault)
 		}
 	}
-	videoMs := int64(0)
-	if len(out.Video) > 0 {
-		videoMs = out.Video[0].DurationMs
-	}
+	film, filmOK := e.filmEnd(out, outID)
 	firstAudio := true
 	for j, at := range e.added {
 		i := len(e.libID.Tracks) + j
@@ -136,7 +132,7 @@ func verify(e expectation, out media.Probe, outID identification) []string {
 		case ot.Properties.DefaultTrack != wantDefault:
 			add("added track %d has the default flag %t, want %t", i, ot.Properties.DefaultTrack, wantDefault)
 		case ot.Type == typeAudio:
-			if why := e.covers(ot, videoMs); why != "" {
+			if why := e.covers(ot, at, film, filmOK); why != "" {
 				add("added track %d %s", i, why)
 			}
 		}
@@ -144,20 +140,95 @@ func verify(e expectation, out media.Probe, outID identification) []string {
 	return bad
 }
 
-// covers checks that an added audio track spans the film (see verify); it says why not.
-func (e expectation) covers(t track, videoMs int64) string {
-	dur, ok := clockMs(t.Properties.TagDuration)
-	if !ok || dur <= 0 {
+// span is when a track starts and ends in ms, by its first timestamp and mkvmerge's
+// statistics (DURATION). ok is false without statistics.
+func span(t track) (start, end int64, ok bool) {
+	d, ok := clockMs(t.Properties.TagDuration)
+	if !ok || d <= 0 {
+		return 0, 0, false
+	}
+	start = t.Properties.MinimumTimestamp / 1e6
+	return start, start + d, true
+}
+
+// claimedEnd is when a track of the upload ends by its DURATION tag: mkvmerge's statistics
+// give its length from its first timestamp, ffmpeg's tag the time it ends.
+func claimedEnd(t track) (int64, bool) {
+	d, ok := clockMs(t.Properties.TagDuration)
+	if !ok || d <= 0 {
+		return 0, false
+	}
+	if t.Properties.StatisticsApp != "" {
+		return t.Properties.MinimumTimestamp/1e6 + d, true
+	}
+	return d, true
+}
+
+// filmEnd is when the film ends in the output: the end of its first video stream (its
+// start time plus its length, so a stream that starts late is not taken to end early), or,
+// when the library file's audio ends sooner, the end of that audio: a dub cannot be asked
+// to cover more than the original does. Without statistics for the video, its probed
+// length is used, and then the library file's. ok is false when none is known.
+func (e expectation) filmEnd(out media.Probe, outID identification) (int64, bool) {
+	var end int64
+	if vs := outID.ofType(typeVideo); len(vs) > 0 {
+		if _, ve, ok := span(vs[0]); ok {
+			end = ve
+		} else if len(out.Video) > 0 && out.Video[0].DurationMs > 0 {
+			end = vs[0].Properties.MinimumTimestamp/1e6 + out.Video[0].DurationMs
+		}
+	}
+	if end == 0 && len(e.lib.Video) > 0 {
+		end = e.lib.Video[0].DurationMs
+	}
+	if end <= 0 {
+		return 0, false
+	}
+	var audioEnd int64
+	for i, lt := range e.libID.Tracks {
+		if lt.Type != typeAudio || i >= len(outID.Tracks) {
+			continue
+		}
+		if _, ae, ok := span(outID.Tracks[i]); ok {
+			audioEnd = max(audioEnd, ae)
+		}
+	}
+	if audioEnd > 0 {
+		end = min(end, audioEnd)
+	}
+	return end, true
+}
+
+// covers checks that an added audio track t, from the upload's track src, covers the film
+// (see verify) and says why not, within the coverage tolerance:
+//
+//   - it starts no later than it did in the upload, shifted by the offset (a dub whose
+//     audio starts 0.8 s into the upload is fine, at 0.8 s);
+//   - it ends no earlier than the film (filmEnd), less a negative offset, which moves the
+//     whole dub earlier;
+//   - and, when the upload's track has a DURATION tag, no earlier than it says the track
+//     ends (claimedEnd), shifted by the offset: a file cut short whose header still states the full
+//     length is caught whatever the offset.
+func (e expectation) covers(t, src track, film int64, filmOK bool) string {
+	start, end, ok := span(t)
+	if !ok {
 		return "has no duration in mkvmerge's statistics, so its length cannot be checked"
 	}
-	start := t.Properties.MinimumTimestamp / 1e6
-	end := start + dur
-	if latest := max(e.offsetMs, 0) + e.coverageMs; start > latest {
-		return fmt.Sprintf("starts at %d ms, later than %d ms (the offset and match.runtimeTolerance)", start, latest)
+	tol := e.coverageMs
+	if latest := max(src.Properties.MinimumTimestamp/1e6+e.offsetMs, 0) + tol; start > latest {
+		return fmt.Sprintf("starts at %d ms, later than %d ms (its start in the upload, the offset and merge.coverageTolerance)", start, latest)
 	}
-	if videoMs > 0 {
-		if earliest := videoMs + min(e.offsetMs, 0) - e.coverageMs; end < earliest {
-			return fmt.Sprintf("ends at %d ms, before %d ms: the video lasts %d ms (is the upload cut short?)", end, earliest, videoMs)
+	if !filmOK {
+		return "cannot be checked against the film, whose length is unknown"
+	}
+	if want := film + min(e.offsetMs, 0); end < want-tol {
+		return fmt.Sprintf("ends at %d ms, before %d ms: the film ends at %d ms, offset %d ms (is the upload cut short?)",
+			end, want, film, e.offsetMs)
+	}
+	if claimed, ok := claimedEnd(src); ok {
+		if want := claimed + e.offsetMs; end < want-tol {
+			return fmt.Sprintf("ends at %d ms, before %d ms: the upload's statistics say it ends at %d ms, offset %d ms (is the upload cut short?)",
+				end, want, claimed, e.offsetMs)
 		}
 	}
 	return ""

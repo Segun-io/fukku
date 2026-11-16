@@ -10,6 +10,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -44,8 +45,8 @@ type Options struct {
 	LanguageTag         string        // merge.languageTag
 	TrackName           string        // merge.trackName
 	KeepOriginalDefault bool          // merge.keepOriginalDefault
-	// CoverageTolerance is how much shorter than the film an added audio track may be,
-	// after the offset (match.runtimeTolerance: the difference flow 2 calls the same cut).
+	// CoverageTolerance is how far an added audio track may fall short of the film and of
+	// its own claimed length (merge.coverageTolerance).
 	CoverageTolerance time.Duration
 	Mkvmerge          string // binary; empty means "mkvmerge" (tests pass a fake)
 	// FreeSpace measures the free bytes on the filesystem of the open directory; nil means
@@ -63,7 +64,7 @@ func OptionsFrom(cfg config.Config) Options {
 		LanguageTag:         cfg.Merge.LanguageTag,
 		TrackName:           cfg.Merge.TrackName,
 		KeepOriginalDefault: cfg.Merge.KeepOriginalDefault,
-		CoverageTolerance:   cfg.Match.RuntimeTolerance.D(),
+		CoverageTolerance:   cfg.Merge.CoverageTolerance.D(),
 	}
 }
 
@@ -105,7 +106,6 @@ func Run(ctx context.Context, job *os.Root, roots []string, args Args, opt Optio
 	if err != nil {
 		return Output{}, err
 	}
-	echo := Output{LanguageTag: p.tag, TrackName: p.name, KeepOriginalDefault: p.keepDefault}
 	if err := job.MkdirAll(jobdir.Work, 0o755); err != nil {
 		return Output{}, err
 	}
@@ -114,7 +114,7 @@ func Run(ctx context.Context, job *os.Root, roots []string, args Args, opt Optio
 		return Output{}, err
 	}
 	if busy {
-		return echoed(refuse(RefusalBusy, "another merge into %s is running", args.Dest), echo), nil
+		return echoed(refuse(RefusalBusy, "another merge into %s is running", args.Dest), p), nil
 	}
 	defer unlock()
 	for _, name := range []string{p.partial, args.Dest} {
@@ -138,11 +138,12 @@ func Run(ctx context.Context, job *os.Root, roots []string, args Args, opt Optio
 	if err != nil {
 		return Output{}, err
 	}
-	return echoed(out, echo), nil
+	return echoed(out, m.p), nil
 }
 
-func echoed(out, echo Output) Output {
-	out.LanguageTag, out.TrackName, out.KeepOriginalDefault = echo.LanguageTag, echo.TrackName, echo.KeepOriginalDefault
+// echoed adds what the added tracks were given to an output.
+func echoed(out Output, p plan) Output {
+	out.LanguageTag, out.TrackName, out.KeepOriginalDefault = p.tag, p.name, p.keepDefault
 	return out
 }
 
@@ -207,10 +208,8 @@ func check(a Args, opt Options) (plan, error) {
 		return bad("library must be an absolute path, got %q", a.Library)
 	case !under(a.Upload, jobdir.Files):
 		return bad("upload must be a clean path under %s/, got %q", jobdir.Files, a.Upload)
-	case !under(a.Dest, jobdir.Files):
-		return bad("dest must be a clean directory under %s/, got %q", jobdir.Files, a.Dest)
-	case within(a.Upload, a.Dest):
-		return bad("the upload %q is inside dest %q, which the merge replaces", a.Upload, a.Dest)
+	case !ValidDest(a.Dest):
+		return bad("dest must be %s/<name>, the name of lower-case letters, digits and -, got %q", jobdir.Merged, a.Dest)
 	case len(a.Tracks) == 0 || len(a.Tracks) > maxTracks:
 		return bad("between 1 and %d tracks must be chosen, got %d", maxTracks, len(a.Tracks))
 	case a.OffsetMs > maxOffset.Milliseconds() || a.OffsetMs < -maxOffset.Milliseconds():
@@ -241,8 +240,16 @@ func under(p, dir string) bool {
 		strings.HasPrefix(p, dir+"/")
 }
 
-// within reports whether p is dir or inside it.
-func within(p, dir string) bool { return p == dir || strings.HasPrefix(p, dir+"/") }
+var destNameRE = regexp.MustCompile(`^[a-z0-9-]{1,64}$`)
+
+// ValidDest reports whether dest can be a merge's destination: merged/<name>, one
+// directory directly under the job's merged/, which only merges use. Two destinations are
+// then never inside one another, and no upload or extraction (which write under files/)
+// can be in one.
+func ValidDest(dest string) bool {
+	name, ok := strings.CutPrefix(dest, jobdir.Merged+"/")
+	return ok && destNameRE.MatchString(name)
+}
 
 type merger struct {
 	job   *os.Root
@@ -296,7 +303,7 @@ func (m *merger) run(ctx context.Context) (Output, error) {
 	// runs on after the picture.
 	if len(libProbe.Video) > 0 && libProbe.Video[0].DurationMs == 0 {
 		from := libProbe.DurationMs - endWindow.Milliseconds()
-		ms, ok, err := media.VideoEndMs(ctx, lib, from, libFormats, m.opt.Probe)
+		ms, ok, err := media.VideoEndMs(ctx, lib, libProbe.Video[0].Index, from, libFormats, m.opt.Probe)
 		if err != nil {
 			return Output{}, err
 		}
@@ -314,7 +321,6 @@ func (m *merger) run(ctx context.Context) (Output, error) {
 	if !sameFile(libRoot, rel, lib, libInfo) {
 		return refuse(RefusalLibraryChanged, "the library file %q changed while it was read", a.Library), nil
 	}
-	libDefaults := m.libraryDefaults(libProbe, libID)
 
 	// 2. The upload: opened, probed as at upload time, identified, the chosen tracks found.
 	up, _ := openRegular(m.job, a.Upload)
@@ -341,6 +347,12 @@ func (m *merger) run(ctx context.Context) (Output, error) {
 	if why != "" {
 		return refuse(RefusalTrackNotFound, "%s", why), nil
 	}
+	// Without an added audio track the original audio stays the default, whatever was
+	// asked: there is nothing to take its place.
+	if !slices.ContainsFunc(added, func(t track) bool { return t.Type == typeAudio }) {
+		m.p.keepDefault = true
+	}
+	libDefaults := m.libraryDefaults(libProbe, libID)
 
 	// 3. Room for the output: the library file plus the added tracks, and the margin.
 	if out, err := m.checkFreeSpace(libInfo.Size(), upProbe.Size, added); err != nil || out.Refusal != "" {

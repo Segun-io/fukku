@@ -4,7 +4,7 @@
 // The library file is never written. mkvmerge reads it through a read-only handle opened
 // inside one of the worker's own paths.libraryRoots (as the library probe of #52 does)
 // and writes a new file in the job directory: first a partial file under work/, which is
-// renamed to its final name under files/ only after verification. A failed, refused or
+// renamed to its final name under merged/ only after verification. A failed, refused or
 // cancelled run removes the partial file and leaves no output, and a run is safe to repeat:
 // it starts by removing what an earlier run of the same task left behind.
 package merge
@@ -40,12 +40,13 @@ type Args struct {
 	// track is default. When false, the first added audio track becomes the default and the
 	// library file's audio tracks lose the flag. Absent means merge.keepOriginalDefault.
 	KeepOriginalDefault *bool `json:"keepOriginalDefault,omitempty"`
-	// Dest is the job-relative directory the verified file is renamed into, under files/
-	// (not files/ itself), e.g. "files/merged". It belongs to this merge: a run removes it
-	// before it starts, so the submitter (#55) must choose one that nothing else in the job
-	// uses or can use: no upload, and no extracted folder (extractions unpack into
-	// files/<archive name>, runner.extractDests), now or later. The upload must not be in it.
-	// One merge into a dest runs at a time; a second one is refused at once (busy).
+	// Dest is the job-relative directory the verified file is renamed into: merged/<name>,
+	// the name of lower-case letters, digits and "-" (ValidDest), e.g. "merged/1" for the
+	// job's first attempt. It belongs to this merge, and a run removes it before it starts.
+	// The job's merged/ holds only merge output (no upload or extraction writes there, they
+	// write under files/), and its directories are never inside one another, so no merge
+	// can remove another's output or a user's file. One merge into a dest runs at a time; a
+	// second one is refused at once (busy).
 	Dest string `json:"dest"`
 }
 

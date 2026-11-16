@@ -23,7 +23,7 @@ import (
 const (
 	filmName   = "Film (2001) WEBDL-1080p.mkv"
 	uploadPath = "files/Film.es.mkv"
-	dest       = "files/merged"
+	dest       = "merged/1"
 	finalPath  = dest + "/" + filmName
 )
 
@@ -506,7 +506,7 @@ func TestMergeBadArgs(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = job.Close() }()
-	good := merge.Args{Library: "/lib/Film.mkv", Upload: "files/a.mkv", Tracks: []int{1}, Dest: "files/merged"}
+	good := merge.Args{Library: "/lib/Film.mkv", Upload: "files/a.mkv", Tracks: []int{1}, Dest: "merged/1"}
 	long := strings.Repeat("x", 300)
 	for name, mutate := range map[string]func(*merge.Args){
 		"relative library": func(a *merge.Args) { a.Library = "lib/Film.mkv" },
@@ -514,9 +514,14 @@ func TestMergeBadArgs(t *testing.T) {
 		"upload archives":  func(a *merge.Args) { a.Upload = "archives/a.mkv" },
 		"upload unclean":   func(a *merge.Args) { a.Upload = "files/./a.mkv" },
 		"dest files":       func(a *merge.Args) { a.Dest = "files" },
+		"dest under files": func(a *merge.Args) { a.Dest = "files/merged" },
+		"dest merged":      func(a *merge.Args) { a.Dest = "merged" },
 		"dest outside":     func(a *merge.Args) { a.Dest = "work/merged" },
-		"upload in dest":   func(a *merge.Args) { a.Dest = "files" + "/" + "a.mkv" },
-		"upload in dest 2": func(a *merge.Args) { a.Upload = "files/merged/a.mkv" },
+		"dest nested":      func(a *merge.Args) { a.Dest = "merged/1/2" },
+		"dest climbs":      func(a *merge.Args) { a.Dest = "merged/.." },
+		"dest upper-case":  func(a *merge.Args) { a.Dest = "merged/One" },
+		"dest dot":         func(a *merge.Args) { a.Dest = "merged/." },
+		"sign language":    func(a *merge.Args) { a.LanguageTag = "sgn-BR" },
 		"underscore tag":   func(a *merge.Args) { a.LanguageTag = "en_US" },
 		"deprecated tag":   func(a *merge.Args) { a.LanguageTag = "iw" },
 		"extlang tag":      func(a *merge.Args) { a.LanguageTag = "zh-yue" },

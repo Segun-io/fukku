@@ -221,10 +221,12 @@ func runFFprobe(ctx context.Context, f *os.File, opt Options, formats string, sh
 		return nil, "", err // a broken install is an error, never a refusal of the upload
 	}
 	// ffprobe shares f's file offset and starts reading where it stands: at the start, not
-	// where an earlier run on the same descriptor left it.
+	// where an earlier run on the same descriptor left it. It is put back at the start
+	// afterwards too, so the caller's own reads begin there.
 	if _, err := f.Seek(0, io.SeekStart); err != nil {
 		return nil, "", err
 	}
+	defer func() { _, _ = f.Seek(0, io.SeekStart) }()
 	probeArgs := append([]string{"-v", "error", "-print_format", "json"}, show...)
 	probeArgs = append(probeArgs, "-format_whitelist", formats, "-protocol_whitelist", protocolWhitelist, "-fd", "3", "-i", "fd:")
 	name := bin

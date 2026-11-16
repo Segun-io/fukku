@@ -14,12 +14,15 @@ import (
 //	                               uploads and extracted archive entries
 //	jobs/<job id>/archives/        uploaded archives; never offered to the *arr apps
 //	jobs/<job id>/work/            worker scratch space (M3: preview clips, merge output)
+//	jobs/<job id>/merged/<name>/   verified merge output (flow 2a, #54): one directory per
+//	                               merge, which no upload or extraction can create
 const (
 	Incoming = ".incoming"
 	Jobs     = "jobs"
 	Files    = "files"
 	Archives = "archives"
 	Work     = "work"
+	Merged   = "merged"
 )
 
 var idRE = regexp.MustCompile(`^[0-9a-f]{32}$`)

@@ -29,6 +29,7 @@ func baseline() (expectation, media.Probe, identification) {
 	libID.Tracks[0].Properties.TagNumberOfFrames = "144"
 	up := media.Probe{DurationMs: 6010}
 	added := []track{mkTrack(1, typeAudio, "AAC", "spa", "es", "", false)}
+	added[0].Properties.StatisticsApp = "mkvmerge"
 	e := expectation{lib: lib, libID: libID, libDefaults: []bool{false, true, false}, up: up, added: added,
 		tag: "es-419", name: "Español (Latino)", keepDefault: true, coverageMs: 500}
 
@@ -103,7 +104,30 @@ func TestVerifyRules(t *testing.T) {
 		}, "track 0 has the default flag false, want true"},
 		"truncated dub": {func(_ *expectation, _ *media.Probe, id *identification) {
 			id.Tracks[3].Properties.TagDuration = "00:00:04.200000000"
-		}, "ends at 4200 ms, before 5520 ms"},
+		}, "ends at 4200 ms, before 6020 ms"},
+		"video starts late, dub ends early": {func(_ *expectation, _ *media.Probe, id *identification) {
+			id.Tracks[0].Properties.MinimumTimestamp = 1.4e9 // e.g. MPEG-TS
+			id.Tracks[0].Properties.TagDuration = "00:00:06.006000000"
+		}, "the film ends at 7406 ms"},
+		"negative offset, truncated": {func(e *expectation, _ *media.Probe, id *identification) {
+			e.offsetMs = -800
+			id.Tracks[3].Properties.TagDuration = "00:00:04.200000000"
+		}, "ends at 4200 ms, before 5220 ms"},
+		"truncated, claims its full length": {func(e *expectation, _ *media.Probe, id *identification) {
+			// 2 s late, the dub should end at 8 s; cut 2 s short it ends with the picture,
+			// which the film bound alone would let pass.
+			e.offsetMs = 2000
+			e.added[0].Properties.TagDuration = "00:00:06.000000000"
+			id.Tracks[3].Properties.MinimumTimestamp = 2e9
+			id.Tracks[3].Properties.TagDuration = "00:00:04.000000000"
+		}, "ends at 6000 ms, before 8000 ms: the upload's statistics"},
+		"no video length, falls back to the library's": {func(_ *expectation, o *media.Probe, id *identification) {
+			o.Video[0].DurationMs = 0
+			id.Tracks[3].Properties.TagDuration = "00:00:04.200000000"
+		}, "the film ends at 6006 ms"},
+		"no video length at all": {func(e *expectation, o *media.Probe, _ *identification) {
+			o.Video[0].DurationMs, e.lib.Video[0].DurationMs = 0, 0
+		}, "whose length is unknown"},
 		"late dub": {func(_ *expectation, _ *media.Probe, id *identification) {
 			id.Tracks[3].Properties.MinimumTimestamp = 2e9
 		}, "starts at 2000 ms"},
@@ -164,6 +188,45 @@ func TestVerifyAllowed(t *testing.T) {
 	outID.Tracks[3].Properties.TagDuration = "00:00:05.200000000"
 	if bad := verify(e, out, outID); len(bad) != 0 {
 		t.Errorf("negative offset: %v", bad)
+	}
+
+	// The library's audio and the dub both end a second before the picture: the film is
+	// as long as its original audio.
+	e, out, outID = baseline()
+	outID.Tracks[1].Properties.TagDuration = "00:00:05.000000000"
+	e.added[0].Properties.TagDuration = "00:00:05.055000000"
+	outID.Tracks[3].Properties.TagDuration = "00:00:05.055000000"
+	if bad := verify(e, out, outID); len(bad) != 0 {
+		t.Errorf("audio shorter than the picture: %v", bad)
+	}
+
+	// An in-sync dub whose audio starts 0.8 s into the upload.
+	e, out, outID = baseline()
+	e.added[0].Properties.MinimumTimestamp = 0.8e9
+	outID.Tracks[3].Properties.MinimumTimestamp = 0.821e9
+	if bad := verify(e, out, outID); len(bad) != 0 {
+		t.Errorf("dub starting at 0.8 s: %v", bad)
+	}
+
+	// An upload written by ffmpeg: its DURATION tag is when the track ends, not its length
+	// after its first timestamp.
+	e, out, outID = baseline()
+	e.added[0].Properties.StatisticsApp = ""
+	e.added[0].Properties.MinimumTimestamp = 0.8e9
+	e.added[0].Properties.TagDuration = "00:00:06.800000000"
+	outID.Tracks[3].Properties.MinimumTimestamp = 0.8e9
+	if bad := verify(e, out, outID); len(bad) != 0 {
+		t.Errorf("ffmpeg's DURATION: %v", bad)
+	}
+
+	// A video stream starting at 1.4 s, the dub with it.
+	e, out, outID = baseline()
+	outID.Tracks[0].Properties.MinimumTimestamp = 1.4e9
+	outID.Tracks[0].Properties.TagDuration = "00:00:06.006000000"
+	outID.Tracks[3].Properties.MinimumTimestamp = 1.4e9
+	e.added[0].Properties.MinimumTimestamp = 1.4e9
+	if bad := verify(e, out, outID); len(bad) != 0 {
+		t.Errorf("late video and dub: %v", bad)
 	}
 
 	// A library video stream without a duration of its own (not measured): only the

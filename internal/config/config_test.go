@@ -298,6 +298,9 @@ func TestMergeTagAndName(t *testing.T) {
 		"FUKKU_MERGE_LANGUAGE_TAG=zh-yue":                    `use "yue"`,
 		"FUKKU_MERGE_LANGUAGE_TAG=sgn-BE-FR":                 `use "sfb"`,
 		"FUKKU_MERGE_LANGUAGE_TAG=ES-419":                    `use "es-419"`,
+		"FUKKU_MERGE_LANGUAGE_TAG=sgn-BR":                    "bzs, not sgn-BR", // mkvmerge stores bzs
+		"FUKKU_MERGE_COVERAGE_TOLERANCE=0s":                  "merge.coverageTolerance",
+		"FUKKU_MERGE_COVERAGE_TOLERANCE=2m":                  "merge.coverageTolerance",
 		"FUKKU_MERGE_TRACK_NAME=a\tb":                        "merge.trackName",
 		"FUKKU_MERGE_TRACK_NAME=" + strings.Repeat("n", 257): "merge.trackName",
 	} {
@@ -306,7 +309,7 @@ func TestMergeTagAndName(t *testing.T) {
 			t.Errorf("%.40s: %v, want %s", env, err, want)
 		}
 	}
-	for _, env := range []string{"FUKKU_MERGE_LANGUAGE_TAG=pt-BR", "FUKKU_MERGE_LANGUAGE_TAG=es", "FUKKU_MERGE_LANGUAGE_TAG=sr-Latn-RS", "FUKKU_MERGE_LANGUAGE_TAG=yue", "FUKKU_MERGE_TRACK_NAME=", "FUKKU_MERGE_TRACK_NAME=Português (Brasil)"} {
+	for _, env := range []string{"FUKKU_MERGE_LANGUAGE_TAG=pt-BR", "FUKKU_MERGE_LANGUAGE_TAG=es", "FUKKU_MERGE_LANGUAGE_TAG=sr-Latn-RS", "FUKKU_MERGE_LANGUAGE_TAG=yue", "FUKKU_MERGE_LANGUAGE_TAG=bzs", "FUKKU_MERGE_TRACK_NAME=", "FUKKU_MERGE_TRACK_NAME=Português (Brasil)"} {
 		if err := Validate(mustLoad(t, Options{Environ: []string{env}}), RoleWorker, ValidateOptions{}); err != nil {
 			t.Errorf("%s: %v", env, err)
 		}

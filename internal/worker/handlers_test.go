@@ -42,8 +42,8 @@ func TestHandlers(t *testing.T) {
 		{spool.KindExtract, `{"archive":"archives/x.zip","dest":"archives/x.zip"}`}, // dest contains the archive
 		{spool.KindLibraryProbe, `{"path":1}`},
 		{spool.KindLibraryProbe, `{"path":"/x","paths":[]}`},
-		{spool.KindMerge, `{"library":"/x","upload":"files/a.mkv","tracks":[1],"dest":"files/m","extra":1}`},
-		{spool.KindMerge, `{"library":"/x","upload":"files/a.mkv","tracks":[],"dest":"files/m"}`}, // merge.ErrBadArgs
+		{spool.KindMerge, `{"library":"/x","upload":"files/a.mkv","tracks":[1],"dest":"merged/1","extra":1}`},
+		{spool.KindMerge, `{"library":"/x","upload":"files/a.mkv","tracks":[],"dest":"merged/1"}`}, // merge.ErrBadArgs
 		{spool.KindMerge, `{"library":"/x","upload":"files/a.mkv","tracks":[1],"dest":"files"}`},
 	} {
 		_, err := h[tc.kind](t.Context(), root, json.RawMessage(tc.args))
@@ -125,7 +125,7 @@ func TestMergeHandler(t *testing.T) {
 	h := Handlers(cfg)[spool.KindMerge]
 	cfg.Paths.LibraryRoots[0] = job
 	for _, p := range []string{filepath.Join(job, "film.mkv"), lib + "/../" + filepath.Base(job) + "/film.mkv"} {
-		args, _ := json.Marshal(merge.Args{Library: p, Upload: "files/a.mkv", Tracks: []int{1}, Dest: "files/merged"})
+		args, _ := json.Marshal(merge.Args{Library: p, Upload: "files/a.mkv", Tracks: []int{1}, Dest: "merged/1"})
 		out, err := h(t.Context(), root, args)
 		if err != nil {
 			t.Fatal(err)

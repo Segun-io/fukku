@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -187,5 +188,64 @@ func TestMergeSyncFailureUndone(t *testing.T) {
 	entries, _ := os.ReadDir(filepath.Join(e.jobDir, dest))
 	if len(entries) != 0 {
 		t.Errorf("dest holds %v", entries)
+	}
+}
+
+// The library file's audio and the dub both end a second before the picture: the dub
+// covers the film as far as the original does, and the merge passes.
+func TestMergeAudioEndsBeforePicture(t *testing.T) {
+	gen := func(lang string, hz int) func(string) error {
+		return func(p string) error {
+			ffmpeg(t, "-f", "lavfi", "-i", "testsrc2=size=640x360:rate=24000/1001:duration=6",
+				"-f", "lavfi", "-i", "sine=frequency="+strconv.Itoa(hz)+":sample_rate=48000:duration=5",
+				"-map", "0:v", "-map", "1:a", "-c:v", "libx264", "-preset", "ultrafast", "-c:a", "aac",
+				"-metadata:s:a:0", "language="+lang, "-disposition:a:0", "default", p)
+			return nil
+		}
+	}
+	e := newEnvLib(t, filmName, gen("eng", 880), gen("spa", 440))
+	out := e.run(t, e.args(1), options())
+	e.check(t, out)
+	if !out.OK {
+		t.Fatalf("output %+v", out)
+	}
+}
+
+// An in-sync dub whose audio starts 0.8 s into the upload keeps that start, and passes.
+func TestMergeDubStartsLate(t *testing.T) {
+	e := newEnv(t, func(p string) error {
+		src := p + ".src.mkv"
+		if err := fixtures.Generate(context.Background(), src, dubSpec); err != nil {
+			return err
+		}
+		defer func() { _ = os.Remove(src) }()
+		return fixtures.ShiftAudio(context.Background(), src, p, 800*time.Millisecond)
+	})
+	out := e.run(t, e.args(1), options())
+	e.check(t, out)
+	if !out.OK {
+		t.Fatalf("output %+v", out)
+	}
+	tracks := identify(t, filepath.Join(e.jobDir, finalPath))
+	if ms := tracks[len(tracks)-1].Properties.MinimumTimestamp / 1e6; ms < 780 || ms > 850 {
+		t.Errorf("the dub starts at %d ms, want about 800", ms)
+	}
+}
+
+// Adding only subtitles leaves the original audio the default, even when the dub was to
+// become the default.
+func TestMergeSubtitlesOnly(t *testing.T) {
+	e := newEnv(t, nil)
+	a := e.args(2)
+	keep := false
+	a.KeepOriginalDefault = &keep
+	out := e.run(t, a, options())
+	e.check(t, out)
+	if !out.OK || !out.KeepOriginalDefault {
+		t.Fatalf("output %+v", out)
+	}
+	want := "video:und: audio:en::default subtitles:en: subtitles:es-419:Español (Latino)"
+	if got := describe(identify(t, filepath.Join(e.jobDir, finalPath))); got != want {
+		t.Errorf("tracks\n got %s\nwant %s", got, want)
 	}
 }

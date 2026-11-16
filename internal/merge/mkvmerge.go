@@ -60,8 +60,12 @@ type track struct {
 		PixelDimensions   string `json:"pixel_dimensions"`
 		TagNumberOfBytes  string `json:"tag_number_of_bytes"`
 		TagNumberOfFrames string `json:"tag_number_of_frames"`
-		TagDuration       string `json:"tag_duration"`      // statistics: "00:01:00.020000000"
-		MinimumTimestamp  int64  `json:"minimum_timestamp"` // ns, the track's first timestamp
+		TagDuration       string `json:"tag_duration"` // statistics: "00:01:00.020000000"
+		// StatisticsApp is set when mkvmerge wrote the statistics: its DURATION is then the
+		// track's length from its first timestamp. ffmpeg writes a DURATION tag of its own,
+		// the time at which the track ends.
+		StatisticsApp    string `json:"tag__statistics_writing_app"`
+		MinimumTimestamp int64  `json:"minimum_timestamp"` // ns, the track's first timestamp
 	} `json:"properties"`
 }
 
