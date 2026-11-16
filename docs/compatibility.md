@@ -9,11 +9,23 @@ with what the plan assumes; they do not assume. Run them after bumping any pinne
 make env-up            # start and seed the pinned apps (idempotent)
 make probes-online     # all probes; `make probes` runs only those that need no internet
 make compat            # write the results into the table below
+make probes-gate       # the CI rule: fail on differs or error, warn on an upstream skip
 ```
+
+Known findings are listed in `test/probes/accepted.json` (probe, verdict, tracking issue or plan
+section, reason). The CI gate reports them as warnings and the table marks them "accepted"; any
+other **differs** or **error** fails, and an entry whose probe now passes is reported as one that
+can be removed.
+
+To see what an upstream metadata outage looks like without touching the internet, run
+`FUKKU_TEST_SIMULATE_METADATA_OUTAGE=1 make probes-online`: every probe that adds a title ends as
+**skipped** with the reason "upstream metadata service unavailable".
 
 Verdicts: **confirmed** (behaves as the plan says), **differs** (the plan or the design must
 change), **partial** (only part of the claim could be checked), **observed** (the plan made no
-claim; this is what happens), **skipped**, **error** (the probe could not finish).
+claim; this is what happens), **skipped** (not run, with the reason: it needs the internet, or
+the *arr app could not reach its metadata service; an earlier verdict it replaced is named),
+**error** (the probe could not finish).
 
 Probe IDs: `B<n>` are the behaviours in plan §7, `C<n>` the API contracts in plan §6, `J<n>`
 Jellyfin effects the plan listed as unverified.

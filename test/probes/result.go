@@ -28,6 +28,16 @@ const (
 	Error     Verdict = "error"     // the probe could not run to the end
 )
 
+// UpstreamUnavailable is the Reason of a probe skipped because an *arr app could not reach
+// its metadata service (a real outage, or one simulated with FUKKU_TEST_SIMULATE_METADATA_OUTAGE=1).
+const UpstreamUnavailable = "upstream metadata service unavailable"
+
+// Earlier is the verdict of the run a skipped result replaced.
+type Earlier struct {
+	Verdict Verdict   `json:"verdict"`
+	At      time.Time `json:"at"`
+}
+
 // Result is one probe's outcome, written as <dir>/<ID>.json.
 type Result struct {
 	ID       string         `json:"id"`
@@ -39,14 +49,32 @@ type Result struct {
 	Online   bool           `json:"online"`
 	Evidence map[string]any `json:"evidence,omitempty"`
 	Error    string         `json:"error,omitempty"`
-	Duration string         `json:"duration"`
-	At       time.Time      `json:"at"`
+	// Reason says why a probe was skipped.
+	Reason string `json:"reason,omitempty"`
+	// Earlier is the verdict this skipped run replaced; a skip never hides it.
+	Earlier  *Earlier  `json:"earlier,omitempty"`
+	Duration string    `json:"duration"`
+	At       time.Time `json:"at"`
 }
 
-// Write stores r in dir.
+// Write stores r in dir. A skipped result keeps the verdict of the run it replaces in
+// Earlier, so a skip never overwrites an earlier verdict silently.
 func (r Result) Write(dir string) error {
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return err
+	}
+	if r.Verdict == Skipped && r.Earlier == nil {
+		if data, err := os.ReadFile(filepath.Join(dir, r.ID+".json")); err == nil {
+			var old Result
+			if json.Unmarshal(data, &old) == nil {
+				switch {
+				case old.Verdict == Skipped:
+					r.Earlier = old.Earlier
+				case old.Verdict != "":
+					r.Earlier = &Earlier{Verdict: old.Verdict, At: old.At}
+				}
+			}
+		}
 	}
 	data, err := json.MarshalIndent(r, "", "  ")
 	if err != nil {

@@ -66,6 +66,11 @@ jobs:
       # Pull requests run the probes that need no internet; pushes, the schedule and manual
       # runs also run those that add titles through the *arr metadata services.
       - run: make ${{ github.event_name == 'pull_request' && 'probes' || 'probes-online' }}
+      # Fails on a differs or error verdict not listed in test/probes/accepted.json (listed ones
+      # warn); a probe skipped because the upstream metadata
+      # service was unavailable passes with a warning annotation.
+      - if: always()
+        run: make probes-gate
       - if: always()
         run: make compat || true
       - if: always()

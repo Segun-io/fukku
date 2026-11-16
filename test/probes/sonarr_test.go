@@ -16,6 +16,7 @@ import (
 // for its episodes.
 func addShow(p *probe, s show) (M, []M) {
 	so := env.Sonarr
+	p.needMeta("series lookup")
 	var existing []M
 	p.must(so.Get(p.ctx, "/series", &existing), "series")
 	for _, m := range existing {
@@ -25,7 +26,7 @@ func addShow(p *probe, s show) (M, []M) {
 	}
 	var lookup []M
 	// The lookup goes through Sonarr to its public metadata service, which can be slow.
-	p.must(testenv.WaitFor(p.ctx, 4*time.Minute, 5*time.Second, "series lookup", func() (bool, error) {
+	p.meta(testenv.WaitFor(p.ctx, 4*time.Minute, 5*time.Second, "series lookup", func() (bool, error) {
 		err := so.Get(p.ctx, "/series/lookup"+testenv.Q("term", fmt.Sprintf("tvdb:%d", s.tvdb)), &lookup)
 		return err == nil && len(lookup) > 0, err
 	}), "lookup")
@@ -38,13 +39,19 @@ func addShow(p *probe, s show) (M, []M) {
 	body["seriesType"] = "standard"
 	body["addOptions"] = M{"monitor": "none", "searchForMissingEpisodes": false, "searchForCutoffUnmetEpisodes": false}
 	var series M
-	p.must(so.Post(p.ctx, "/series", body, &series), "add series")
+	p.meta(so.Post(p.ctx, "/series", body, &series), "add series")
 	p.fresh(series["path"].(string))
 	var episodes []M
-	p.must(testenv.WaitFor(p.ctx, 2*time.Minute, 2*time.Second, "episodes", func() (bool, error) {
+	// Sonarr fills in the episodes from its metadata service after the add; none appearing
+	// means that service did not answer.
+	err := testenv.WaitFor(p.ctx, 2*time.Minute, 2*time.Second, "episodes", func() (bool, error) {
 		err := so.Get(p.ctx, fmt.Sprintf("/episode?seriesId=%d", testenv.ID(series)), &episodes)
 		return len(episodes) > 0, err
-	}), "episodes")
+	})
+	if err != nil && len(episodes) == 0 && p.ctx.Err() == nil && testenv.StatusOf(err) == 0 {
+		p.outage("no episodes after the add: "+err.Error(), "no episodes after the add")
+	}
+	p.must(err, "episodes")
 	return series, episodes
 }
 
@@ -70,11 +77,21 @@ func episodeFile(p *probe, seriesID int, ep M) M {
 	return f
 }
 
+var (
+	specC6Sonarr = spec{"C6-sonarr", "Sonarr Manual Import proposal: folder and series scoping",
+		"Plan §6: `GET /manualimport?folder=<job dir>` + `seriesId` + `seasonNumber` proposes the job's files", []string{"sonarr"}}
+	specB8Sonarr = spec{"B8-sonarr", "Sonarr Manual Import with explicit episode ids imports despite rejections",
+		"Manual Import with an explicit episode id is expected to import even when the proposal lists rejections (unverified)", []string{"sonarr"}}
+	specB3Sonarr = spec{"B3-sonarr", "Sonarr adopts an untracked upgrade in the season folder on rescan",
+		"Assumed to behave like Radarr (B3) until a probe shows otherwise", []string{"sonarr"}}
+)
+
 // TestSonarr runs the Sonarr probes in order on one show: B7, B8, then B3 for episodes.
 func TestSonarr(t *testing.T) {
 	setup := newProbe(t, "B7-sonarr", "Sonarr-style profiles reject a not-original-language episode in the proposal",
 		"With \"not original language\" scored very negatively, Manual Import proposals show a rejection for a dubbed episode and none for the original",
 		true, "sonarr")
+	setup.alsoSkips(specC6Sonarr, specB8Sonarr, specB3Sonarr)
 	series, eps := addShow(setup, pioneerOne)
 	sid := testenv.ID(series)
 	e1, e2 := episode(eps, 1, 1), episode(eps, 1, 2)
@@ -88,9 +105,7 @@ func TestSonarr(t *testing.T) {
 	items := proposal(setup, env.Sonarr, dir)
 	scoped := proposal(setup, env.Sonarr, dir, "seriesId", fmt.Sprint(sid), "seasonNumber", "1")
 	{
-		c6 := newProbe(t, "C6-sonarr", "Sonarr Manual Import proposal: folder and series scoping",
-			"Plan §6: `GET /manualimport?folder=<job dir>` + `seriesId` + `seasonNumber` proposes the job's files",
-			true, "sonarr")
+		c6 := specC6Sonarr.probe(t)
 		byFolder, withID := itemFor(items, orig) != nil, itemFor(scoped, orig) != nil
 		c6.evidence("folderOnlyFindsFile", byFolder)
 		c6.evidence("folderPlusSeriesIdFindsFile", withID)
@@ -118,9 +133,7 @@ func TestSonarr(t *testing.T) {
 	}
 
 	t.Run("B8", func(t *testing.T) {
-		p := newProbe(t, "B8-sonarr", "Sonarr Manual Import with explicit episode ids imports despite rejections",
-			"Manual Import with an explicit episode id is expected to import even when the proposal lists rejections (unverified)",
-			true, "sonarr")
+		p := specB8Sonarr.probe(t)
 		// The custom-format score gives no rejection (B7-sonarr), so use "not an upgrade":
 		// import the dub, then a lower-quality copy over it.
 		cmd := manualImport(p, env.Sonarr, []M{itemFor(items, dub)}, M{"seriesId": sid, "episodeIds": []int{testenv.ID(e1)}}, "move")
@@ -149,9 +162,7 @@ func TestSonarr(t *testing.T) {
 	})
 
 	t.Run("B3", func(t *testing.T) {
-		p := newProbe(t, "B3-sonarr", "Sonarr adopts an untracked upgrade in the season folder on rescan",
-			"Assumed to behave like Radarr (B3) until a probe shows otherwise",
-			true, "sonarr")
+		p := specB3Sonarr.probe(t)
 		item := itemFor(items, orig)
 		cmd := manualImport(p, env.Sonarr, []M{item}, M{"seriesId": sid, "episodeIds": []int{testenv.ID(e2)}}, "move")
 		tracked := episodeFile(p, sid, e2)

@@ -14,12 +14,22 @@ import (
 	"github.com/segun-io/fukku/test/testenv"
 )
 
+var (
+	specB3 = spec{"B3", "Radarr adopts an untracked upgrade in the film folder on rescan",
+		"On rescan, an untracked video that is an upgrade (e.g. Bluray-1080p over WEBDL-1080p) becomes the film's file; one that is not (a label with no quality token) is left alone", []string{"radarr"}}
+	specC3 = spec{"C3", "Radarr movie editor sets monitoring",
+		"`PUT /api/v3/movie/editor {movieIds, monitored}` (spec in the plan)", []string{"radarr"}}
+	specC2 = spec{"C2", "Radarr re-checks edited Manual Import rows",
+		"`POST /api/v3/manualimport` with edited items returns a fresh decision (spec in the plan)", []string{"radarr"}}
+)
+
 // C1: the ManualImport command imports a staged file (plan §6 "Import", unverified).
 // B3: Radarr adopts an untracked file in the film folder on rescan if it is an upgrade.
 func TestB3RadarrAdoptsUpgradesOnRescan(t *testing.T) {
 	c1 := newProbe(t, "C1", "Radarr Manual Import command imports a staged file by rename",
 		"`POST /api/v3/command {name: ManualImport, importMode: move, files}` imports; poll `/command/<id>`; `/moviefile` confirms (unverified in the plan)",
 		true, "radarr")
+	c1.alsoSkips(specB3)
 	movie := addFilm(c1, bigBuckBunny)
 	id := testenv.ID(movie)
 	dir := c1.fresh(intake("C1"))
@@ -47,9 +57,7 @@ func TestB3RadarrAdoptsUpgradesOnRescan(t *testing.T) {
 	}
 
 	t.Run("B3", func(t *testing.T) {
-		p := newProbe(t, "B3", "Radarr adopts an untracked upgrade in the film folder on rescan",
-			"On rescan, an untracked video that is an upgrade (e.g. Bluray-1080p over WEBDL-1080p) becomes the film's file; one that is not (a label with no quality token) is left alone",
-			true, "radarr")
+		p := specB3.probe(t)
 		folder := movie["path"].(string)
 		losing := filepath.Join(folder, "Big Buck Bunny (2008) - Español.mkv")
 		p.video(losing, long(bigBuckBunny.minutes, "spa"))
@@ -195,6 +203,7 @@ func TestB6UpgradeWouldDropDub(t *testing.T) {
 	p := newProbe(t, "B6", "With upgrades allowed, a better release without the dub replaces a merged file",
 		"A merged file (original + dub) can be replaced by a better release that lacks the dub; unmonitoring is the protection",
 		true, "radarr")
+	p.alsoSkips(specC3)
 	movie := addFilm(p, elephantsDream)
 	id := testenv.ID(movie)
 	importFilm(p, movie, elephantsDream, elephantsDream.dotted()+".1080p.WEB-DL", "eng", "spa")
@@ -206,8 +215,7 @@ func TestB6UpgradeWouldDropDub(t *testing.T) {
 	accepted := !hasRejection(rejections(item), "upgrade", "cutoff")
 	p.observe("a Bluray-1080p release without the dub, over the merged WEBDL-1080p: rejections %v (accepted as an upgrade: %v)", rejections(item), accepted)
 
-	c3 := newProbe(t, "C3", "Radarr movie editor sets monitoring",
-		"`PUT /api/v3/movie/editor {movieIds, monitored}` (spec in the plan)", true, "radarr")
+	c3 := specC3.probe(t)
 	c3.must(env.Radarr.Put(c3.ctx, "/movie/editor", M{"movieIds": []int{id}, "monitored": false}, nil), "movie editor")
 	var m M
 	c3.must(env.Radarr.Get(c3.ctx, fmt.Sprintf("/movie/%d", id), &m), "get movie")
@@ -232,6 +240,7 @@ func TestB7RadarrLanguageOnImport(t *testing.T) {
 	p := newProbe(t, "B7-radarr", "Radarr's profile language does not reject imports; custom formats are scored",
 		"The profile language (Original) is used when choosing releases, not on import; the \"not original language\" custom format is applied on import",
 		true, "radarr")
+	p.alsoSkips(specC2)
 	movie := addFilm(p, cosmosLaundromat)
 	id := testenv.ID(movie)
 	dir := p.fresh(intake("B7-radarr"))
@@ -247,8 +256,7 @@ func TestB7RadarrLanguageOnImport(t *testing.T) {
 	p.observe("Spanish audio tag only: languages %v, formats %v, score %v, rejections %v", st["languages"], st["customFormats"], st["customFormatScore"], st["rejections"])
 
 	// C2: re-check an edited row (POST /manualimport), here forcing the language to Spanish.
-	c2 := newProbe(t, "C2", "Radarr re-checks edited Manual Import rows",
-		"`POST /api/v3/manualimport` with edited items returns a fresh decision (spec in the plan)", true, "radarr")
+	c2 := specC2.probe(t)
 	edit := itemFor(items, tagged)
 	edit["languages"] = []M{{"id": 3, "name": "Spanish"}}
 	edit["movieId"] = id

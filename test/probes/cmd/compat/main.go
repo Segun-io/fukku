@@ -20,15 +20,43 @@ const (
 func main() {
 	results := flag.String("results", "test/env/.run/results", "directory with probe results")
 	doc := flag.String("doc", "docs/compatibility.md", "document to update")
+	accepted := flag.String("accepted", "test/probes/accepted.json", "recorded differences (accepted findings)")
+	gate := flag.Bool("gate", false, "instead of writing the document, print CI annotations and exit 1 on a differs or error verdict")
 	flag.Parse()
-	if err := run(*results, *doc); err != nil {
+	if *gate {
+		os.Exit(runGate(*results, *accepted))
+	}
+	if err := run(*results, *doc, *accepted); err != nil {
 		fmt.Fprintln(os.Stderr, "compat:", err)
 		os.Exit(1)
 	}
 }
 
-func run(dir, doc string) error {
+// runGate applies the CI rule (probes.Gate) to the results in dir and returns the exit code.
+func runGate(dir, acceptedPath string) int {
+	rs, _, err := probes.ReadResults(dir)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "compat:", err)
+		return 1
+	}
+	acc, err := probes.ReadAccepted(acceptedPath)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "compat:", err)
+		return 1
+	}
+	code, annotations := probes.Gate(rs, acc)
+	for _, a := range annotations {
+		fmt.Println(a)
+	}
+	return code
+}
+
+func run(dir, doc, acceptedPath string) error {
 	rs, versions, err := probes.ReadResults(dir)
+	if err != nil {
+		return err
+	}
+	acc, err := probes.ReadAccepted(acceptedPath)
 	if err != nil {
 		return err
 	}
@@ -44,11 +72,15 @@ func run(dir, doc string) error {
 	if i < 0 || j < i {
 		return fmt.Errorf("%s has no %s … %s block", doc, startMarker, endMarker)
 	}
-	out := text[:i+len(startMarker)] + "\n" + render(rs, versions) + text[j:]
+	out := text[:i+len(startMarker)] + "\n" + render(rs, versions, acc) + text[j:]
 	return os.WriteFile(doc, []byte(out), 0o644)
 }
 
-func render(rs []probes.Result, versions map[string]string) string {
+func render(rs []probes.Result, versions map[string]string, accepted []probes.Accepted) string {
+	acc := map[string]probes.Accepted{}
+	for _, a := range accepted {
+		acc[a.ID] = a
+	}
 	var b strings.Builder
 	var apps []string
 	for k := range versions {
@@ -72,10 +104,29 @@ func render(rs []probes.Result, versions map[string]string) string {
 		if r.Error != "" {
 			obs += "; error: " + r.Error
 		}
-		fmt.Fprintf(&b, "| %s | %s | %s | %s | **%s** |\n", r.ID, cell(r.Title), cell(r.Claim), cell(obs), r.Verdict)
+		fmt.Fprintf(&b, "| %s | %s | %s | %s | %s |\n", r.ID, cell(r.Title), cell(r.Claim), cell(obs), verdict(r, acc[r.ID]))
 	}
 	b.WriteString("\n")
 	return b.String()
+}
+
+// verdict is the verdict cell. A skipped probe says why, and which verdict of an earlier
+// run it replaced, so a skip never hides a recorded result.
+func verdict(r probes.Result, a probes.Accepted) string {
+	s := "**" + string(r.Verdict) + "**"
+	if a.ID != "" && a.Verdict == r.Verdict {
+		return cell(s + " (accepted: " + a.Ref + ")")
+	}
+	if r.Verdict != probes.Skipped {
+		return s
+	}
+	if r.Reason != "" {
+		s += ": " + r.Reason
+	}
+	if r.Earlier != nil {
+		s += fmt.Sprintf(" (earlier run, %s: %s)", r.Earlier.At.Format("2006-01-02"), r.Earlier.Verdict)
+	}
+	return cell(s)
 }
 
 func cell(s string) string {

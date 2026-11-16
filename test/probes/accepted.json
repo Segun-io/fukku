@@ -1,0 +1,26 @@
+[
+  {
+    "id": "B3",
+    "verdict": "differs",
+    "ref": "#20",
+    "reason": "Radarr keeps untracked film-folder videos as extra movie-file records instead of adopting them"
+  },
+  {
+    "id": "B7-sonarr",
+    "verdict": "differs",
+    "ref": "#21, plan §7 B7",
+    "reason": "Sonarr does not reject a not-original-language episode, even at a very negative score"
+  },
+  {
+    "id": "C6",
+    "verdict": "differs",
+    "ref": "plan §6, corrected in M0",
+    "reason": "With movieId, Radarr ignores the folder and scans the film's own folder"
+  },
+  {
+    "id": "C6-sonarr",
+    "verdict": "differs",
+    "ref": "plan §6, corrected in M0",
+    "reason": "With seriesId and seasonNumber, Sonarr ignores the folder and scans the series' own folder"
+  }
+]

@@ -23,6 +23,9 @@ import (
 var (
 	env    *testenv.Env
 	online bool
+	// simulateOutage makes every lookup and add behave as if the *arr metadata services were
+	// unreachable, without touching the internet (FUKKU_TEST_SIMULATE_METADATA_OUTAGE=1).
+	simulateOutage bool
 )
 
 func TestMain(m *testing.M) {
@@ -33,6 +36,7 @@ func TestMain(m *testing.M) {
 		os.Exit(2)
 	}
 	online = os.Getenv("FUKKU_TEST_ONLINE") == "1"
+	simulateOutage = os.Getenv("FUKKU_TEST_SIMULATE_METADATA_OUTAGE") == "1"
 	runTag = "R" + strings.ToUpper(strconv.FormatInt(time.Now().Unix()%(36*36*36*36), 36))
 	// Jellyfin keeps items (and merges) by path, so every run uses fresh folder names and
 	// first removes the folders of earlier runs.
@@ -63,6 +67,25 @@ type probe struct {
 	ctx   context.Context
 	r     Result
 	start time.Time
+	// rest are probes of the same test that cannot run if this one is skipped upstream.
+	rest []spec
+}
+
+// spec is a probe's identity, kept apart so a probe that never gets to run can still be
+// recorded (as skipped) when an earlier probe of its test is.
+type spec struct {
+	id, title, claim string
+	apps             []string
+}
+
+func (s spec) result() Result {
+	return Result{ID: s.id, Title: s.title, Claim: s.claim, Apps: s.apps, Online: true, Evidence: map[string]any{}}
+}
+
+// probe starts the probe described by s; it needs the metadata services.
+func (s spec) probe(t *testing.T) *probe {
+	t.Helper()
+	return newProbe(t, s.id, s.title, s.claim, true, s.apps...)
 }
 
 func newProbe(t *testing.T, id, title, claim string, needsOnline bool, apps ...string) *probe {
@@ -85,6 +108,7 @@ func newProbe(t *testing.T, id, title, claim string, needsOnline bool, apps ...s
 	})
 	if needsOnline && !online {
 		p.r.Verdict = Skipped
+		p.r.Reason = "needs the internet (make probes-online)"
 		p.r.Observed = []string{"needs the *arr metadata services (run make probes-online)"}
 		t.Skip("needs the internet: make probes-online")
 	}
@@ -125,6 +149,52 @@ func (p *probe) must(err error, what string) {
 		p.r.Verdict = Error
 		p.r.Error = what + ": " + err.Error()
 		p.t.Fatalf("%s: %v", what, err)
+	}
+}
+
+// alsoSkips names probes of the same test that depend on this one's setup: if it ends as
+// skipped because the metadata service is unavailable, they are recorded as skipped too.
+func (p *probe) alsoSkips(rest ...spec) { p.rest = rest }
+
+// outage skips the probe (and those named by alsoSkips) because the *arr metadata service
+// is unavailable.
+func (p *probe) outage(detail string, inferred ...string) {
+	p.t.Helper()
+	p.r.Verdict = Skipped
+	p.r.Reason = UpstreamUnavailable
+	if len(inferred) > 0 {
+		p.r.Reason += " (inferred: " + inferred[0] + ")"
+	}
+	p.observe("skipped: %s (%s)", UpstreamUnavailable, detail)
+	for _, s := range p.rest {
+		r := s.result()
+		r.Verdict, r.Reason = Skipped, p.r.Reason
+		r.Observed = []string{"skipped with " + p.r.ID + ": " + UpstreamUnavailable}
+		r.At = time.Now().UTC()
+		if err := r.Write(env.Results); err != nil {
+			p.t.Errorf("write result: %v", err)
+		}
+	}
+	p.t.Skip(UpstreamUnavailable)
+}
+
+// meta is must for a lookup or an add through the *arr app to its metadata service: when
+// that service is unreachable (a timeout, or a 5xx saying so) the probe is skipped, not
+// failed. Every other error stays an error.
+func (p *probe) meta(err error, what string) {
+	p.t.Helper()
+	if MetadataUnavailable(err) {
+		p.outage(what + ": " + err.Error())
+	}
+	p.must(err, what)
+}
+
+// needMeta is the first line of every lookup and add: it skips when the outage is simulated,
+// before the call is made.
+func (p *probe) needMeta(what string) {
+	p.t.Helper()
+	if simulateOutage {
+		p.outage(what + ": simulated by FUKKU_TEST_SIMULATE_METADATA_OUTAGE=1")
 	}
 }
 

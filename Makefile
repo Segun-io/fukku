@@ -141,6 +141,10 @@ probes: $(DEV_DEP) ## run the behaviour probes that need no internet
 probes-online: $(DEV_DEP) ## run every behaviour probe, including those that add titles (internet)
 	test/env/run-probes.sh online
 
+.PHONY: probes-gate
+probes-gate: $(DEV_DEP) ## CI rule on probe results: fail on new differs or error, warn on accepted ones and upstream skips
+	$(IN_DEV) go run ./test/probes/cmd/compat -gate -results test/env/.run/results
+
 .PHONY: compat
 compat: $(DEV_DEP) ## write the latest probe results into docs/compatibility.md
 	$(IN_DEV) go run ./test/probes/cmd/compat -results test/env/.run/results -doc docs/compatibility.md
