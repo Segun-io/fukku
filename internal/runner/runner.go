@@ -198,7 +198,7 @@ func (r *Runner) sweep(ctx context.Context) {
 		if j.State == store.Stalled || (j.State == store.Failed && j.Resume != store.Uploaded) {
 			continue // a stalled job resumes with its tasks; past probing there are none
 		}
-		if err := r.drainJob(ctx, j, 1, j.Attempt); err != nil && ctx.Err() == nil {
+		if err := r.drainJob(ctx, j, 1, j.Attempt, true); err != nil && ctx.Err() == nil {
 			r.log.Error("job_step_failed", "job", j.ID, "state", j.State, "attempt", j.Attempt, "error", err)
 		}
 	}

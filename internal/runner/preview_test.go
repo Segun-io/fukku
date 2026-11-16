@@ -35,3 +35,23 @@ func TestDiscardPreview(t *testing.T) {
 		t.Error("result left after Discard")
 	}
 }
+
+// Only the job's end reaches the preview slots: a retry's drain of earlier attempts (run
+// on every pass while probing) does not look at them.
+func TestPreviewSlotsOnlyAtTheEnd(t *testing.T) {
+	job := store.Job{ID: "0123456789abcdef0123456789abcdef", Attempt: 1}
+	if ids := taskIDs(job, nil, 1, 0, false); len(ids) != 0 {
+		t.Errorf("a retry's drain: %v", ids)
+	}
+	n := 0
+	for _, id := range taskIDs(job, nil, 1, 1, true) {
+		for slot := 1; slot <= PreviewSlots; slot++ {
+			if id == PreviewID(job.ID, slot) {
+				n++
+			}
+		}
+	}
+	if n != PreviewSlots {
+		t.Errorf("the job's end reaches %d of %d slots", n, PreviewSlots)
+	}
+}

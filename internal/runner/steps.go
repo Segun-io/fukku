@@ -79,7 +79,7 @@ func (r *Runner) reset(ctx context.Context, job store.Job) error {
 	if err != nil {
 		return err
 	}
-	if err := r.drain(ctx, job, files, 1, job.Attempt-1); err != nil {
+	if err := r.drain(ctx, job, files, 1, job.Attempt-1, false); err != nil {
 		return err
 	}
 	root, err := os.OpenRoot(jobdir.Dir(r.cfg.Paths.IntakeRoot, job.ID))
@@ -152,7 +152,7 @@ func (r *Runner) probing(ctx context.Context, job store.Job) error {
 		return err
 	}
 	// A task of the earlier attempt that was still running at the retry ends later.
-	if err := r.drain(ctx, job, files, 1, job.Attempt-1); err != nil {
+	if err := r.drain(ctx, job, files, 1, job.Attempt-1, false); err != nil {
 		return err
 	}
 
@@ -398,7 +398,7 @@ func (r *Runner) failTask(ctx context.Context, job store.Job, res spool.Result, 
 		return err
 	}
 	job.State = store.Failed
-	return r.drainJob(ctx, job, job.Attempt, job.Attempt)
+	return r.drainJob(ctx, job, job.Attempt, job.Attempt, false)
 }
 
 // stalled resumes a job that waited for the worker as soon as its heartbeat is fresh.
@@ -452,7 +452,7 @@ func (r *Runner) cancelled(ctx context.Context, job store.Job) error {
 	if errors.Is(statErr, fs.ErrNotExist) && len(uploads) == 0 {
 		return nil
 	}
-	if err := r.drainJob(ctx, job, 1, job.Attempt); err != nil {
+	if err := r.drainJob(ctx, job, 1, job.Attempt, true); err != nil {
 		return err
 	}
 	for _, u := range uploads {
@@ -473,21 +473,21 @@ func (r *Runner) cancelled(ctx context.Context, job store.Job) error {
 }
 
 // drainJob is drain with the job's files.
-func (r *Runner) drainJob(ctx context.Context, job store.Job, from, to int) error {
-	if from > to {
+func (r *Runner) drainJob(ctx context.Context, job store.Job, from, to int, previews bool) error {
+	if from > to && !previews {
 		return nil
 	}
 	files, err := r.st.Files(ctx, job.ID)
 	if err != nil {
 		return err
 	}
-	return r.drain(ctx, job, files, from, to)
+	return r.drain(ctx, job, files, from, to, previews)
 }
 
-// drain cancels the job's tasks of the attempts from..to and acknowledges the results they
-// left. Tasks that never existed cost a lookup each.
-func (r *Runner) drain(ctx context.Context, job store.Job, files []store.File, from, to int) error {
-	for _, id := range taskIDs(job, files, from, to) {
+// drain cancels the job's tasks of the attempts from..to (with previews, its preview tasks
+// too) and acknowledges the results they left. Tasks that never existed cost a lookup each.
+func (r *Runner) drain(ctx context.Context, job store.Job, files []store.File, from, to int, previews bool) error {
+	for _, id := range taskIDs(job, files, from, to, previews) {
 		if err := r.q.Cancel(ctx, id); err != nil {
 			return err
 		}
@@ -508,11 +508,15 @@ func (r *Runner) drain(ctx context.Context, job store.Job, files []store.File, f
 
 // taskIDs are the ids of the tasks the runner may have submitted for the job in the
 // attempts from..to: the probe, one extraction per archive and the library probe of flow 2
-// in each, and the preview clips of flow 2, which belong to no attempt.
-func taskIDs(job store.Job, files []store.File, from, to int) []string {
-	ids := make([]string, 0, PreviewSlots)
-	for slot := 1; slot <= PreviewSlots; slot++ {
-		ids = append(ids, PreviewID(job.ID, slot))
+// in each, and with previews the preview clips of flow 2 in every slot, which belong to no
+// attempt. Only the job's end (cancel, the sweep, Discard) asks for those; a retry's drain
+// of earlier attempts and a failed task's leave them to package flows.
+func taskIDs(job store.Job, files []store.File, from, to int, previews bool) []string {
+	var ids []string
+	if previews {
+		for slot := 1; slot <= PreviewSlots; slot++ {
+			ids = append(ids, PreviewID(job.ID, slot))
+		}
 	}
 	for a := from; a <= to; a++ {
 		ids = append(ids, probeID(job, a), LibraryProbeID(job.ID, a))
@@ -535,7 +539,7 @@ func taskIDs(job store.Job, files []store.File, from, to int) []string {
 // tell whether such a result is still to come. A job that retention deletes is normally
 // settled (probed, failed or cancelled long ago), and its tasks have ended.
 func Discard(ctx context.Context, q spool.Queue, job store.Job, files []store.File) error {
-	for _, id := range taskIDs(job, files, 1, max(job.Attempt, 1)) {
+	for _, id := range taskIDs(job, files, 1, max(job.Attempt, 1), true) {
 		if err := q.Cancel(ctx, id); err != nil {
 			return err
 		}

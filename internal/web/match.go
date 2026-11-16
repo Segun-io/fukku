@@ -23,6 +23,9 @@ func (s *Server) matchRoutes(mux *http.ServeMux) {
 		return
 	}
 	s.matcher = flows.NewMatcher(s.cfg, s.deps.Store, s.deps.Radarr, s.deps.Sonarr, s.deps.Locks, nil)
+	if s.deps.Queue != nil {
+		s.matcher.SetQueue(s.deps.Queue) // cancels the preview tasks of a record a rematch drops (#53)
+	}
 	mux.HandleFunc("GET /api/apps", s.getApps)
 	mux.HandleFunc("GET /api/lookup/movies", s.lookupMovies)
 	mux.HandleFunc("GET /api/lookup/series", s.lookupSeries)
