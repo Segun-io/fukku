@@ -1,0 +1,22 @@
+# Weekly check that the ffmpeg pinned in the Dockerfile is the latest release of its line.
+# Debian no longer patches the ffmpeg in the image, so this is how a security release is
+# noticed (docs/image.md). Fails when behind; warns when a newer release line exists.
+# Reads ffmpeg.org's public release index: no credentials, nothing is written or published.
+name: ffmpeg-pin
+
+on:
+  schedule:
+    - cron: "43 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pin:
+    name: pinned ffmpeg is current
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/dev-image
+      - run: make ffmpeg-check

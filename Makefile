@@ -137,6 +137,10 @@ build: ui ## build bin/fukku for this machine
 image: ## build the product image as fukku:dev
 	docker build --build-arg VERSION=$(VERSION) --build-arg COMMIT=$(COMMIT) -t fukku:dev .
 
+.PHONY: ffmpeg-check
+ffmpeg-check: $(DEV_DEP) ## fail if the pinned ffmpeg is behind its line's latest release (needs internet)
+	$(IN_DEV) go run ./tools/ffmpegcheck
+
 .PHONY: image-smoke
 image-smoke: ## smoke-test fukku:dev (what CI runs on each architecture)
 	tools/image-smoke.sh fukku:dev

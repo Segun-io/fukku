@@ -38,6 +38,15 @@ worker parses untrusted uploads with it, so treat a security release as a prompt
 libx264, libdav1d, zlib and the rest still come from the Debian snapshot and move with
 `DEBIAN_SNAPSHOT`.
 
+**The weekly check.** `.github/workflows/ffmpeg-pin.yml` (Mondays, plus manual runs; read-only,
+no credentials) runs `make ffmpeg-check`, i.e. `tools/ffmpegcheck`. It reads `FFMPEG_VERSION`
+from the `Dockerfile` and the tarball names in ffmpeg.org's public release index. It **fails**
+when a newer release exists in the pin's own line (same major and minor: 7.1.5 is behind 7.1.6)
+and **warns** (an annotation, the job passes) when a newer line exists (8.0, 8.1), which is a
+decision, not an update. It also fails if the pin is not in the index at all. The comparison is
+in `tools/ffmpegcheck/check.go` with unit tests that run in `make test`; run the real check
+yourself with `make ffmpeg-check`.
+
 To bump: in `Dockerfile` change the two build arguments `FFMPEG_VERSION` and `FFMPEG_SHA256`
 together. Then, in an empty directory:
 
