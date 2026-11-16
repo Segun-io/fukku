@@ -6,6 +6,8 @@ import {
   formatDate,
   formatDuration,
   formatNumber,
+  formatPercent,
+  formatRate,
   resolveLanguage,
   translate,
 } from "./translate";
@@ -71,6 +73,46 @@ describe("formatting", () => {
     expect(formatNumber(1234.5, "es")).toBe("1234,5");
     expect(formatDate("2026-01-01T12:00:00Z", "en")).toContain("2026");
     expect(formatDate("not a date", "en")).toBe("");
+  });
+});
+
+describe("formatting for figures that change", () => {
+  // A number and its unit are joined by a space that does not break.
+  const nb = "\u00a0";
+
+  it("prints a size in the unit of another, with fixed decimals", () => {
+    expect(formatBytes(31.4e9, "en", 80e9)).toBe(`31.4${nb}GB`);
+    expect(formatBytes(80e9, "en", 80e9)).toBe(`80.0${nb}GB`);
+    expect(formatBytes(0, "en", 80e9)).toBe(`0.0${nb}GB`);
+    expect(formatBytes(950e6, "en", 80e9)).toBe(`1.0${nb}GB`);
+    expect(formatBytes(31.4e9, "es", 80e9)).toBe(`31,4${nb}GB`);
+    expect(formatBytes(20_000, "en", 61_400)).toBe(`20${nb}kB`);
+    expect(formatBytes(1.25e12, "en", 2e12)).toBe(`1.25${nb}TB`);
+    // Without `like` nothing changes.
+    expect(formatBytes(85899345920, "en")).toBe("85.9 GB");
+  });
+
+  it("formats speeds", () => {
+    expect(formatRate(11.8e6, "en")).toBe(`11.8${nb}MB/s`);
+    expect(formatRate(11.8e6, "es")).toBe(`11,8${nb}MB/s`);
+    expect(formatRate(600_000, "en")).toBe(`0.6${nb}MB/s`);
+    expect(formatRate(64_000, "en")).toBe(`64${nb}kB/s`);
+    expect(formatRate(-1, "en")).toBe(`0${nb}kB/s`);
+  });
+
+  it("formats a share of a whole", () => {
+    expect(formatPercent(0.392, "en")).toBe("39%");
+    expect(formatPercent(0.392, "es")).toBe(`39${nb}%`);
+    expect(formatPercent(1.2, "en")).toBe("100%");
+    expect(formatPercent(-1, "en")).toBe("0%");
+  });
+
+  it("leaves the year out of a short date", () => {
+    const short = formatDate("2026-01-01T12:00:00Z", "en", "short");
+    expect(short).not.toContain("2026");
+    expect(short).toContain("Jan");
+    expect(formatDate("2026-01-01T12:00:00Z", "en", "medium")).toContain("2026");
+    expect(formatDate("not a date", "en", "short")).toBe("");
   });
 });
 

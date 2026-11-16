@@ -56,10 +56,39 @@ export function formatNumber(n: number, lang: Lang, options?: Intl.NumberFormatO
 
 const byteUnits = ["byte", "kilobyte", "megabyte", "gigabyte", "terabyte", "petabyte"] as const;
 
-/** Sizes in decimal units (1 GB = 1000 MB), as file managers and download pages show them. */
-export function formatBytes(bytes: number, lang: Lang): string {
+/** No line break between a number and its unit ("31.4 GB" stays together in a sentence). */
+function unbroken(text: string): string {
+  return text.replace(/ /g, "\u00a0");
+}
+
+/**
+ * Sizes in decimal units (1 GB = 1000 MB), as file managers and download pages show them.
+ *
+ * With `like`, the size is printed in the unit of that other size and with a fixed number of
+ * decimals (one for GB, two above, none below), and never breaks before its unit. That is
+ * for a size that changes while the user watches, as in "31.4 GB of 80.0 GB": it keeps its
+ * width, so nothing next to it moves.
+ */
+export function formatBytes(bytes: number, lang: Lang, like?: number): string {
   let value = Math.max(0, bytes);
   let i = 0;
+  if (like !== undefined) {
+    let scale = Math.max(0, like);
+    while (scale >= 1000 && i < byteUnits.length - 1) {
+      scale /= 1000;
+      i++;
+    }
+    const digits = i < 3 ? 0 : i === 3 ? 1 : 2;
+    return unbroken(
+      new Intl.NumberFormat(lang, {
+        style: "unit",
+        unit: byteUnits[i],
+        unitDisplay: "short",
+        minimumFractionDigits: digits,
+        maximumFractionDigits: digits,
+      }).format(value / 1000 ** i),
+    );
+  }
   while (value >= 1000 && i < byteUnits.length - 1) {
     value /= 1000;
     i++;
@@ -70,6 +99,29 @@ export function formatBytes(bytes: number, lang: Lang): string {
     unitDisplay: "short",
     maximumFractionDigits: i === 0 || value >= 100 ? 0 : value >= 10 ? 1 : 2,
   }).format(value);
+}
+
+/** A transfer speed in bytes per second: "11.8 MB/s", or "640 kB/s" below 0.1 MB/s. */
+export function formatRate(bytesPerSecond: number, lang: Lang): string {
+  const rate = Math.max(0, bytesPerSecond);
+  const mega = rate >= 1e5;
+  return unbroken(
+    new Intl.NumberFormat(lang, {
+      style: "unit",
+      unit: mega ? "megabyte-per-second" : "kilobyte-per-second",
+      unitDisplay: "short",
+      minimumFractionDigits: mega ? 1 : 0,
+      maximumFractionDigits: mega ? 1 : 0,
+    }).format(rate / (mega ? 1e6 : 1e3)),
+  );
+}
+
+/** A share of a whole, from 0 to 1, without decimals: "39%", "39 %". */
+export function formatPercent(fraction: number, lang: Lang): string {
+  const share = Math.min(1, Math.max(0, fraction));
+  return unbroken(
+    new Intl.NumberFormat(lang, { style: "percent", maximumFractionDigits: 0 }).format(share),
+  );
 }
 
 /** "1 h 30 min", "45 s": the two largest non-zero units of a duration in milliseconds. */
@@ -90,11 +142,22 @@ export function formatDuration(ms: number, lang: Lang): string {
     .join(" ");
 }
 
-/** A date and time in the user's language and time zone, from an RFC 3339 string or a Date. */
-export function formatDate(value: string | Date, lang: Lang): string {
+/**
+ * A date and time in the user's language and time zone, from an RFC 3339 string or a Date.
+ * "short" leaves the year out ("Jan 1, 12:20 PM"), for a list of moments close together.
+ */
+export function formatDate(
+  value: string | Date,
+  lang: Lang,
+  form: "medium" | "short" = "medium",
+): string {
   const date = typeof value === "string" ? new Date(value) : value;
   if (Number.isNaN(date.getTime())) return "";
-  return new Intl.DateTimeFormat(lang, { dateStyle: "medium", timeStyle: "short" }).format(date);
+  const options: Intl.DateTimeFormatOptions =
+    form === "short"
+      ? { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }
+      : { dateStyle: "medium", timeStyle: "short" };
+  return new Intl.DateTimeFormat(lang, options).format(date);
 }
 
 // ---- Choosing the language ------------------------------------------------------------

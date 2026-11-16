@@ -6,3 +6,4 @@ ui/dist/*
 /test/env/.run/
 *.test
 coverage.out
+.hallmark/

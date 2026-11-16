@@ -13,6 +13,8 @@ import {
   formatDate,
   formatDuration,
   formatNumber,
+  formatPercent,
+  formatRate,
   isLang,
   type Lang,
   langStorageKey,
@@ -28,9 +30,13 @@ type I18n = {
   available: readonly Lang[];
   setLang: (lang: Lang) => void;
   t: TFunction;
-  formatBytes: (bytes: number) => string;
+  /** With `like`: in the unit of that size, fixed decimals (for a size that changes). */
+  formatBytes: (bytes: number, like?: number) => string;
+  formatRate: (bytesPerSecond: number) => string;
+  /** From 0 to 1. */
+  formatPercent: (fraction: number) => string;
   formatDuration: (ms: number) => string;
-  formatDate: (value: string | Date) => string;
+  formatDate: (value: string | Date, form?: "medium" | "short") => string;
   formatNumber: (n: number, options?: Intl.NumberFormatOptions) => string;
 };
 
@@ -81,9 +87,11 @@ export function I18nProvider({ children }: { children: ReactNode }) {
       available,
       setLang,
       t: (key, params) => translate(lang, key, params),
-      formatBytes: (bytes) => formatBytes(bytes, lang),
+      formatBytes: (bytes, like) => formatBytes(bytes, lang, like),
+      formatRate: (rate) => formatRate(rate, lang),
+      formatPercent: (fraction) => formatPercent(fraction, lang),
       formatDuration: (ms) => formatDuration(ms, lang),
-      formatDate: (v) => formatDate(v, lang),
+      formatDate: (v, form) => formatDate(v, lang, form),
       formatNumber: (n, options) => formatNumber(n, lang, options),
     }),
     [lang, available, setLang],

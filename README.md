@@ -22,7 +22,8 @@ a normal download.
 
 The plan, the three flows and the milestones are in [docs/plan.md](docs/plan.md). How the
 pinned versions of Radarr, Sonarr, Bazarr and Jellyfin behave is in
-[docs/compatibility.md](docs/compatibility.md).
+[docs/compatibility.md](docs/compatibility.md). How the UI looks and sounds, and which
+component or token to use, is in [docs/design.md](docs/design.md).
 
 ## Running it (preview)
 

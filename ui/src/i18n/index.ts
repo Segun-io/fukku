@@ -6,6 +6,8 @@ export {
   formatDate,
   formatDuration,
   formatNumber,
+  formatPercent,
+  formatRate,
   isLang,
   type Lang,
   langStorageKey,

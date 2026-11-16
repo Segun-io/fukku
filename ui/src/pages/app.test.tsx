@@ -24,7 +24,7 @@ describe("routes", () => {
     await user.click(within(nav).getByRole("link", { name: "Upload" }));
     expect(await screen.findByRole("heading", { name: "Upload" })).toBeInTheDocument();
     expect(router.state.location.pathname).toBe("/upload");
-    await user.click(within(nav).getByRole("link", { name: "Jobs" }));
+    await user.click(within(nav).getByRole("link", { name: "Your uploads" }));
     expect(await screen.findByRole("heading", { name: "Jobs" })).toBeInTheDocument();
   });
 
