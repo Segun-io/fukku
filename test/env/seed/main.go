@@ -26,6 +26,7 @@ import (
 
 	"go.yaml.in/yaml/v3"
 
+	"github.com/segun-io/fukku/test/fixtures"
 	"github.com/segun-io/fukku/test/testenv"
 )
 
@@ -529,5 +530,63 @@ func seedJellyfin(ctx context.Context, env *testenv.Env) (string, error) {
 			return "", err
 		}
 	}
+	if err := primeLibraries(ctx, env); err != nil {
+		return "", err
+	}
 	return info.Version, nil
+}
+
+// primeLibraries scans each library once with a file in it. Until a library has been
+// scanned with something in its folder, refreshing the library item (Fukku's default
+// mediaServer.refreshMethod, libraryRefresh) answers 204 and finds nothing new, so a fresh
+// environment would never show an imported title (seen by the M2 exit tests, #47); a scan of
+// an empty folder does not help, as Jellyfin takes an empty library folder for a missing
+// disk. A Jellyfin in use has scanned its libraries with their content long ago. The
+// placeholder files and their items are removed afterwards. Safe to repeat.
+func primeLibraries(ctx context.Context, env *testenv.Env) error {
+	j := env.Jellyfin
+	const name = "Fukku Seed Placeholder"
+	movieDir := filepath.Join(env.Data, "media/movies", name+" (2000)")
+	showDir := filepath.Join(env.Data, "media/tv", name)
+	files := []string{
+		filepath.Join(movieDir, name+" (2000).mkv"),
+		filepath.Join(showDir, "Season 01", name+" - S01E01.mkv"),
+	}
+	spec := fixtures.Video{Duration: time.Second, Width: 160, Height: 90, FrameRate: "5",
+		Audio: []fixtures.Audio{{Language: "eng"}}}
+	defer func() {
+		_ = os.RemoveAll(movieDir)
+		_ = os.RemoveAll(showDir)
+	}()
+	for _, f := range files {
+		if err := os.MkdirAll(filepath.Dir(f), 0o750); err != nil {
+			return err
+		}
+		if err := fixtures.Generate(ctx, f, spec); err != nil {
+			return fmt.Errorf("placeholder %s: %w", filepath.Base(f), err)
+		}
+	}
+	if err := j.ScanAndWait(ctx, 5*time.Minute); err != nil {
+		return fmt.Errorf("library scan: %w", err)
+	}
+	if err := os.RemoveAll(movieDir); err != nil {
+		return err
+	}
+	if err := os.RemoveAll(showDir); err != nil {
+		return err
+	}
+	// The files are gone; their items stay until removed (a scan keeps them while the
+	// library's folder is empty). A show's item takes its seasons and episodes with it.
+	for _, dir := range []string{"/data/media/movies/" + name + " (2000)", "/data/media/tv/" + name} {
+		items, err := j.ItemsUnder(ctx, dir, "Movie", "Series")
+		if err != nil {
+			return err
+		}
+		for _, it := range items {
+			if err := j.Do(ctx, "DELETE", "/Items/"+it.ID, nil, nil); err != nil && testenv.StatusOf(err) != 404 {
+				return fmt.Errorf("remove the placeholder item %s: %w", it.Path, err)
+			}
+		}
+	}
+	return nil
 }

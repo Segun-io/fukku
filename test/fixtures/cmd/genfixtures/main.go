@@ -4,10 +4,12 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/segun-io/fukku/test/fixtures"
@@ -15,7 +17,7 @@ import (
 
 func main() {
 	out := flag.String("out", ".cache/fixtures", "output directory")
-	quick := flag.Bool("quick", false, "only what the stack tests upload (make e2e): a short film, one season zip, the hostile corpus")
+	quick := flag.Bool("quick", false, "only what the stack tests upload (make e2e): a short film, one season zip, the hostile corpus, and the M2 titles in m2/")
 	flag.Parse()
 	run := run
 	if *quick {
@@ -28,7 +30,8 @@ func main() {
 }
 
 // runQuick writes what test/e2e uploads: media/film.mkv (5 s), media/Probe Show - Season 01.zip
-// (two 5 s episodes) and the hostile corpus in hostile/.
+// (two 5 s episodes), the hostile corpus in hostile/, and the M2 exit tests' files in m2/
+// (see writeM2).
 func runQuick(ctx context.Context, out string) error {
 	media := filepath.Join(out, "media")
 	for _, d := range []string{media, filepath.Join(out, "hostile")} {
@@ -43,7 +46,102 @@ func runQuick(ctx context.Context, out string) error {
 	if _, err := fixtures.SeasonZip(ctx, media, "Probe Show", 1, 2, spec); err != nil {
 		return err
 	}
-	return buildHostile(filepath.Join(out, "hostile"))
+	if err := buildHostile(filepath.Join(out, "hostile")); err != nil {
+		return err
+	}
+	return writeM2(ctx, filepath.Join(out, "m2"))
+}
+
+// The M2 exit tests (test/e2e/exit-m2.spec.ts, issue #47) add real titles through Radarr and
+// Sonarr: the probes' free titles (Blender open films on TMDB, a Creative Commons web series
+// on TVDB), at their real runtimes, so that the apps do not take them for samples and Fukku's
+// runtime checks see what a real upload gives. A small picture at 5 frames per second keeps
+// them cheap: about 1 MB per minute.
+type m2Film struct {
+	TMDBID   int    `json:"tmdbId"`
+	Title    string `json:"title"`
+	Year     int    `json:"year"`
+	File     string `json:"file"`
+	Subtitle string `json:"subtitle,omitempty"` // a Spanish SRT with the video's base name
+}
+
+type m2Season struct {
+	TVDBID int                    `json:"tvdbId"`
+	Title  string                 `json:"title"`
+	File   string                 `json:"file"`
+	Want   []fixtures.WantEpisode `json:"want"`
+}
+
+type m2Manifest struct {
+	Version string   `json:"version"`
+	Films   []m2Film `json:"films"`
+	Season  m2Season `json:"season"`
+}
+
+// m2Version changes whenever what writeM2 writes changes: the files take about a minute to
+// generate, so they are kept while the manifest's version matches.
+const m2Version = "1"
+
+var m2Films = []struct {
+	tmdb, year, minutes int
+	title               string
+	subtitle            bool
+}{
+	{10378, 2008, 9, "Big Buck Bunny", true},
+	{45745, 2010, 14, "Sintel", false},
+	{133701, 2012, 12, "Tears of Steel", false},
+	{9761, 2006, 11, "Elephants Dream", false},
+}
+
+// writeM2 writes films/<Title>.<year>.mkv (and a Spanish .es.srt next to the first film), the
+// awkward season of Pioneer One (fixtures.AwkwardSeasonOf with 30-minute episodes) and
+// manifest.json, which gives the tests the titles and the correct mapping of the season.
+func writeM2(ctx context.Context, dir string) error {
+	manifestPath := filepath.Join(dir, "manifest.json")
+	if data, err := os.ReadFile(manifestPath); err == nil {
+		var m m2Manifest
+		if json.Unmarshal(data, &m) == nil && m.Version == m2Version {
+			return nil
+		}
+	}
+	if err := os.RemoveAll(dir); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "films"), 0o750); err != nil {
+		return err
+	}
+	m := m2Manifest{Version: m2Version}
+	for _, f := range m2Films {
+		base := strings.ReplaceAll(f.title, " ", ".") + fmt.Sprintf(".%d", f.year)
+		spec := fixtures.Video{
+			Duration: time.Duration(f.minutes) * time.Minute, Width: 320, Height: 180, FrameRate: "5",
+			Audio: []fixtures.Audio{{Language: "eng", Title: "English", Default: true}},
+		}
+		entry := m2Film{TMDBID: f.tmdb, Title: f.title, Year: f.year, File: "films/" + base + ".mkv"}
+		if err := fixtures.Generate(ctx, filepath.Join(dir, entry.File), spec); err != nil {
+			return fmt.Errorf("%s: %w", entry.File, err)
+		}
+		if f.subtitle {
+			entry.Subtitle = "films/" + base + ".es.srt"
+			if err := os.WriteFile(filepath.Join(dir, entry.Subtitle), []byte(fixtures.SRT(spec.Duration, "spa")), 0o600); err != nil {
+				return err
+			}
+		}
+		m.Films = append(m.Films, entry)
+	}
+	const show = "Pioneer One"
+	spec := fixtures.Video{Duration: 30 * time.Minute, Width: 320, Height: 180, FrameRate: "5"}
+	zip, want, err := fixtures.AwkwardSeasonOf(ctx, dir, show, spec)
+	if err != nil {
+		return fmt.Errorf("the awkward season: %w", err)
+	}
+	m.Season = m2Season{TVDBID: 170551, Title: show, File: filepath.Base(zip), Want: want}
+	data, err := json.MarshalIndent(m, "", "  ")
+	if err != nil {
+		return err
+	}
+	// Last: a manifest means every file is complete.
+	return os.WriteFile(manifestPath, data, 0o600)
 }
 
 func run(ctx context.Context, out string) error {

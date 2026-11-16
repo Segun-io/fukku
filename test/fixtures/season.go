@@ -72,13 +72,14 @@ func SeasonZipOf(ctx context.Context, dir, name string, spec Video, episodes []E
 }
 
 // WantEpisode is what a correct mapping says about one file of AwkwardSeason.
+// The JSON names are what genfixtures writes into the e2e fixtures' manifest.
 type WantEpisode struct {
-	File     string // file name inside the archive
-	Season   int
-	Episodes []int         // the episodes the file really holds
-	Duration time.Duration // expected length
-	Language string        // audio language (ISO 639-2)
-	Dubbed   bool          // not in the original language: the import should warn
+	File     string        `json:"file"` // file name inside the archive
+	Season   int           `json:"season"`
+	Episodes []int         `json:"episodes"`   // the episodes the file really holds
+	Duration time.Duration `json:"durationNs"` // expected length
+	Language string        `json:"language"`   // audio language (ISO 639-2)
+	Dubbed   bool          `json:"dubbed"`     // not in the original language: the import should warn
 }
 
 // AwkwardSeason writes a season archive that trips up naive mapping: a double episode
@@ -94,6 +95,15 @@ type WantEpisode struct {
 // seconds, not the forty minutes of a real episode, so generating stays quick. The second
 // result is the correct mapping, in archive order.
 func AwkwardSeason(ctx context.Context, dir, show string, runtime time.Duration) (string, []WantEpisode, error) {
+	return AwkwardSeasonOf(ctx, dir, show, Video{Duration: runtime})
+}
+
+// AwkwardSeasonOf is AwkwardSeason with the rest of the video spec too (size, frame rate):
+// spec.Duration is one episode's runtime, and the audio is set per episode as above. The
+// end-to-end tests (#47) use a show's real runtime, at a small size and a low frame rate,
+// because Fukku compares each file's duration with the episode's runtime in Sonarr.
+func AwkwardSeasonOf(ctx context.Context, dir, show string, spec Video) (string, []WantEpisode, error) {
+	runtime := spec.withDefaults().Duration
 	en := []Audio{{Language: "eng", Title: "English", Default: true}}
 	es := []Audio{{Language: "spa", Title: "Español (Latino)", ToneHz: 440, Default: true}}
 	file := func(ep int) string { return fmt.Sprintf("Season 01/%s - S01E%02d.mkv", show, ep) }
@@ -114,7 +124,8 @@ func AwkwardSeason(ctx context.Context, dir, show string, runtime time.Duration)
 	subs := map[string]string{
 		fmt.Sprintf("Season 01/%s - S01E03.en.srt", show): SRT(runtime, "eng"),
 	}
-	path, err := SeasonZipOf(ctx, dir, show+" - Season 01.zip", Video{Duration: runtime, Audio: en}, episodes, subs)
+	spec.Duration, spec.Audio = runtime, en
+	path, err := SeasonZipOf(ctx, dir, show+" - Season 01.zip", spec, episodes, subs)
 	return path, want, err
 }
 
