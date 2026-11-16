@@ -27,6 +27,7 @@ import (
 	"github.com/segun-io/fukku/internal/arr"
 	"github.com/segun-io/fukku/internal/config"
 	"github.com/segun-io/fukku/internal/flows"
+	"github.com/segun-io/fukku/internal/mediaserver"
 	"github.com/segun-io/fukku/internal/retention"
 	"github.com/segun-io/fukku/internal/runner"
 	"github.com/segun-io/fukku/internal/spool"
@@ -165,7 +166,9 @@ func runWeb(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	deps.Proposals = flows.NewProposals(cfg, log, st, deps.Radarr, deps.Sonarr, deps.Locks)
 	// The import engine (#40) and its post-processing steps, in the order they run.
 	deps.Imports = flows.NewEngine(deps.Proposals)
+	// Subtitles first, so that the media server's scan finds them next to the video.
 	deps.Imports.AddPostStep(subtitleStep(cfg, st))
+	deps.Imports.AddPostStep(mediaServerStep(cfg, deps.Radarr, deps.Sonarr))
 	// The job runner (#29) drives jobs next to the HTTP server and stops with it, before
 	// the store closes.
 	rn := runner.New(cfg, log, st, q, time.Now)
@@ -182,6 +185,16 @@ func runWeb(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	err = errors.Join(err, <-ran)
 	deps.Imports.Wait() // the post-processing goroutines end with ctx
 	return errors.Join(err, st.Close())
+}
+
+// mediaServerStep is the post-processing step that tells the media server about the
+// imported files and gives the job its title link (#41); with provider none it is skipped.
+func mediaServerStep(cfg config.Config, movies arr.MovieManager, series arr.SeriesManager) *mediaserver.Step {
+	s := &mediaserver.Step{Movies: movies, Series: series, Config: cfg}
+	if cfg.MediaServer.Provider == "jellyfin" && cfg.MediaServer.URL != "" {
+		s.Server = mediaserver.NewJellyfin(cfg.MediaServer)
+	}
+	return s
 }
 
 // subtitleStep is the post-processing step that hands uploaded subtitles to the subtitle

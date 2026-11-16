@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -14,17 +15,24 @@ import (
 // The confirmation (#40): the user confirms the proposal and the import starts. Rows are
 // named by id; no request carries a path or a title.
 //
-//	POST /api/jobs/{id}/confirm  {"overrides": ["r3"]}  → 202 Job (state importing)
+//	POST /api/jobs/{id}/confirm  {"overrides": ["r3"],
+//	                              "subtitles": [{"fileId": 12, "language": "es", "forced": false, "hearingImpaired": true}]}
+//	                              → 202 Job (state importing)
 //
-// overrides lists the rows to import despite their rejections or warnings. Errors besides
-// the common ones:
+// overrides lists the rows to import despite their rejections or warnings (the language
+// warning of #39 included). subtitles (optional) sets the language (ISO 639-1) and flags of
+// subtitle files of the job for the hand-over; a file not listed keeps what its name says.
+// Audit: import.confirmed, rejection.overridden per overridden row, and language.overridden
+// with the custom formats and scores when the row's language warning was overridden.
+// Errors besides the common ones:
 //
 //	409 needs_override     rows with rejections or warnings that overrides does not list:
 //	                       {"error": {"code": "needs_override", "message": "…", "rows": ["r3"]}}
 //	409 incomplete_rows    rows without a title or an episode (edit or skip them); "rows" as above
 //	409 nothing_to_import  every row is skipped
 //	409 wrong_state        the job is not awaiting confirmation (or the rows changed meanwhile)
-//	400 bad_request        an override names no row of the job
+//	400 bad_request        an override names no row of the job; a subtitle choice names no
+//	                       subtitle file of the job, a file twice, or an unknown language
 //	503 storage_unavailable  a sentinel is missing, or the intake and library roots are on
 //	                       different filesystems (importMode move)
 //	502 arr_unavailable    the app did not answer (a show's episodes are read to judge the rows)
@@ -70,15 +78,31 @@ func (s *Server) confirmJob(w http.ResponseWriter, r *http.Request) {
 	for _, o := range c.Overridden {
 		overrides = append(overrides, o.RowID)
 	}
+	subs := make([]string, 0, len(c.Subtitles))
+	for _, sc := range c.Subtitles {
+		subs = append(subs, fmt.Sprintf("%d:%s forced=%t hi=%t", sc.FileID, sc.Language, sc.Forced, sc.HearingImpaired))
+	}
 	s.audit(dctx, u, "import.confirmed", j.ID, map[string]string{
 		"app": c.Target.App, "titleId": strconv.Itoa(c.Target.TitleID), "title": c.Target.Title,
 		"rows": strings.Join(c.Rows, ","), "overrides": strings.Join(overrides, ","),
+		"subtitles": strings.Join(subs, "; "),
 	})
 	for _, o := range c.Overridden {
 		s.audit(dctx, u, "rejection.overridden", j.ID, map[string]string{
 			"row": o.RowID, "file": o.File,
 			"rejections": strings.Join(o.Rejections, "; "), "warnings": strings.Join(o.Warnings, ","),
 		})
+		// The language warning (#39) is overridden like a rejection; its facts get their own entry.
+		if l := o.Language; l != nil {
+			d := map[string]string{"row": o.RowID, "file": o.File, "customFormats": strings.Join(l.CustomFormats, ", ")}
+			if l.Score != nil {
+				d["score"] = strconv.Itoa(*l.Score)
+			}
+			if l.MinFormatScore != nil {
+				d["minFormatScore"] = strconv.Itoa(*l.MinFormatScore)
+			}
+			s.audit(dctx, u, "language.overridden", j.ID, d)
+		}
 	}
 	files, uploads, err := s.parts(dctx, c.Job)
 	if err != nil {

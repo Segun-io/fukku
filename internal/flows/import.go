@@ -559,7 +559,8 @@ func reportedCommands(h []store.Event) map[int]bool {
 // library already is left as it was); a show's monitoring is not changed. With
 // merge.unmonitorAfterDubOnlyImport, a film or episodes whose imported file has only other
 // languages than the title's original one are unmonitored, so that an upgrade without the
-// dub cannot replace them (B6). Each call sets a state, so it is safe to repeat.
+// dub cannot replace them (B6). What came of it (monitored, and why not) is stored in the
+// target's options for the job's result. Each call sets a state, so it is safe to repeat.
 func (e *Engine) Imported(ctx context.Context, job store.Job) error {
 	t, err := e.st.Target(ctx, job.ID)
 	if err != nil {
@@ -584,6 +585,7 @@ func (e *Engine) Imported(ctx context.Context, job store.Job) error {
 	}
 	dubRule := e.p.cfg.Merge.UnmonitorAfterDubOnlyImport
 	note := "monitoring unchanged"
+	var mon monitoring
 	switch t.App {
 	case AppRadarr:
 		if e.p.radarr == nil {
@@ -593,47 +595,97 @@ func (e *Engine) Imported(ctx context.Context, job store.Job) error {
 		if opts.Added && opts.Monitored != nil {
 			want = opts.Monitored
 			note = fmt.Sprintf("monitored: %t, as chosen", *want)
+			if !*want {
+				mon.Reason = UnmonitorChosen
+			}
 		}
-		if dubRule && (want == nil || *want) {
+		if dubRule || want == nil {
 			m, err := e.p.radarr.Movie(ctx, t.TitleID)
 			if err != nil {
 				return e.monitorFailed(ctx, job, t, err)
 			}
-			if slices.ContainsFunc(imported, func(ar arr.Row) bool { return dubOnly(m.OriginalLanguage, ar.Languages) }) {
+			if want == nil {
+				current := m.Monitored
+				want = &current // left as it is; recorded as it is
+			}
+			if dubRule && *want && slices.ContainsFunc(imported, func(ar arr.Row) bool { return dubOnly(m.OriginalLanguage, ar.Languages) }) {
 				off := false
 				want = &off
+				mon.Reason = UnmonitorDubOnly
 				note = "unmonitored: the file has only a dub (merge.unmonitorAfterDubOnlyImport)"
 			}
 		}
-		if want != nil {
+		if opts.Added || mon.Reason == UnmonitorDubOnly {
 			if err := e.p.radarr.SetMonitored(ctx, t.TitleID, *want); err != nil {
 				return e.monitorFailed(ctx, job, t, err)
 			}
 		}
+		mon.Monitored = *want
 	case AppSonarr:
 		if e.p.sonarr == nil {
 			return e.p.move(ctx, job, &t, store.Stalled, store.Change{ErrorCode: CodeArrUnavailable, ErrorText: "sonarr is not configured"})
 		}
+		var off []int
 		if dubRule {
 			s, err := e.p.sonarr.Series(ctx, t.TitleID)
 			if err != nil {
 				return e.monitorFailed(ctx, job, t, err)
 			}
-			var ids []int
 			for _, ar := range imported {
 				if dubOnly(s.OriginalLanguage, ar.Languages) {
-					ids = append(ids, ar.EpisodeIDs...)
+					off = append(off, ar.EpisodeIDs...)
 				}
 			}
-			if len(ids) > 0 {
-				if err := e.p.sonarr.SetEpisodesMonitored(ctx, ids, false); err != nil {
+			if len(off) > 0 {
+				if err := e.p.sonarr.SetEpisodesMonitored(ctx, off, false); err != nil {
 					return e.monitorFailed(ctx, job, t, err)
 				}
-				note = fmt.Sprintf("%d episode(s) unmonitored: their file has only a dub (merge.unmonitorAfterDubOnlyImport)", len(ids))
+				mon.Reason = UnmonitorDubOnly
+				note = fmt.Sprintf("%d episode(s) unmonitored: their file has only a dub (merge.unmonitorAfterDubOnlyImport)", len(off))
+			}
+		}
+		// Monitored: every imported episode is, as Sonarr says now.
+		eps, err := e.p.sonarr.Episodes(ctx, t.TitleID)
+		if err != nil {
+			return e.monitorFailed(ctx, job, t, err)
+		}
+		idx := episodeIndex(eps)
+		mon.Monitored = len(imported) > 0
+		for _, ar := range imported {
+			for _, id := range ar.EpisodeIDs {
+				if !idx[id].Monitored || slices.Contains(off, id) {
+					mon.Monitored = false
+				}
 			}
 		}
 	}
+	if mon.Monitored {
+		mon.Reason = ""
+	}
+	if err := e.recordMonitoring(ctx, job, t, mon); err != nil {
+		return err
+	}
 	return e.p.move(ctx, job, &t, store.PostProcessing, store.Change{Note: note})
+}
+
+// recordMonitoring stores the monitoring outcome in the target's options, under the job's
+// lock; the target's identity does not change.
+func (e *Engine) recordMonitoring(ctx context.Context, job store.Job, t store.Target, mon monitoring) error {
+	defer e.locks.Lock(job.ID)()
+	cur, err := e.st.Target(ctx, job.ID)
+	if err != nil {
+		return err
+	}
+	if cur.App != t.App || cur.TitleID != t.TitleID || !cur.MatchedAt.Equal(t.MatchedAt) {
+		return nil // another title meanwhile: the transition will not happen either
+	}
+	if old, ok := monitoringOf(cur); ok && old == mon {
+		return nil
+	}
+	if cur.Options, err = withOption(cur.Options, "monitoring", mon); err != nil {
+		return err
+	}
+	return e.st.SetTarget(ctx, job.ID, cur)
 }
 
 // dubOnly reports whether languages (of an imported file) are known and none is the title's

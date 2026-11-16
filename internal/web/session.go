@@ -17,6 +17,10 @@ type sessionInfo struct {
 	UILanguages []string      `json:"uiLanguages"`
 	Apps        sessionApps   `json:"apps"`
 	Upload      sessionUpload `json:"upload"`
+	// SubtitleManager: a subtitle manager is configured and uploads are handed over to it
+	// (subtitles.provider, subtitles.url, subtitles.handOverUploads), so the confirmation
+	// offers the subtitle files' language and flags (#40, #44).
+	SubtitleManager bool `json:"subtitleManager"`
 }
 
 type sessionUser struct {
@@ -51,12 +55,13 @@ func (s *Server) session(w http.ResponseWriter, r *http.Request) {
 	}
 	c := s.cfg
 	writeJSON(w, http.StatusOK, sessionInfo{
-		User:        sessionUser{Name: u.Name, Email: u.Email, Admin: u.Admin},
-		Version:     version.Version,
-		AuthMode:    c.Auth.Mode,
-		InsecureDev: c.Auth.Mode == "none",
-		UILanguages: list(c.Server.UILanguages),
-		Apps:        sessionApps{Radarr: c.Radarr.URL != "", Sonarr: c.Sonarr.URL != ""},
+		User:            sessionUser{Name: u.Name, Email: u.Email, Admin: u.Admin},
+		Version:         version.Version,
+		AuthMode:        c.Auth.Mode,
+		InsecureDev:     c.Auth.Mode == "none",
+		UILanguages:     list(c.Server.UILanguages),
+		Apps:            sessionApps{Radarr: c.Radarr.URL != "", Sonarr: c.Sonarr.URL != ""},
+		SubtitleManager: c.Subtitles.Provider == "bazarr" && c.Subtitles.URL != "" && c.Subtitles.HandOverUploads,
 		Upload: sessionUpload{
 			Endpoint:               uploadsPath,
 			ChunkSize:              int64(c.Upload.ChunkSize),
