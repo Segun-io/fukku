@@ -73,8 +73,14 @@ func TestHostileCorpus(t *testing.T) {
 				has(func(f *zip.File) bool { return f.Mode()&fs.ModeNamedPipe != 0 })
 		case "bomb.zip":
 			ratio := float64(files[0].UncompressedSize64) / float64(st.Size())
-			ok = ratio > 900
-			t.Logf("bomb ratio %.0f:1", ratio)
+			// The stream must really inflate to the declared zeros (archive/zip checks the CRC).
+			rc, err := files[0].Open()
+			if err != nil {
+				t.Fatal(err)
+			}
+			n, err := io.Copy(io.Discard, rc)
+			ok = ratio > 900 && err == nil && n == limits.BombBytes
+			t.Logf("bomb ratio %.0f:1, inflates to %d bytes (%v)", ratio, n, err)
 		case "lying-size.zip":
 			// Go's reader stops at the declared size (good for M1); read the raw stream to
 			// show the data really is larger than the header says.
@@ -98,6 +104,17 @@ func TestHostileCorpus(t *testing.T) {
 			ok = has(func(f *zip.File) bool { return strings.ContainsAny(f.Name, "\n\t\x1b\x00") })
 		case "long-name.zip":
 			ok = has(func(f *zip.File) bool { return len(f.Name) > limits.MaxNameBytes })
+		case "deep-nesting.zip":
+			ok = has(func(f *zip.File) bool { return strings.Count(f.Name, "/") == DeepNesting })
+		case "many-directories.zip":
+			dirs := map[string]bool{}
+			for _, f := range files {
+				for d := f.Name; strings.Contains(d, "/"); {
+					d = d[:strings.LastIndex(d, "/")]
+					dirs[d] = true
+				}
+			}
+			ok = len(files) <= limits.MaxEntries && len(files)+len(dirs) > limits.MaxEntries
 		default:
 			t.Errorf("%s: no check for this corpus entry", h.Name)
 			ok = true

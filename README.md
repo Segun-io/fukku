@@ -87,6 +87,7 @@ time and never committed.
 | `internal/web`, `internal/worker` | the two processes |
 | `internal/spool` | the task and result files between the two processes; `spooltest` has an in-memory queue |
 | `internal/jobdir` | the layout of the intake root (`.incoming/`, `jobs/<id>/files`, `archives`, `work`) |
+| `internal/extract`, `internal/safename` | safe zip extraction in the worker; the file-name cleaner |
 | `ui/` | the React single-page app, embedded in the binary |
 | `test/fixtures` | ffmpeg media and hostile-archive generators |
 | `test/env`, `test/testenv`, `test/probes` | the local integration environment (including the dev stack and its test proxy) and the behaviour probes |

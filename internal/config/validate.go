@@ -178,8 +178,15 @@ func validateShared(p *problems, cfg Config) {
 	if e.MaxRatio <= 1 {
 		p.add("extract.maxRatio", "must be greater than 1")
 	}
+	nonNegative(p, "extract.ratioFloor", int64(e.RatioFloor))
 	if e.MaxNameBytes < 16 || e.MaxNameBytes > 255 {
 		p.add("extract.maxNameBytes", "must be between 16 and 255")
+	}
+	if e.MaxPathSegments < 1 || e.MaxPathSegments > 255 {
+		p.add("extract.maxPathSegments", "must be between 1 and 255")
+	}
+	if e.MaxPathBytes < e.MaxNameBytes || e.MaxPathBytes > 3072 {
+		p.add("extract.maxPathBytes", "must be between extract.maxNameBytes and 3072")
 	}
 	for _, t := range e.AllowedTypes {
 		oneOf(p, "extract.allowedTypes", t, "zip")

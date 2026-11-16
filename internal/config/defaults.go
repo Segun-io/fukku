@@ -64,7 +64,10 @@ func Defaults() Config {
 			MaxEntries:      500,
 			MaxWrittenBytes: 200 << 30,
 			MaxRatio:        20,
+			RatioFloor:      1 << 20,
 			MaxNameBytes:    200,
+			MaxPathSegments: 32,
+			MaxPathBytes:    1024,
 			AllowedTypes:    []string{"zip"},
 		},
 		Match: Match{

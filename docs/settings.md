@@ -123,7 +123,7 @@ same settings.
 | `upload.maxFileSize` | `FUKKU_UPLOAD_MAX_FILE_SIZE` | `80GiB` | Largest single file |
 | `upload.maxInFlight` | `FUKKU_UPLOAD_MAX_IN_FLIGHT` | `300GiB` | Total size of all unfinished uploads |
 | `upload.maxParallelPerUser` | `FUKKU_UPLOAD_MAX_PARALLEL_PER_USER` | `3` | Uploads one user may run at once |
-| `upload.freeSpaceMargin` | `FUKKU_UPLOAD_FREE_SPACE_MARGIN` | `100GiB` | Refuse an upload when free space is below its size plus this |
+| `upload.freeSpaceMargin` | `FUKKU_UPLOAD_FREE_SPACE_MARGIN` | `100GiB` | Refuse an upload when free space is below its size plus this; an extraction stops when free space falls below this (measured on Linux, where the worker runs; elsewhere the extraction check always passes) |
 | `upload.videoExtensions` | `FUKKU_UPLOAD_VIDEO_EXTENSIONS` | `.mkv, .mp4, .m4v, .avi, .mov, .ts, .webm` | Accepted video files |
 | `upload.subtitleExtensions` | `FUKKU_UPLOAD_SUBTITLE_EXTENSIONS` | `.srt, .ass, .ssa` | Accepted subtitle files |
 | `upload.archiveExtensions` | `FUKKU_UPLOAD_ARCHIVE_EXTENSIONS` | `.zip` | Accepted archives |
@@ -135,10 +135,13 @@ same settings.
 
 | Setting | Environment | Default | Description |
 | --- | --- | --- | --- |
-| `extract.maxEntries` | `FUKKU_EXTRACT_MAX_ENTRIES` | `500` | Most entries in one archive |
-| `extract.maxWrittenBytes` | `FUKKU_EXTRACT_MAX_WRITTEN_BYTES` | `200GiB` | Stop when this much has been written (counted as written, not as declared) |
+| `extract.maxEntries` | `FUKKU_EXTRACT_MAX_ENTRIES` | `500` | Most entries in one archive, and most files and directories one extraction may create |
+| `extract.maxWrittenBytes` | `FUKKU_EXTRACT_MAX_WRITTEN_BYTES` | `200GiB` | Stop when this much has been written (counted as written, not as declared; each directory created counts as 4 KiB) |
 | `extract.maxRatio` | `FUKKU_EXTRACT_MAX_RATIO` | `20` | Stop when written bytes exceed compressed bytes by this factor |
+| `extract.ratioFloor` | `FUKKU_EXTRACT_RATIO_FLOOR` | `1MiB` | The ratio limit applies only once this much has been written, so a small archive of text, which compresses well, is not refused; `0` applies it from the first byte |
 | `extract.maxNameBytes` | `FUKKU_EXTRACT_MAX_NAME_BYTES` | `200` | Longest file name, in bytes after normalisation |
+| `extract.maxPathSegments` | `FUKKU_EXTRACT_MAX_PATH_SEGMENTS` | `32` | Most directory levels plus the file name in one entry's path; deeper entries are skipped as `name_too_long` |
+| `extract.maxPathBytes` | `FUKKU_EXTRACT_MAX_PATH_BYTES` | `1024` | Longest path of one entry, in bytes after normalisation; longer entries are skipped as `name_too_long` |
 | `extract.allowedTypes` | `FUKKU_EXTRACT_ALLOWED_TYPES` | `zip` | Archive formats (RAR and 7z are backlog). Nested archives are never opened |
 
 ## match

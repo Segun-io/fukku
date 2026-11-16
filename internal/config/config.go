@@ -118,7 +118,10 @@ type Extract struct {
 	MaxEntries      int      `yaml:"maxEntries"`
 	MaxWrittenBytes ByteSize `yaml:"maxWrittenBytes"`
 	MaxRatio        float64  `yaml:"maxRatio"`
+	RatioFloor      ByteSize `yaml:"ratioFloor"`
 	MaxNameBytes    int      `yaml:"maxNameBytes"`
+	MaxPathSegments int      `yaml:"maxPathSegments"`
+	MaxPathBytes    int      `yaml:"maxPathBytes"`
 	AllowedTypes    []string `yaml:"allowedTypes"`
 }
 

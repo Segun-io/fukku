@@ -144,8 +144,22 @@ func HostileCorpus(l Limits) []Hostile {
 			files(map[string][]byte{"bad\nname.srt": small, "tab\tname.srt": small, "esc\x1b[31m.srt": small, "nul\x00.srt": small})},
 		{"long-name.zip", fmt.Sprintf("a %d-byte file name", l.MaxNameBytes+55), RejectEntry,
 			files(map[string][]byte{strings.Repeat("n", l.MaxNameBytes+51) + ".mkv": small})},
+		{"deep-nesting.zip", fmt.Sprintf("one entry %d directories deep; creating each level walks the whole path", DeepNesting), RejectEntry,
+			files(map[string][]byte{strings.Repeat("a/", DeepNesting) + "x.mkv": small})},
+		{"many-directories.zip", fmt.Sprintf("%d entries in %d directories: within the entries allowed, but not once the directories count too", l.MaxEntries*4/5, l.MaxEntries*2/5), RefuseArchive,
+			func(w *zip.Writer) error {
+				for i := range l.MaxEntries * 4 / 5 {
+					if err := entry(w, fmt.Sprintf("d%04d/x%d.mkv", i/2, i%2), 0o644, small); err != nil {
+						return err
+					}
+				}
+				return nil
+			}},
 	}
 }
+
+// DeepNesting is the depth of the deep-nesting entry, far beyond extract.maxPathSegments.
+const DeepNesting = 1000
 
 func files(m map[string][]byte) func(*zip.Writer) error {
 	return func(w *zip.Writer) error {
@@ -169,19 +183,62 @@ func entry(w *zip.Writer, name string, mode fs.FileMode, data []byte) error {
 	return err
 }
 
+// zeros writes an entry of size zero bytes. Compressing a gigabyte takes about a minute
+// under the race detector, so one MiB is compressed once and its stream repeated: each copy
+// ends in a sync flush (byte-aligned, not final) and only refers back into its own output,
+// so the copies decode as one stream. A final empty stored block ends it.
 func zeros(w *zip.Writer, name string, size int64) error {
-	fw, err := w.CreateHeader(&zip.FileHeader{Name: name, Method: zip.Deflate})
+	const chunk = 1 << 20
+	block := func(n int64) ([]byte, error) {
+		var b bytes.Buffer
+		fw, err := flate.NewWriter(&b, flate.BestCompression)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := fw.Write(make([]byte, n)); err != nil {
+			return nil, err
+		}
+		if err := fw.Flush(); err != nil {
+			return nil, err
+		}
+		return b.Bytes(), nil
+	}
+	full, err := block(chunk)
 	if err != nil {
 		return err
 	}
-	buf := make([]byte, 1<<20)
-	for left := size; left > 0; left -= int64(len(buf)) {
-		n := min(left, int64(len(buf)))
-		if _, err := fw.Write(buf[:n]); err != nil {
+	var tail []byte
+	if rem := size % chunk; rem > 0 {
+		if tail, err = block(rem); err != nil {
 			return err
 		}
 	}
-	return nil
+	final := []byte{0x01, 0x00, 0x00, 0xff, 0xff}
+
+	crc := uint32(0)
+	zero := make([]byte, chunk)
+	for left := size; left > 0; left -= chunk {
+		crc = crc32.Update(crc, crc32.IEEETable, zero[:min(left, chunk)])
+	}
+	n := size / chunk
+	raw, err := w.CreateRaw(&zip.FileHeader{
+		Name: name, Method: zip.Deflate, CRC32: crc,
+		CompressedSize64:   uint64(n)*uint64(len(full)) + uint64(len(tail)) + uint64(len(final)),
+		UncompressedSize64: uint64(size),
+	})
+	if err != nil {
+		return err
+	}
+	for range n {
+		if _, err := raw.Write(full); err != nil {
+			return err
+		}
+	}
+	if _, err := raw.Write(tail); err != nil {
+		return err
+	}
+	_, err = raw.Write(final)
+	return err
 }
 
 // lyingSize writes an entry whose header claims declared bytes while its data inflates to actual.
