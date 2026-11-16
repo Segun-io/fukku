@@ -52,13 +52,19 @@ func profileID(p *probe, a *testenv.Arr) int {
 }
 
 // addFilm adds the film fresh (deleting any earlier copy and its files) with search off.
-func addFilm(p *probe, f film) M {
+func addFilm(p *probe, f film) M { return addFilmAt(p, f, true) }
+
+// addFilmAt is addFilm; with fresh false an earlier copy is left alone and the film's folder
+// and the files in it are kept.
+func addFilmAt(p *probe, f film, fresh bool) M {
 	r := env.Radarr
 	p.needMeta("movie lookup")
 	var existing []M
 	p.must(r.Get(p.ctx, fmt.Sprintf("/movie?tmdbId=%d", f.tmdb), &existing), "find movie")
 	for _, m := range existing {
-		p.must(r.Delete(p.ctx, fmt.Sprintf("/movie/%d?deleteFiles=true&addImportExclusion=false", testenv.ID(m))), "delete movie")
+		if fresh {
+			p.must(r.Delete(p.ctx, fmt.Sprintf("/movie/%d?deleteFiles=true&addImportExclusion=false", testenv.ID(m))), "delete movie")
+		}
 	}
 	var lookup M
 	// The lookup goes through Radarr to its public metadata service, which can be slow.
@@ -73,7 +79,9 @@ func addFilm(p *probe, f film) M {
 	lookup["addOptions"] = M{"searchForMovie": false, "monitor": "movieOnly"}
 	var movie M
 	p.meta(r.Post(p.ctx, "/movie", lookup, &movie), "add movie")
-	p.fresh(movie["path"].(string))
+	if fresh {
+		p.fresh(movie["path"].(string))
+	}
 	return movie
 }
 

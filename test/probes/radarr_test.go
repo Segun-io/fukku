@@ -3,9 +3,11 @@
 package probes
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -359,4 +361,375 @@ func TestC6ProposalScope(t *testing.T) {
 	default:
 		p.differ("proposal scoping: folder %v, folder+movieId %v, re-check %v", byFolder, withID, reOK)
 	}
+}
+
+// ---- B3 follow-ups (issue #51: evidence for decision #20) -------------------------------
+
+const claimB3x = "Decision #20: Radarr 6.4.4 registers every video in the film folder as an extra movie-file record (B3); what it does with that record is unverified"
+
+// b3Film is a film with a tracked file and a label file "<folder> - Español.mkv" that Radarr
+// has registered as a second movie-file record.
+type b3Film struct {
+	movie                  M
+	id                     int
+	folder, tracked, label string
+}
+
+func b3Start(p *probe, f film) b3Film {
+	movie := addFilm(p, f)
+	id := testenv.ID(movie)
+	mf := importFilm(p, movie, f, f.dotted()+".1080p.WEB-DL", "eng")
+	folder := movie["path"].(string)
+	label := filepath.Join(folder, filepath.Base(folder)+" - Español.mkv")
+	p.video(label, long(f.minutes, "spa"))
+	rescanMovie(p, id)
+	recs := movieFileRecords(p, id)
+	p.check(len(recs) == 2, fmt.Sprintf("Radarr registers the label file as a second record (records: %v)", recs))
+	return b3Film{movie: movie, id: id, folder: folder, tracked: filepath.Join(folder, fmt.Sprint(mf["relativePath"])), label: label}
+}
+
+// movieFileList is GET /moviefile?movieId=.
+func movieFileList(p *probe, id int) []M {
+	var files []M
+	p.must(env.Radarr.Get(p.ctx, fmt.Sprintf("/moviefile?movieId=%d", id), &files), "movie files")
+	return files
+}
+
+// recordFor returns the movie-file record whose relative path contains part.
+func recordFor(files []M, part string) M {
+	for _, f := range files {
+		if strings.Contains(fmt.Sprint(f["relativePath"]), part) {
+			return f
+		}
+	}
+	return nil
+}
+
+// B3a: deleting the film, without and with "delete files".
+func TestB3aDeleteFilm(t *testing.T) {
+	p := newProbe(t, "B3a", "Radarr: deleting a film that has a label file", claimB3x, true, "radarr")
+	s := b3Start(p, bigBuckBunny)
+	p.must(env.Radarr.Delete(p.ctx, fmt.Sprintf("/movie/%d?deleteFiles=false&addImportExclusion=false", s.id)), "delete without files")
+	left := listDir(s.folder)
+	var recs []M
+	err := env.Radarr.Get(p.ctx, fmt.Sprintf("/moviefile?movieId=%d", s.id), &recs)
+	p.evidence("withoutDeleteFiles", M{"filesLeft": left, "movieFileRecordsAfter": len(recs), "movieFileQueryStatus": testenv.StatusOf(err)})
+	p.observe("deleted without \"delete files\": both videos stay on disk %v; /moviefile?movieId= now answers %d record(s), HTTP status %d", left, len(recs), testenv.StatusOf(err))
+
+	movie := addFilmAt(p, bigBuckBunny, false) // the folder and its files stay
+	id := testenv.ID(movie)
+	rescanMovie(p, id)
+	mf := movieFile(p, id)
+	after := movieFileRecords(p, id)
+	p.evidence("readded", M{"tracked": mf["relativePath"], "records": after})
+	p.observe("the film added again over the same folder, after a rescan: tracked file %v, records %v", mf["relativePath"], after)
+
+	start := time.Now()
+	p.must(env.Radarr.Delete(p.ctx, fmt.Sprintf("/movie/%d?deleteFiles=true&addImportExclusion=false", id)), "delete with files")
+	// Radarr removes the files after the call returns: wait for the folder to go.
+	gone := testenv.WaitFor(p.ctx, 30*time.Second, 250*time.Millisecond, "the film folder to be removed", func() (bool, error) {
+		return !exists(s.folder), nil
+	}) == nil
+	files := listDir(s.folder)
+	p.evidence("withDeleteFiles", M{"folderGone": gone, "secondsToRemove": time.Since(start).Seconds(), "filesLeft": files})
+	p.observe("deleted with \"delete files\": the film folder is gone: %v (after %.1f s); files left %v; the label file is %s", gone, time.Since(start).Seconds(), files,
+		map[bool]string{true: "kept", false: "deleted with the film"}[exists(s.label)])
+	p.observed()
+}
+
+// B3b: RenameMovie with the Jellyfin-friendly format.
+func TestB3bRenameWithoutCollision(t *testing.T) {
+	p := newProbe(t, "B3b", "Radarr: renaming a film that has a label file", claimB3x, true, "radarr")
+	s := b3Start(p, sintel)
+	preview := func(format string) []string {
+		restore := setMovieNaming(p, format)
+		defer restore()
+		var pv []M
+		p.must(env.Radarr.Get(p.ctx, fmt.Sprintf("/rename?movieId=%d", s.id), &pv), "rename preview")
+		var pairs []string
+		for _, r := range pv {
+			pairs = append(pairs, fmt.Sprintf("%s -> %s", filepath.Base(fmt.Sprint(r["existingPath"])), filepath.Base(fmt.Sprint(r["newPath"]))))
+		}
+		return pairs
+	}
+	const friendly = "{Movie Title} ({Release Year}) - {Quality Full}"
+	const withAudio = "{Movie Title} ({Release Year}) - {Quality Full} {MediaInfo AudioLanguages}"
+	pv1 := preview(friendly)
+	pv2 := preview(withAudio)
+	p.evidence("previewJellyfinFriendly", pv1)
+	p.evidence("previewWithAudioLanguages", pv2)
+	p.observe("preview (GET /rename) with %q: %v", friendly, pv1)
+	p.observe("preview with %q: %v", withAudio, pv2)
+
+	restore := setMovieNaming(p, friendly)
+	cmd, err := env.Radarr.RunCommand(p.ctx, M{"name": "RenameMovie", "movieIds": []int{s.id}}, cmdTimeout)
+	restore()
+	p.must(err, "RenameMovie")
+	files := listDir(s.folder)
+	recs := movieFileRecords(p, s.id)
+	p.evidence("afterRename", M{"status": cmd.Status, "message": cmd.Message, "folder": files, "records": recs})
+	p.observe("RenameMovie with %q (%s %s): folder %v; records %v", friendly, cmd.Status, cmd.Message, files, recs)
+	kept := slices.ContainsFunc(files, func(f string) bool { return strings.Contains(f, "Español") })
+	p.observe("the label file %s its name: the preview shows its new name colliding with the tracked file's, and Radarr then leaves it alone", map[bool]string{true: "kept", false: "lost"}[kept])
+
+	// With a format whose names cannot collide, the label file is renamed too.
+	restore = setMovieNaming(p, withAudio)
+	cmd, err = env.Radarr.RunCommand(p.ctx, M{"name": "RenameMovie", "movieIds": []int{s.id}}, cmdTimeout)
+	restore()
+	p.must(err, "RenameMovie (audio languages)")
+	files2 := listDir(s.folder)
+	p.evidence("afterRenameWithAudioLanguages", M{"status": cmd.Status, "folder": files2})
+	p.observe("RenameMovie with %q (%s): folder %v", withAudio, cmd.Status, files2)
+	p.observed()
+}
+
+// B3c: the label file is removed from disk and the film rescanned.
+func TestB3cRemoveLabelFileAndRescan(t *testing.T) {
+	p := newProbe(t, "B3c", "Radarr: a label file removed from disk, then a rescan", claimB3x, true, "radarr")
+	s := b3Start(p, tearsOfSteel)
+	before := movieFileList(p, s.id)
+	labelRec := recordFor(before, "Español")
+	p.check(labelRec != nil, "the label file has a record")
+	p.must(os.Remove(s.label), "remove the label file")
+	rescanMovie(p, s.id)
+	after := movieFileList(p, s.id)
+	var rec M
+	statusErr := env.Radarr.Get(p.ctx, fmt.Sprintf("/moviefile/%d", testenv.ID(labelRec)), &rec)
+	mf := movieFile(p, s.id)
+	var events []M
+	p.must(env.Radarr.Get(p.ctx, fmt.Sprintf("/history/movie?movieId=%d", s.id), &events), "history")
+	var types []string
+	for _, e := range events {
+		types = append(types, fmt.Sprint(e["eventType"]))
+	}
+	p.evidence("afterRescan", M{"recordsBefore": len(before), "recordsAfter": len(after), "labelRecordHTTP": testenv.StatusOf(statusErr), "tracked": mf["relativePath"], "historyEvents": types})
+	p.observe("records before %d, after the rescan %d; the label record answers HTTP %d; tracked file still %v; history events of the film %v",
+		len(before), len(after), testenv.StatusOf(statusErr), mf["relativePath"], types)
+	p.observed()
+}
+
+// B3d: how Radarr shows the label file, and what deleting its record does.
+func TestB3dRadarrViewOfLabelFile(t *testing.T) {
+	p := newProbe(t, "B3d", "Radarr: how the film and its records look with a label file", claimB3x, true, "radarr")
+	s := b3Start(p, elephantsDream)
+	var m M
+	p.must(env.Radarr.Get(p.ctx, fmt.Sprintf("/movie/%d", s.id), &m), "movie")
+	stats, _ := m["statistics"].(M)
+	var sizes []string
+	for _, f := range movieFileList(p, s.id) {
+		sizes = append(sizes, fmt.Sprintf("%v (%s, %v bytes, runtime %v)", f["relativePath"], qualityName(f), f["size"], runTimeOf(f)))
+	}
+	trackedSize, labelSize := fileSize(s.tracked), fileSize(s.label)
+	mf, _ := m["movieFile"].(M)
+	p.evidence("movie", M{"hasFile": m["hasFile"], "sizeOnDisk": m["sizeOnDisk"], "statistics": stats, "movieFile": mf["relativePath"], "records": sizes})
+	p.observe("GET /movie/<id>: hasFile %v, movieFile %v, sizeOnDisk %v, statistics.sizeOnDisk %v (tracked file %d bytes, label file %d bytes)",
+		m["hasFile"], mf["relativePath"], m["sizeOnDisk"], stats["sizeOnDisk"], trackedSize, labelSize)
+	p.observe("GET /moviefile?movieId=: %v", sizes)
+
+	rec := recordFor(movieFileList(p, s.id), "Español")
+	p.check(rec != nil, "the label file has a record")
+	err := env.Radarr.Delete(p.ctx, fmt.Sprintf("/moviefile/%d", testenv.ID(rec)))
+	after := movieFileRecords(p, s.id)
+	cur := movieFile(p, s.id)
+	p.evidence("deleteRecord", M{"error": fmt.Sprint(err), "labelFileOnDisk": exists(s.label), "trackedOnDisk": exists(s.tracked), "records": after})
+	p.observe("DELETE /moviefile/<label record id> (%v): the label file is still on disk: %v; the tracked file still on disk: %v, still tracked: %v; records now %v",
+		err, exists(s.label), exists(s.tracked), cur != nil, after)
+	p.observed()
+}
+
+func fileSize(path string) int64 {
+	st, err := os.Stat(path)
+	if err != nil {
+		return -1
+	}
+	return st.Size()
+}
+
+// B3e: a label file in a subfolder of the film folder, and one outside the root folder
+// grouped with Jellyfin's MergeVersions, through a rescan, a rename, an upgrade and a delete.
+func TestB3eVersionsOutsideTheFilmFolder(t *testing.T) {
+	p := newProbe(t, "B3e", "Radarr: a version in a subfolder, and one outside the root folder merged in Jellyfin", claimB3x, true, "radarr", "jellyfin")
+	f := cosmosLaundromat
+	movie := addFilm(p, f)
+	id := testenv.ID(movie)
+	importFilm(p, movie, f, f.dotted()+".1080p.WEB-DL", "eng")
+	folder := movie["path"].(string)
+	name := filepath.Base(folder)
+
+	sub := filepath.Join(folder, "Versions", name+" - Español.mkv")
+	p.video(sub, long(f.minutes, "spa"))
+	rescanMovie(p, id)
+	recsSub := movieFileRecords(p, id)
+	p.evidence("subfolder", recsSub)
+	p.observe("a label file in the subfolder Versions/ of the film folder: after a rescan Radarr lists %d record(s): %v", len(recsSub), recsSub)
+	p.must(os.RemoveAll(filepath.Join(folder, "Versions")), "remove the subfolder")
+	rescanMovie(p, id)
+
+	versionsRoot := filepath.Join(env.Data, "media", "versions")
+	vdir := p.fresh(filepath.Join(versionsRoot, name))
+	version := filepath.Join(vdir, name+" - Español.mkv")
+	p.video(version, long(f.minutes, "spa"))
+	rescanMovie(p, id)
+	recsOutside := movieFileRecords(p, id)
+	p.evidence("outsideRoot", recsOutside)
+	p.observe("a version file outside the root folder (a separate versions folder): after a rescan Radarr lists %d record(s): %v", len(recsOutside), recsOutside)
+
+	// Jellyfin: add the versions folder to the Movies library for the length of this probe.
+	p.must(env.Jellyfin.AddLibraryPath(p.ctx, "Movies", versionsRoot), "add the versions folder to the Movies library")
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*scanTimeout)
+		defer cancel()
+		_ = env.Jellyfin.RemoveLibraryPath(ctx, "Movies", versionsRoot)
+		_ = os.RemoveAll(versionsRoot)
+		_ = env.Jellyfin.ScanAndWait(ctx, scanTimeout)
+	})
+	p.must(env.Jellyfin.ScanAndWait(p.ctx, scanTimeout), "library scan")
+	state := func(stage string) []testenv.Item {
+		var all []testenv.Item
+		seen := map[string]bool{}
+		for _, dir := range []string{folder, vdir} {
+			items, err := env.Jellyfin.ItemsUnder(p.ctx, dir, "Movie")
+			p.must(err, "items "+stage)
+			for _, it := range items {
+				if !seen[it.ID] {
+					seen[it.ID] = true
+					all = append(all, it)
+				}
+			}
+		}
+		p.observe("Jellyfin %s: %d item(s) in the server's item list %v", stage, len(all), sourcesOf(all))
+		p.evidence("jellyfin "+stage, sourcesOf(all))
+		user, err := env.Jellyfin.UserMovies(p.ctx, "Cosmos Laundromat")
+		p.must(err, "user view "+stage)
+		p.observe("Jellyfin %s: a user's library view shows %d entr(ies) %v", stage, len(user), sourcesOf(user))
+		p.evidence("jellyfin user view "+stage, sourcesOf(user))
+		return all
+	}
+	items := state("before the merge")
+	var filmItem, versionItem *testenv.Item
+	for i := range items {
+		switch {
+		case strings.HasPrefix(items[i].Path, folder+"/"):
+			filmItem = &items[i]
+		case strings.HasPrefix(items[i].Path, vdir+"/"):
+			versionItem = &items[i]
+		}
+	}
+	p.check(filmItem != nil && versionItem != nil, "Jellyfin lists the film and the version as separate items")
+	p.must(env.Jellyfin.Do(p.ctx, "POST", "/Videos/MergeVersions"+testenv.Q("ids", filmItem.ID+","+versionItem.ID), nil, nil), "MergeVersions")
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		defer cancel()
+		_ = env.Jellyfin.Unmerge(ctx, filmItem.ID)
+	})
+	state("after the merge")
+	p.observe("Radarr's records after the merge: %v", movieFileRecords(p, id))
+
+	rescanMovie(p, id)
+	p.must(env.Jellyfin.ScanAndWait(p.ctx, scanTimeout), "library scan")
+	state("after a Radarr rescan and a library scan")
+
+	restore := setMovieNaming(p, "{Movie Title} ({Release Year}) - {Quality Full}")
+	cmd, err := env.Radarr.RunCommand(p.ctx, M{"name": "RenameMovie", "movieIds": []int{id}}, cmdTimeout)
+	restore()
+	p.must(err, "RenameMovie")
+	p.observe("RenameMovie (%s): film folder now %v", cmd.Status, listDir(folder))
+	p.must(env.Jellyfin.ScanAndWait(p.ctx, scanTimeout), "library scan")
+	state("after the rename and a library scan")
+
+	up := p.fresh(intake("B3e-upgrade"))
+	remux := filepath.Join(up, f.dotted()+".1080p.BluRay.REMUX.AVC.mkv")
+	p.video(remux, long(f.minutes, "eng"))
+	item := itemFor(proposalForMovie(p, up, id), remux)
+	p.check(item != nil, "upgrade file is in the proposal")
+	oldTracked := filepath.Join(folder, fmt.Sprint(movieFile(p, id)["relativePath"]))
+	cmd = manualImport(p, env.Radarr, []M{item}, M{"movieId": id}, "move")
+	oldGone := testenv.WaitFor(p.ctx, 30*time.Second, 250*time.Millisecond, "the replaced file to be removed", func() (bool, error) {
+		return !exists(oldTracked), nil
+	}) == nil
+	p.observe("a Remux upgrade imported (%s %s %s; proposal rejections %v): the replaced tracked file was removed from disk: %v; film folder now %v; records %v; tracked file now %v",
+		cmd.Status, cmd.Result, cmd.Message, rejections(item), oldGone, listDir(folder), movieFileRecords(p, id), movieFile(p, id)["relativePath"])
+	p.must(env.Jellyfin.ScanAndWait(p.ctx, scanTimeout), "library scan")
+	state("after the upgrade and a library scan")
+
+	p.must(env.Radarr.Delete(p.ctx, fmt.Sprintf("/movie/%d?deleteFiles=true&addImportExclusion=false", id)), "delete with files")
+	p.observe("the film deleted with its files: the version file outside the root is still on disk: %v", exists(version))
+	p.must(env.Jellyfin.ScanAndWait(p.ctx, scanTimeout), "library scan")
+	state("after the film is deleted and a library scan")
+	p.observed()
+}
+
+// B3f: an upgrade grabbed by search or RSS. It needs an indexer and a download client; the
+// fake indexer is issue #24.
+func TestB3fUpgradeBySearch(t *testing.T) {
+	p := newProbe(t, "B3f", "Radarr: an upgrade grabbed by search or RSS, with a label file", claimB3x, false, "radarr")
+	p.r.Verdict = Skipped
+	p.r.Reason = "needs a fake indexer and download client (#24)"
+	p.observe("skipped: a grab by search or RSS needs an indexer and a download client, and the fake indexer of #24 has not landed; B3 and B3e record what an upgrade imported through Manual Import does to the label file, which uses the same import service but is not the same path")
+	t.Skip("needs a fake indexer (#24)")
+}
+
+func runTimeOf(f M) any {
+	mi, _ := f["mediaInfo"].(M)
+	return mi["runTime"]
+}
+
+// B3g: an upgrade imported through Manual Import (the nearest to a grab by search or RSS that
+// needs no indexer) when the film folder has, or has had, a label file.
+func TestB3gUpgradeWithLabelFile(t *testing.T) {
+	p := newProbe(t, "B3g", "Radarr: an upgrade imported through Manual Import when the film has a label file", claimB3x, true, "radarr")
+	f := cosmosLaundromat
+	type scenario struct {
+		name  string
+		setup func() b3Film
+	}
+	plain := func() b3Film {
+		movie := addFilm(p, f)
+		importFilm(p, movie, f, f.dotted()+".1080p.WEB-DL", "eng")
+		folder := movie["path"].(string)
+		return b3Film{movie: movie, id: testenv.ID(movie), folder: folder}
+	}
+	scenarios := []scenario{
+		{"no label file (control)", plain},
+		{"label file in the film folder", func() b3Film { return b3Start(p, f) }},
+		{"label file, film renamed with the Jellyfin-friendly format", func() b3Film {
+			s := b3Start(p, f)
+			restore := setMovieNaming(p, "{Movie Title} ({Release Year}) - {Quality Full}")
+			_, err := env.Radarr.RunCommand(p.ctx, M{"name": "RenameMovie", "movieIds": []int{s.id}}, cmdTimeout)
+			restore()
+			p.must(err, "RenameMovie")
+			return s
+		}},
+		{"label file added, then removed and rescanned", func() b3Film {
+			s := b3Start(p, f)
+			p.must(os.Remove(s.label), "remove the label file")
+			rescanMovie(p, s.id)
+			return s
+		}},
+	}
+	var rows []M
+	for _, sc := range scenarios {
+		s := sc.setup()
+		before := movieFile(p, s.id)
+		oldTracked := filepath.Join(s.folder, fmt.Sprint(before["relativePath"]))
+		up := p.fresh(intake("B3g"))
+		remux := filepath.Join(up, f.dotted()+".1080p.BluRay.REMUX.AVC.mkv")
+		p.video(remux, long(f.minutes, "eng"))
+		item := itemFor(proposalForMovie(p, up, s.id), remux)
+		p.check(item != nil, "the upgrade is in the proposal")
+		cmd := manualImport(p, env.Radarr, []M{item}, M{"movieId": s.id}, "move")
+		// Radarr removes the replaced file after the command; give it time.
+		oldGone := testenv.WaitFor(p.ctx, 5*time.Second, 250*time.Millisecond, "the replaced file to be removed", func() (bool, error) {
+			return !exists(oldTracked), nil
+		}) == nil
+		after := movieFile(p, s.id)
+		recs := movieFileRecords(p, s.id)
+		remuxTracked := strings.Contains(fmt.Sprint(after["relativePath"]), "Remux")
+		p.observe("%s: import %s, rejections %v; the replaced file was removed: %v; the film's tracked file is now %v (the Remux: %v); folder %v; records %v",
+			sc.name, cmd.Status, rejections(item), oldGone, after["relativePath"], remuxTracked, listDir(s.folder), recs)
+		rows = append(rows, M{"scenario": sc.name, "importStatus": cmd.Status, "replacedFileRemoved": oldGone, "trackedAfter": after["relativePath"],
+			"remuxIsTracked": remuxTracked, "folder": listDir(s.folder), "records": recs})
+	}
+	p.evidence("scenarios", rows)
+	p.observed()
 }

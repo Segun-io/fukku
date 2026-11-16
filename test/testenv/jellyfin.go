@@ -27,6 +27,7 @@ type Item struct {
 	IndexNumber         *int          `json:"IndexNumber"`
 	RunTimeTicks        int64         `json:"RunTimeTicks"`
 	ProductionYear      int           `json:"ProductionYear"`
+	MediaSourceCount    int           `json:"MediaSourceCount"`
 }
 
 type MediaSource struct {
@@ -224,4 +225,37 @@ func (j *Jellyfin) SetLibraryMonitorDelay(ctx context.Context, seconds int) erro
 	}
 	cfg["LibraryMonitorDelay"] = json.RawMessage(fmt.Sprint(seconds))
 	return j.Do(ctx, "POST", "/System/Configuration", cfg, nil)
+}
+
+// AddLibraryPath adds a folder to a library (a virtual folder) without scanning it.
+func (j *Jellyfin) AddLibraryPath(ctx context.Context, library, path string) error {
+	return j.Do(ctx, "POST", "/Library/VirtualFolders/Paths"+Q("refreshLibrary", "false"),
+		M{"Name": library, "PathInfo": M{"Path": path}}, nil)
+}
+
+// RemoveLibraryPath removes a folder from a library without scanning.
+func (j *Jellyfin) RemoveLibraryPath(ctx context.Context, library, path string) error {
+	return j.Do(ctx, "DELETE", "/Library/VirtualFolders/Paths"+Q("name", library, "path", path, "refreshLibrary", "false"), nil, nil)
+}
+
+// Unmerge removes the alternate versions merged into an item (DELETE /Videos/{id}/AlternateSources).
+func (j *Jellyfin) Unmerge(ctx context.Context, id string) error {
+	return j.Do(ctx, "DELETE", "/Videos/"+id+"/AlternateSources", nil, nil)
+}
+
+// UserMovies lists the movies the first user sees whose name matches term: what a client
+// shows, with alternate versions grouped under one entry.
+func (j *Jellyfin) UserMovies(ctx context.Context, term string) ([]Item, error) {
+	var users []struct {
+		ID string `json:"Id"`
+	}
+	if err := j.Do(ctx, "GET", "/Users", nil, &users); err != nil || len(users) == 0 {
+		return nil, err
+	}
+	var res struct {
+		Items []Item `json:"Items"`
+	}
+	q := Q("Recursive", "true", "IncludeItemTypes", "Movie", "SearchTerm", term, "Fields", "Path,MediaSources", "EnableImages", "false")
+	err := j.Do(ctx, "GET", "/Users/"+users[0].ID+"/Items"+q, nil, &res)
+	return res.Items, err
 }
