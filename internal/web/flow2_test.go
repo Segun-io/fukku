@@ -60,7 +60,7 @@ func newFlow2Env(t *testing.T, tweak func(*config.Config)) *flow2Env {
 	st := storetest.NewFake(nil)
 	movies := &arrtest.FakeMovies{
 		Results: []arr.Movie{{ID: 8, TMDBID: 605, Title: "Has File", Year: 2004, HasFile: true}},
-		Library: []arr.Movie{{ID: 8, TMDBID: 605, Title: "Has File", Year: 2004, OriginalLanguage: "English", HasFile: true,
+		Library: []arr.Movie{{ID: 8, TMDBID: 605, Title: "Has File", Year: 2004, OriginalLanguage: "English", HasFile: true, Path: "/movies/Has File (2004)",
 			File: &arr.MovieFile{ID: 21, Path: "/movies/Has File (2004)/Has File (2004) WEBDL-1080p.mkv", Size: 4000,
 				Quality: arr.Quality{ID: 3, Name: "WEBDL-1080p"}, Languages: []arr.Language{{ID: 1, Name: "English"}}, RuntimeMs: 5_400_000}}},
 		Queue: map[int]bool{},
@@ -153,7 +153,7 @@ func TestFlow2ThroughTheAPI(t *testing.T) {
 	             "durationMs": 5400400,
 	             "audio": [{"index": 1, "codec": "ac3", "language": "spa", "title": "Español (Latino)", "channels": 6, "default": true}],
 	             "subtitles": []},
-	  "finding": null, "deltaMs": null, "ratio": null, "offers": [], "notOffered": []}`)
+	  "finding": null, "deltaMs": null, "ratio": null, "offers": [], "notOffered": [], "version": null}`)
 
 	if j = e.step(j); j.State != store.Matched {
 		t.Fatalf("job %s", j.State)
@@ -182,7 +182,7 @@ func TestFlow2ThroughTheAPI(t *testing.T) {
 	             "audio": [{"index": 1, "codec": "ac3", "language": "spa", "title": "Español (Latino)", "channels": 6, "default": true}],
 	             "subtitles": []},
 	  "finding": "match", "deltaMs": 400, "ratio": 1.0000740740740741,
-	  "offers": ["merge"], "notOffered": [{"offer": "version", "reason": "versions_disabled"}]}`)
+	  "offers": ["merge"], "notOffered": [{"offer": "version", "reason": "versions_disabled"}], "version": null}`)
 
 	// The flow 1 confirmation would import the upload over the film's file: refused.
 	code, body := e.call("POST", "/api/jobs/"+j.ID+"/confirm", `{}`)

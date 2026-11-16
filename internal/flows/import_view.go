@@ -51,8 +51,11 @@ type ResultView struct {
 	// had a file: replace (the season is unmonitored when only a dub was imported, so the UI
 	// warns that the title's own Search can still replace it), or subtitlesOnly (nothing was
 	// imported; point the user at the subtitle manager). Null otherwise.
-	SeasonDub      *SeasonDubResult `json:"seasonDub"`
-	PostProcessing []StepView       `json:"postProcessing"`
+	SeasonDub *SeasonDubResult `json:"seasonDub"`
+	// Version is the second version the job placed (#56) and its grouping in the media
+	// server; null for every other job.
+	Version        *VersionResult `json:"version"`
+	PostProcessing []StepView     `json:"postProcessing"`
 }
 
 // StepView is a post-processing step: pending, ok, failed or skipped. The detail of a step
@@ -140,8 +143,11 @@ func (e *Engine) Detail(ctx context.Context, job store.Job, admin bool) (*Import
 		}
 		return v
 	}
+	if rv.Version, err = e.versionResult(ctx, job, t, admin); err != nil {
+		return nil, nil, err
+	}
 	listed := map[string]bool{}
-	for _, s := range e.steps {
+	for _, s := range e.stepsFor(t) {
 		ps, ok := byName[s.Name()]
 		if !ok {
 			ps = store.PostStep{Name: s.Name(), Status: store.StepPending}

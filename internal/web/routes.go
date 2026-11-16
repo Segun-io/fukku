@@ -20,6 +20,7 @@ func (s *Server) routes(mux *http.ServeMux) {
 	s.confirmRoutes(mux)  // #40
 	s.previewRoutes(mux)  // #53
 	s.adminRoutes(mux)    // #69
+	s.versionRoutes(mux)  // #56: GET /api/admin/versions
 	mux.Handle(uploadsPath, s.uploadsHandler())
 	mux.HandleFunc("/api/", apiNotFound)
 	mux.Handle("/", s.spa())

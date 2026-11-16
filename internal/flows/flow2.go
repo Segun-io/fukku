@@ -3,6 +3,7 @@ package flows
 import (
 	"encoding/json"
 	"path"
+	"slices"
 
 	"github.com/segun-io/fukku/internal/arr"
 	"github.com/segun-io/fukku/internal/config"
@@ -60,11 +61,15 @@ import (
 // upload − library and ratio the longer duration over the shorter (durations as
 // CutDuration measures them). offers lists what can be done, in order of preference
 // (merge, version); notOffered lists the rest, each with its reason: merge_disabled,
-// versions_disabled, or runtime_differs (a merge needs the same cut; the finding says
-// whether it is a PAL speed-up or a different cut). With merge.enabled and
-// versions.enabled both off, offers is empty and notOffered says why for both. The
-// audio and subtitle tracks are the probes' (media.AudioTrack, media.SubtitleTrack). No
-// path is shown.
+// versions_disabled, versions_unsupported (no media server that can group versions, #56),
+// or runtime_differs (a merge needs the same cut; the finding says whether it is a PAL
+// speed-up or a different cut). With merge.enabled and versions.enabled both off, offers
+// is empty and notOffered says why for both. The audio and subtitle tracks are the probes'
+// (media.AudioTrack, media.SubtitleTrack). No path is shown. While "version" is offered,
+// "version" says what the second version would be (VersionOffer, version.go):
+//
+//	"version": {"label": "Español", "language": "es", "name": "Film (2001) - Español.mkv",
+//	            "problem": null, "notices": ["outside_radarr", "regrouped_after_changes", "kept_on_delete"]}
 
 // Job error and refusal codes of flow 2.
 const (
@@ -172,6 +177,9 @@ type Flow2View struct {
 	Ratio      *float64       `json:"ratio"`
 	Offers     []string       `json:"offers"`
 	NotOffered []NotOffered   `json:"notOffered"`
+	// Version is what a second version would be while "version" is offered (#56,
+	// version.go); null otherwise.
+	Version *VersionOffer `json:"version"`
 }
 
 // Flow2FileView is one side of the comparison. For the library file FileID is Radarr's
@@ -237,6 +245,9 @@ func ViewFlow2(cfg config.Config, t store.Target, files []store.File) *Flow2View
 		v.Library.DurationMs, v.Upload.DurationMs = &lib.Probe.DurationMs, &up.DurationMs
 	}
 	v.Offers, v.NotOffered = Offers(c.Finding, cfg)
+	if slices.Contains(v.Offers, OfferVersion) {
+		v.Version = viewVersion(cfg, lib, f, up, files)
+	}
 	return v
 }
 

@@ -34,6 +34,8 @@ type Fake struct {
 	events  []store.Event
 	audit   []store.AuditEntry
 	m2      m2
+	vers    []store.Version // second versions (#56), by ID
+	verID   int64
 }
 
 type fakeJob struct {

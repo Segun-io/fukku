@@ -103,10 +103,19 @@ func TestOffers(t *testing.T) {
 	} {
 		cfg := config.Defaults()
 		cfg.Merge.Enabled, cfg.Versions.Enabled = tc.merge, tc.versions
+		cfg.MediaServer.Provider = "jellyfin"
 		offers, not := Offers(tc.finding, cfg)
 		if !slices.Equal(offers, tc.offers) || !slices.Equal(not, tc.notOffered) {
 			t.Errorf("%s merge=%t versions=%t: %v %v, want %v %v", tc.finding, tc.merge, tc.versions, offers, not, tc.offers, tc.notOffered)
 		}
+	}
+	// A film's version is grouped by the media server (decision #20): without one that can
+	// group versions it is not offered.
+	cfg := config.Defaults()
+	cfg.Versions.Enabled, cfg.MediaServer.Provider = true, "none"
+	offers, not := Offers(FindingPAL, cfg)
+	if want := []NotOffered{{OfferMerge, ReasonRuntimeDiffers}, {OfferVersion, ReasonVersionsUnsupported}}; len(offers) != 0 || !slices.Equal(not, want) {
+		t.Errorf("no media server: %v %v, want [] %v", offers, not, want)
 	}
 }
 

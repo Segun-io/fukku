@@ -188,12 +188,19 @@ type Merge struct {
 	UnmonitorAfterDubOnlyImport bool     `yaml:"unmonitorAfterDubOnlyImport"`
 }
 
+// Versions configures second versions (flow 2b, decision #20): a film's version is kept in
+// Root, outside Radarr's root folders, and grouped with the film in the media server.
 type Versions struct {
-	Enabled                  bool     `yaml:"enabled"`
-	Strategy                 string   `yaml:"strategy"`
+	Enabled bool `yaml:"enabled"`
+	// Root is where films' second versions are placed, as Fukku sees it: outside every Radarr
+	// root folder, inside a media server library, on the intake root's filesystem.
+	Root                     string   `yaml:"root"`
 	LabelTemplate            string   `yaml:"labelTemplate"`
 	ForbiddenLabelTokens     []string `yaml:"forbiddenLabelTokens"`
 	RequireNotUpgradeVerdict bool     `yaml:"requireNotUpgradeVerdict"`
+	// RegroupInterval: how often every version's grouping is checked and re-applied (a
+	// rename or upgrade of the film's file loses it, probe B3e); 0: never on a schedule.
+	RegroupInterval Duration `yaml:"regroupInterval"`
 }
 
 type SeasonDub struct {

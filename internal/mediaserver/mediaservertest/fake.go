@@ -9,7 +9,10 @@ import (
 	"github.com/segun-io/fukku/internal/mediaserver"
 )
 
-var _ mediaserver.MediaServer = (*Fake)(nil)
+var (
+	_ mediaserver.MediaServer = (*Fake)(nil)
+	_ mediaserver.Grouper     = (*Fake)(nil)
+)
 
 // Fake is a media server that lists the paths in Items (path to item id). Titles in Pending
 // appear in Items once a Refresh has been made and more than FindsNeeded Find calls have
@@ -29,7 +32,10 @@ type Fake struct {
 	Refreshed [][]string // the paths of every Refresh call
 	FindCalls []string   // the path of every Find call
 	Scans     int        // the number of Scan calls
+	Merged    [][]string // the item ids of every MergeVersions call
 
+	groups    map[string]int // item id to its MergeVersions group
+	group     int
 	refreshed bool
 	scanned   bool
 	finds     int

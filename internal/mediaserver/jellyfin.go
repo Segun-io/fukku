@@ -42,7 +42,49 @@ type Jellyfin struct {
 	http    *http.Client
 }
 
-var _ MediaServer = (*Jellyfin)(nil)
+var (
+	_ MediaServer = (*Jellyfin)(nil)
+	_ Grouper     = (*Jellyfin)(nil)
+)
+
+// MergeVersions groups the items as versions of one title (POST /Videos/MergeVersions).
+// The grouping survives library scans and metadata refreshes (probe J2), but not a rename
+// or a replacement of one of the files (probe B3e).
+func (j *Jellyfin) MergeVersions(ctx context.Context, itemIDs []string) error {
+	if len(itemIDs) < 2 {
+		return errors.New("jellyfin: merging versions needs two items or more")
+	}
+	return j.do(ctx, http.MethodPost, "/Videos/MergeVersions", url.Values{"ids": {strings.Join(itemIDs, ",")}}, nil, nil)
+}
+
+// Sources returns the paths of the item's media sources: its file and the files grouped
+// with it (GET /Items?Ids=). After a merge both items list both files (probe B3e).
+func (j *Jellyfin) Sources(ctx context.Context, itemID string) ([]string, error) {
+	var res struct {
+		Items []struct {
+			ID           string `json:"Id"`
+			MediaSources []struct {
+				Path string `json:"Path"`
+			} `json:"MediaSources"`
+		} `json:"Items"`
+	}
+	q := url.Values{"Ids": {itemID}, "Fields": {"Path,MediaSources"}, "EnableImages": {"false"}}
+	if err := j.do(ctx, http.MethodGet, "/Items", q, nil, &res); err != nil {
+		return nil, err
+	}
+	var out []string
+	for _, it := range res.Items {
+		if it.ID != itemID {
+			continue
+		}
+		for _, ms := range it.MediaSources {
+			if ms.Path != "" {
+				out = append(out, ms.Path)
+			}
+		}
+	}
+	return out, nil
+}
 
 // NewJellyfin builds the client from the mediaServer settings.
 func NewJellyfin(cfg config.MediaServer) *Jellyfin {

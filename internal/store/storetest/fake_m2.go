@@ -95,7 +95,7 @@ func (f *Fake) ReplaceTarget(ctx context.Context, jobID string, from, to store.S
 	if c.ExpiresAt != nil {
 		return store.Job{}, errors.New("storetest: ReplaceTarget does not change the retention date")
 	}
-	matchStates := map[store.State]bool{store.Probed: true, store.Matched: true, store.AwaitingConfirmation: true}
+	matchStates := map[store.State]bool{store.Probed: true, store.Matched: true, store.AwaitingConfirmation: true, store.Importing: true}
 	if !matchStates[from] || (to != store.Probed && to != store.Matched) || (to != from && !store.CanTransition(from, to)) {
 		return store.Job{}, fmt.Errorf("%w: %s → %s", store.ErrInvalidTransition, from, to)
 	}

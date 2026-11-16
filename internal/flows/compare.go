@@ -121,10 +121,13 @@ func Offers(finding string, cfg config.Config) (offers []string, notOffered []No
 	default:
 		offers = append(offers, OfferMerge)
 	}
-	if cfg.Versions.Enabled {
-		offers = append(offers, OfferVersion)
-	} else {
+	switch {
+	case !cfg.Versions.Enabled:
 		notOffered = append(notOffered, NotOffered{OfferVersion, ReasonVersionsDisabled})
+	case !canGroup(cfg): // a film's version is grouped by the media server (decision #20, #56)
+		notOffered = append(notOffered, NotOffered{OfferVersion, ReasonVersionsUnsupported})
+	default:
+		offers = append(offers, OfferVersion)
 	}
 	return offers, notOffered
 }

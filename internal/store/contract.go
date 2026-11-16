@@ -127,7 +127,8 @@ type Change struct {
 
 // Store is safe for concurrent use.
 type Store interface {
-	M2 // the M2 additions: contract_m2.go
+	M2       // the M2 additions: contract_m2.go
+	Versions // the second versions of films (#56): contract_versions.go
 
 	CreateJob(ctx context.Context, owner string) (Job, error) // state uploading, attempt 1
 	Job(ctx context.Context, id string) (Job, error)
@@ -177,7 +178,9 @@ func ResumeState(from State) State {
 
 // transitions is the state machine. Importing → Cancelled is an admin giving up on an
 // import whose command never ends (the web API allows it once the job is stuck past
-// server.jobStuckAfter).
+// server.jobStuckAfter). Importing → Probed is a flow 2 job whose library file changed
+// before anything was written (#56): it goes back to be matched again, through
+// ReplaceTarget.
 var transitions = map[State]map[State]bool{
 	Uploading:            {Uploaded: true, Cancelled: true, Failed: true},
 	Uploaded:             {Probing: true, Cancelled: true, Failed: true},
@@ -185,7 +188,7 @@ var transitions = map[State]map[State]bool{
 	Probed:               {Matched: true, Cancelled: true, Failed: true},
 	Matched:              {AwaitingConfirmation: true, Probed: true, Cancelled: true, Failed: true, Stalled: true},
 	AwaitingConfirmation: {Importing: true, Matched: true, Probed: true, Cancelled: true, Failed: true},
-	Importing:            {Imported: true, Failed: true, Stalled: true, Cancelled: true},
+	Importing:            {Imported: true, Probed: true, Failed: true, Stalled: true, Cancelled: true},
 	Imported:             {PostProcessing: true, Failed: true, Stalled: true},
 	PostProcessing:       {Done: true, Failed: true, Stalled: true},
 	// Failed and Stalled also go to the job's own Resume state; Transition checks that.

@@ -66,6 +66,24 @@ func sameFilesystemRequired(cfg config.Config) bool {
 	return false
 }
 
+// SameDevice returns an error unless dir and other are on the same filesystem (device id):
+// a hard link from one to the other is then possible. Second versions (#56) need it
+// between the intake root and versions.root, whatever the import modes.
+func SameDevice(dir, other string) error {
+	a, err := deviceID(dir)
+	if err != nil {
+		return fmt.Errorf("%s cannot be read", dir)
+	}
+	b, err := deviceID(other)
+	if err != nil {
+		return fmt.Errorf("%s cannot be read", other)
+	}
+	if a != b {
+		return fmt.Errorf("%s is on a different filesystem than %s", dir, other)
+	}
+	return nil
+}
+
 // Writable checks that dir exists and a file can be created in it. It never creates dir.
 func Writable(dir string) error {
 	info, err := os.Stat(dir)

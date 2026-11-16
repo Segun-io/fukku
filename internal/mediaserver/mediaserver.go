@@ -35,6 +35,18 @@ type MediaServer interface {
 	Find(ctx context.Context, path string) (itemID string, err error)
 }
 
+// Grouper is implemented by a media server that can show two files as versions of one
+// title (#56, decision #20): Jellyfin's merge-versions call. Second versions of films are
+// grouped with one.
+type Grouper interface {
+	// MergeVersions groups the items (two or more) as versions of one title.
+	MergeVersions(ctx context.Context, itemIDs []string) error
+	// Sources returns the paths (as the server sees them) of the versions the server shows
+	// for the item: its own file and the files grouped with it. Empty when the server does
+	// not list the item.
+	Sources(ctx context.Context, itemID string) ([]string, error)
+}
+
 // TitleLink fills the {itemId} placeholder of mediaServer.titleLinkTemplate. An empty
 // template or item id gives "": no link.
 func TitleLink(template, itemID string) string {
