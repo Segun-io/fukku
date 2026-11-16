@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/segun-io/fukku/internal/arr"
 	"github.com/segun-io/fukku/internal/media"
 	"github.com/segun-io/fukku/internal/preview"
 	"github.com/segun-io/fukku/internal/runner"
@@ -156,8 +157,6 @@ func TestPreviewRequestAndResult(t *testing.T) {
 	}
 }
 
-// Results of an earlier request are dropped and the current one submitted again; a task
-// error of the current request fails it, and a new request tries again.
 // previewID is the task id of the job's current request.
 func (x *flow2Env) previewID(j store.Job) string {
 	x.t.Helper()
@@ -361,9 +360,9 @@ func TestPreviewRefusals(t *testing.T) {
 	})
 }
 
-// The step leaves jobs that are not flow 2 alone, and drops a result nobody waits for.
-
-// The step leaves jobs that are not flow 2, or have no preview, alone.
+// The step leaves jobs that are not flow 2 alone, makes no record, and drops a result
+// whose record went with an earlier target; a job that is no longer awaiting
+// confirmation is not touched.
 func TestPreviewStepOtherJobs(t *testing.T) {
 	x := newFlow2Env(t)
 	flow1 := x.job(AppRadarr, filmID, vid("Film.mkv", filmMinutes))
@@ -375,5 +374,103 @@ func TestPreviewStepOtherJobs(t *testing.T) {
 	}
 	if tasks := x.q.Tasks(); len(tasks) != 0 {
 		t.Errorf("submitted %+v", tasks)
+	}
+
+	// The record goes (the user matched the job again) while its task runs.
+	pv, _, _ := x.p.RequestPreview(x.ctx, "user1", j, offset(0))
+	task, a := x.previewTask(j)
+	tg, _ := x.st.Target(x.ctx, j.ID)
+	tg.Options, _ = withOption(tg.Options, "preview", nil)
+	if err := x.st.SetTarget(x.ctx, j.ID, tg); err != nil {
+		t.Fatal(err)
+	}
+	x.q.Complete(task.ID, rendered(a))
+	x.p.orphans = orphanSweeps{} // as after a restart: the slots are looked at now
+	x.previewStep(j)
+	if _, ok, _ := x.q.Result(x.ctx, task.ID); ok {
+		t.Error("an orphaned result was kept")
+	}
+	if _, ok := x.previewRecord(j); ok || pv.Request == "" {
+		t.Error("the step made a record")
+	}
+
+	// A job that left awaiting confirmation is not the step's any more.
+	k := x.readyFlow2Job()
+	if _, _, err := x.p.RequestPreview(x.ctx, "user1", k, offset(0)); err != nil {
+		t.Fatal(err)
+	}
+	waiting, ka := x.previewTask(k)
+	if _, err := x.st.Transition(x.ctx, k.ID, store.AwaitingConfirmation, store.Cancelled, store.Change{Actor: "user1"}); err != nil {
+		t.Fatal(err)
+	}
+	x.q.Complete(waiting.ID, rendered(ka))
+	if err := x.p.advancePreview(x.ctx, k.ID); err != nil {
+		t.Fatal(err)
+	}
+	if pv, _ := x.previewRecord(k); pv.State != PreviewPending {
+		t.Errorf("a cancelled job's preview was stored: %+v", pv)
+	}
+}
+
+// A rematch that drops the record, or an unmatch, cancels its tasks, so they do not hold
+// the worker; a rematch of the same title and file keeps the record and its task.
+func TestPreviewDroppedByRematch(t *testing.T) {
+	x := newFlow2Env(t)
+	x.movies.Library[0].TMDBID = 604
+	x.movies.Results = []arr.Movie{{TMDBID: 604, Title: "Some Film", Year: 2001}}
+	x.movies.Library[0].HasFile = true
+	x.movies.Library[0].File = libFile()
+	cfg := x.cfg
+	cfg.Radarr.URL = "http://radarr.example.com:7878"
+	m := NewMatcher(cfg, x.st, x.movies, x.series, x.p.locks, nil)
+	m.SetQueue(x.q)
+
+	j := x.readyFlow2Job()
+	if _, _, err := x.p.RequestPreview(x.ctx, "user1", j, offset(0)); err != nil {
+		t.Fatal(err)
+	}
+	// The same title and file: the record and its task stay.
+	if _, err := m.Match(x.ctx, "user1", x.jobNow(j), MatchRequest{App: AppRadarr, TMDBID: 604}); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := x.previewRecord(j); !ok || len(x.q.Tasks()) != 1 {
+		t.Fatalf("same title: record %t, tasks %+v", ok, x.q.Tasks())
+	}
+	// Radarr has another file now: the record goes, and so does its task.
+	nf := libFile()
+	nf.Size = 4001
+	x.movies.Library[0].File = nf
+	if _, err := m.Match(x.ctx, "user1", x.jobNow(j), MatchRequest{App: AppRadarr, TMDBID: 604}); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := x.previewRecord(j); ok {
+		t.Error("the record survived another file")
+	}
+	if tasks := x.q.Tasks(); len(tasks) != 0 {
+		t.Errorf("rematch: tasks left %+v", tasks)
+	}
+
+	// An unmatch does the same, for the current slot and the earlier ones.
+	k := x.readyFlow2Job()
+	for _, ms := range []int64{0, 40} {
+		if _, _, err := x.p.RequestPreview(x.ctx, "user1", k, offset(ms)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tasks := x.q.Tasks()
+	if len(tasks) != 1 {
+		t.Fatalf("tasks %+v", tasks)
+	}
+	// The first request's task was still running: put it back, as the worker has it.
+	pv, _ := x.previewRecord(k)
+	early := spool.Task{ID: runner.PreviewID(k.ID, pv.Earlier[0].Slot), Kind: spool.KindPreview, Job: k.ID}
+	if err := x.q.Submit(x.ctx, early); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.Unmatch(x.ctx, "user1", x.jobNow(k)); err != nil {
+		t.Fatal(err)
+	}
+	if tasks := x.q.Tasks(); len(tasks) != 0 {
+		t.Errorf("unmatch: tasks left %+v", tasks)
 	}
 }

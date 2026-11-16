@@ -103,6 +103,10 @@ type Proposals struct {
 	queue spool.Queue
 	// workerDown reports whether the worker's heartbeat is too old, and why. Tests replace it.
 	workerDown func() (string, bool)
+
+	// orphans paces the look for orphaned preview results (preview.go); no decision
+	// depends on it.
+	orphans orphanSweeps
 }
 
 // NewProposals builds the proposal flow. locks is shared with the match flow (nil: its own).

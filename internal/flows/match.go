@@ -3,6 +3,7 @@
 package flows
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/segun-io/fukku/internal/arr"
 	"github.com/segun-io/fukku/internal/config"
+	"github.com/segun-io/fukku/internal/spool"
 	"github.com/segun-io/fukku/internal/store"
 )
 
@@ -96,6 +98,9 @@ type Matcher struct {
 	locks *JobLocks
 	// writeTimeout limits the store writes that follow a change in an app.
 	writeTimeout time.Duration
+	// queue is the spool, to cancel the preview tasks (#53) of a record that a rematch or
+	// an unmatch drops (SetQueue); nil: they run to their end.
+	queue spool.Queue
 
 	cacheMu sync.Mutex
 	cache   map[string]cached
@@ -505,11 +510,15 @@ func (m *Matcher) Match(ctx context.Context, user string, job store.Job, req Mat
 	// Choosing again replaces the target and, with it, the rows. The same title again keeps
 	// the record of how it came into the library, and for flow 2 the probe of its library
 	// file, unless the film's file changed meanwhile.
-	if old, err := m.store.Target(wctx, job.ID); err == nil {
+	old, err := m.store.Target(wctx, job.ID)
+	switch {
+	case err == nil:
 		if old.App == app && old.TitleID == t.id && !opts.Added && sameLibraryFile(old, opts.Flow2) {
 			raw = old.Options
 		}
-	} else if !errors.Is(err, store.ErrNotFound) {
+	case errors.Is(err, store.ErrNotFound):
+		old = store.Target{}
+	default:
 		return store.Job{}, err
 	}
 	next, err := m.store.ReplaceTarget(wctx, job.ID, job.State, store.Matched, &store.Target{
@@ -518,8 +527,24 @@ func (m *Matcher) Match(ctx context.Context, user string, job store.Job, req Mat
 	if errors.Is(err, store.ErrConflict) || errors.Is(err, store.ErrInvalidTransition) {
 		return store.Job{}, wrongState()
 	}
+	if err == nil && !bytes.Equal(raw, old.Options) {
+		m.dropPreviews(wctx, job.ID, old)
+	}
 	return next, err
 }
+
+// dropPreviews cancels the preview tasks of old's record, which the job's new target no
+// longer has (it is written, under the job's lock). It is best effort: a task it cannot
+// cancel runs to its end, and its result is acknowledged later (sweepOrphans, or
+// runner.Discard at the job's end).
+func (m *Matcher) dropPreviews(ctx context.Context, jobID string, old store.Target) {
+	_ = cancelPreviews(ctx, m.queue, jobID, old)
+}
+
+// SetQueue gives the match flow the spool: a rematch or an unmatch that drops a flow 2
+// job's preview record cancels that record's preview tasks (#53), so they do not hold the
+// worker for clips nobody will see. Call it before the routes serve.
+func (m *Matcher) SetQueue(q spool.Queue) { m.queue = q }
 
 // writeTimeout is the default of Matcher.writeTimeout.
 const writeTimeout = 30 * time.Second
@@ -539,9 +564,16 @@ func (m *Matcher) Unmatch(ctx context.Context, user string, job store.Job) (stor
 	if job.State != store.Matched && job.State != store.AwaitingConfirmation {
 		return store.Job{}, wrongState()
 	}
+	old, err := m.store.Target(ctx, job.ID)
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		return store.Job{}, err
+	}
 	next, err := m.store.ReplaceTarget(ctx, job.ID, job.State, store.Probed, nil, store.Change{Actor: user})
 	if errors.Is(err, store.ErrConflict) || errors.Is(err, store.ErrInvalidTransition) {
 		return store.Job{}, wrongState()
+	}
+	if err == nil {
+		m.dropPreviews(context.WithoutCancel(ctx), job.ID, old)
 	}
 	return next, err
 }

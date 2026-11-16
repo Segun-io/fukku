@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/segun-io/fukku/internal/jobdir"
@@ -39,10 +40,14 @@ import (
 // (a waiting one is removed, a running one stopped) and its result acknowledged when it
 // comes; a slot without a result is forgotten after previewGrace (a waiting task that
 // Cancel removed leaves none), and any later result is acknowledged when the slot comes
-// round again, or when the job is discarded (runner.Discard covers every slot).
+// round again, or when the job is discarded (runner.Discard covers every slot). A rematch
+// that drops the record (another title or library file) and an unmatch cancel its tasks,
+// current and earlier (Matcher, under the job's lock); a job without a record has its slots
+// swept for the results they leave, at most once a minute (sweepOrphans).
 //
 // The step (advancePreview) runs under the job's lock, from the request and from the
-// runner's pass over jobs awaiting confirmation (Previews), and is safe to repeat. For a
+// runner's pass over jobs awaiting confirmation (Previews), reads the job again under the
+// lock and does nothing once it is no longer awaiting confirmation, and is safe to repeat. For a
 // pending request it first clears its slot (cancel, acknowledge what an earlier occupant
 // left), submits the task, and records that it did (Preview.Submitted); a crash between
 // the two submits it again. Then the slot's result is the request's: it is stored in the
@@ -262,21 +267,23 @@ func (p *Proposals) Previews(ctx context.Context, job store.Job) error {
 // advancePreview is one pass of the step for a job, under its lock.
 func (p *Proposals) advancePreview(ctx context.Context, jobID string) error {
 	defer p.Lock(jobID)()
+	// The job may have moved on since the caller looked (the user cancelled it, say).
+	job, err := p.st.Job(ctx, jobID)
+	if err != nil || job.State != store.AwaitingConfirmation {
+		return err
+	}
 	t, err := p.st.Target(ctx, jobID)
 	if errors.Is(err, store.ErrNotFound) {
-		return nil
+		return p.sweepOrphans(ctx, jobID)
 	}
 	if err != nil {
 		return err
 	}
-	if _, ok := Flow2Of(t); !ok {
-		return nil
-	}
 	pv, ok := PreviewOf(t)
-	if !ok {
-		return nil
+	if _, isFlow2 := Flow2Of(t); !ok || !isFlow2 {
+		return p.sweepOrphans(ctx, jobID)
 	}
-	save := func() error {
+	save := func(ctx context.Context) error {
 		var err error
 		if t.Options, err = withOption(t.Options, "preview", pv); err != nil {
 			return err
@@ -299,7 +306,7 @@ func (p *Proposals) advancePreview(ctx context.Context, jobID string) error {
 	pv.Earlier = keep
 	if pv.State != PreviewPending {
 		if len(keep) != earlier {
-			return save()
+			return save(ctx)
 		}
 		return nil
 	}
@@ -314,7 +321,7 @@ func (p *Proposals) advancePreview(ctx context.Context, jobID string) error {
 		if failed != nil {
 			pv.State, pv.ErrorCode, pv.ErrorText = failed.State, failed.ErrorCode, failed.ErrorText
 			p.logPreview(jobID, pv.Request, pv)
-			return save()
+			return save(ctx)
 		}
 		data, err := json.Marshal(args)
 		if err != nil {
@@ -324,12 +331,16 @@ func (p *Proposals) advancePreview(ctx context.Context, jobID string) error {
 			return err
 		}
 		pv.Submitted = true
-		return save()
+		// The task is in the spool: recording that must not be lost to a client that went
+		// away (the request's context), as the match's write is not.
+		wctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), writeTimeout)
+		defer cancel()
+		return save(wctx)
 	}
 	res, got, err := p.queue.Result(ctx, id)
 	if err != nil || !got {
 		if err == nil && len(keep) != earlier {
-			return save()
+			return save(ctx)
 		}
 		return err
 	}
@@ -341,10 +352,80 @@ func (p *Proposals) advancePreview(ctx context.Context, jobID string) error {
 		pv.State, pv.ErrorCode, pv.ErrorText, pv.Clips = outcome.State, outcome.ErrorCode, outcome.ErrorText, outcome.Clips
 		p.logPreview(jobID, pv.Request, pv)
 	}
-	if err := save(); err != nil {
+	if err := save(ctx); err != nil {
 		return err
 	}
 	return p.queue.Ack(ctx, id)
+}
+
+// orphanSweepEvery is how often, at most, a job without a preview record has its slots
+// looked at for orphaned results.
+const orphanSweepEvery = time.Minute
+
+// orphanSweeps remembers when each job's slots were last looked at. It is pacing only and
+// forgets everything now and then.
+type orphanSweeps struct {
+	mu   sync.Mutex
+	last map[string]time.Time
+}
+
+// due reports whether job's slots are to be looked at now, and if so marks them looked at.
+func (o *orphanSweeps) due(job string, now time.Time) bool {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if t, ok := o.last[job]; ok && now.Sub(t) < orphanSweepEvery {
+		return false
+	}
+	if o.last == nil || len(o.last) > 10_000 {
+		o.last = map[string]time.Time{}
+	}
+	o.last[job] = now
+	return true
+}
+
+// sweepOrphans acknowledges the results in the job's preview slots when it has no preview
+// record: a rematch or an unmatch dropped the record and cancelled its tasks (Matcher),
+// and a task that was running leaves its result a little later. At most once every
+// orphanSweepEvery per job.
+func (p *Proposals) sweepOrphans(ctx context.Context, jobID string) error {
+	if !p.orphans.due(jobID, p.now()) {
+		return nil
+	}
+	for slot := 1; slot <= runner.PreviewSlots; slot++ {
+		id := runner.PreviewID(jobID, slot)
+		res, got, err := p.queue.Result(ctx, id)
+		if err != nil {
+			return err
+		}
+		if got {
+			p.log.Info("task_discarded", "job", jobID, "kind", res.Kind, "task", id, "status", res.Status, "note", "a preview whose request was dropped")
+			if err := p.queue.Ack(ctx, id); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// cancelPreviews cancels the tasks of the preview record of t, which is about to be
+// dropped with t's options (a rematch to another title or file, an unmatch): the current
+// request's slot and the earlier ones. Their results are acknowledged later
+// (sweepOrphans, or runner.Discard at the job's end). Without a record it does nothing.
+func cancelPreviews(ctx context.Context, q spool.Queue, jobID string, t store.Target) error {
+	pv, ok := PreviewOf(t)
+	if !ok || q == nil {
+		return nil
+	}
+	slots := []int{previewSlot(pv.Seq)}
+	for _, e := range pv.Earlier {
+		slots = append(slots, e.Slot)
+	}
+	for _, slot := range slots {
+		if err := q.Cancel(ctx, runner.PreviewID(jobID, slot)); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // clearSlot cancels the task in a slot and acknowledges its result. done reports that the
