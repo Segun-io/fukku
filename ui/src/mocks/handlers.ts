@@ -1,9 +1,10 @@
-// MSW handlers that answer the contracts of #5 (session, errors) and #11 (jobs). #12 adds the
-// upload endpoint. State changes are kept in memory; `resetMocks()` puts the fixtures back.
+// MSW handlers that answer the contracts of #5 (session, errors), #11 (jobs) and #10 (uploads, in
+// `uploads.ts`). State changes are kept in memory; `resetMocks()` puts the fixtures back.
 
 import { HttpResponse, http } from "msw";
 import type { Job, JobAction, JobState } from "@/api/types";
 import { jobs as fixtureJobs, jobDetail, session } from "./fixtures";
+import { filesOf, pendingOf, resetUploads, uploadHandlers } from "./uploads";
 
 let jobs: Job[] = structuredClone(fixtureJobs);
 let admin = false;
@@ -11,6 +12,7 @@ let admin = false;
 export function resetMocks() {
   jobs = structuredClone(fixtureJobs);
   admin = false;
+  resetUploads();
 }
 
 /** Makes the mock user an administrator: sees every job, `mine=true` limits the list. */
@@ -48,6 +50,9 @@ export const handlers = [
     HttpResponse.json({ ...session, user: { ...session.user, admin } }),
   ),
 
+  // Uploads belong to their owner alone, an admin included (#10).
+  ...uploadHandlers((id) => jobs.find((j) => j.id === id && j.owner === session.user.name)),
+
   http.get("/api/jobs", ({ request }) => {
     const q = new URL(request.url).searchParams;
     const states = q.getAll("state");
@@ -84,7 +89,15 @@ export const handlers = [
 
   http.get("/api/jobs/:id", ({ params }) => {
     const job = jobs.find((j) => j.id === params.id && visible(j));
-    return job ? HttpResponse.json(jobDetail(job)) : notFound();
+    if (!job) return notFound();
+    const detail = jobDetail(job);
+    if (job.state === "uploading") {
+      // The files and unfinished uploads the mock tus endpoint holds for this job.
+      detail.files = [...detail.files, ...filesOf(job.id)];
+      const pending = pendingOf(job.id);
+      if (pending.length > 0) detail.uploads = pending;
+    }
+    return HttpResponse.json(detail);
   }),
 
   http.post("/api/jobs/:id/submit", ({ params }) => {

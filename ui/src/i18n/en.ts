@@ -144,7 +144,35 @@ const en = {
   "nav.jobs": "Your uploads",
 
   "upload.title": "Upload",
-  "upload.placeholder": "Uploading arrives in a later release.",
+  "upload.intro":
+    "Choose the film, the show or the subtitle files to send. Big files are fine: if the connection drops or you reload the page, the upload continues from where it stopped.",
+  "upload.restoring": "Checking your unfinished upload…",
+  "upload.drop.title": "Choose your files",
+  "upload.drop.hint": "Pick several files, or one zip, or drop them here.",
+  "upload.drop.accepted": "Accepted: {types}",
+  "upload.choose": "Choose files",
+  "upload.files.title": "Your files",
+  "upload.summary.one": "{done} of {count} file uploaded",
+  "upload.summary.other": "{done} of {count} files uploaded",
+  "upload.start": "Start upload",
+  "upload.starting": "Starting…",
+  "upload.submitting": "Every file arrived. Finishing the upload…",
+  "upload.submitFailed.title": "The files arrived, but the upload could not be finished",
+  "upload.discard": "Discard this upload",
+  "upload.startOver": "Start over",
+  "upload.remove.confirm": "Remove {name}? What was already sent is deleted.",
+  "upload.rejected.title": "Some files were not added",
+  "upload.rejected.dismiss": "Dismiss",
+  "upload.reason.file_mismatch":
+    "This is not the file that was being uploaded: its name, size or date differ. Choose the original file.",
+  "upload.resume.title": "Your upload was interrupted",
+  "upload.resume.body":
+    "Choose the same files again. Each one continues from where the server has it, and nothing is sent twice.",
+  "upload.large.title": "Large file",
+  "upload.large.body":
+    "Very large files upload best from home or another fast connection. If you must use this one, keep this page open; if it drops, the upload continues from where it stopped.",
+  "upload.jobGone.title": "This upload cannot continue",
+  "upload.jobGone.body": "{reason} Start over to send the files again.",
 
   "jobs.title": "Your uploads",
   "jobs.list": "Uploads",

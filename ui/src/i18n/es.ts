@@ -142,7 +142,35 @@ const es: Record<keyof typeof en, string> = {
   "nav.jobs": "Tus envíos",
 
   "upload.title": "Subir",
-  "upload.placeholder": "La subida de archivos llegará en una versión posterior.",
+  "upload.intro":
+    "Elige los archivos de la película, la serie o los subtítulos que quieres enviar. Los archivos grandes no son un problema: si se corta la conexión o recargas la página, la subida continúa desde donde se quedó.",
+  "upload.restoring": "Comprobando tu subida sin terminar…",
+  "upload.drop.title": "Elige tus archivos",
+  "upload.drop.hint": "Elige varios archivos, o un zip, o suéltalos aquí.",
+  "upload.drop.accepted": "Se aceptan: {types}",
+  "upload.choose": "Elegir archivos",
+  "upload.files.title": "Tus archivos",
+  "upload.summary.one": "{done} de {count} archivo subido",
+  "upload.summary.other": "{done} de {count} archivos subidos",
+  "upload.start": "Empezar a subir",
+  "upload.starting": "Empezando…",
+  "upload.submitting": "Llegaron todos los archivos. Terminando la subida…",
+  "upload.submitFailed.title": "Los archivos llegaron, pero no se pudo terminar la subida",
+  "upload.discard": "Descartar esta subida",
+  "upload.startOver": "Empezar de nuevo",
+  "upload.remove.confirm": "¿Quitar {name}? Lo que ya se envió se borra.",
+  "upload.rejected.title": "Algunos archivos no se añadieron",
+  "upload.rejected.dismiss": "Cerrar",
+  "upload.reason.file_mismatch":
+    "Este no es el archivo que se estaba subiendo: el nombre, el tamaño o la fecha son distintos. Elige el archivo original.",
+  "upload.resume.title": "Tu subida se interrumpió",
+  "upload.resume.body":
+    "Elige de nuevo los mismos archivos. Cada uno continúa desde donde lo tiene el servidor y no se envía nada dos veces.",
+  "upload.large.title": "Archivo muy grande",
+  "upload.large.body":
+    "Los archivos muy grandes se suben mejor desde casa o con otra conexión rápida. Si tienes que usar esta, mantén abierta la página; si se corta, la subida continúa desde donde se quedó.",
+  "upload.jobGone.title": "Esta subida no puede continuar",
+  "upload.jobGone.body": "{reason} Empieza de nuevo para enviar los archivos otra vez.",
 
   "jobs.title": "Tus envíos",
   "jobs.list": "Envíos",
