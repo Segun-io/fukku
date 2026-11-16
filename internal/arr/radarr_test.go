@@ -563,16 +563,3 @@ func TestKeyAppearsInNoLogLineAndNoError(t *testing.T) {
 		t.Errorf("Secret prints the key: %s", s)
 	}
 }
-
-func TestSonarrStub(t *testing.T) {
-	app := &fakeApp{t: t, routes: map[string]reply{"GET /api/v3/system/status": {body: `{"appName":"Sonarr","version":"4.0.0.1"}`}}}
-	srv := httptest.NewServer(app)
-	defer srv.Close()
-	s := arr.NewSonarr(cfg(srv.URL, time.Second))
-	if st, err := s.Status(ctx); err != nil || st.AppName != "Sonarr" {
-		t.Errorf("Status = %+v, %v", st, err)
-	}
-	if _, err := s.Series(ctx, 1); !errors.Is(err, arr.ErrNotImplemented) {
-		t.Errorf("Series: %v", err)
-	}
-}

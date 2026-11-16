@@ -171,31 +171,6 @@ func (r *radarr) Add(ctx context.Context, m AddMovie) (Movie, error) {
 	return out.movie(), nil
 }
 
-// ensureTag returns the id of the tag with the label, creating it if missing. The apps
-// keep labels in lower case.
-func (r *radarr) ensureTag(ctx context.Context, label string) (int, error) {
-	label = strings.ToLower(label)
-	var tags []struct {
-		ID    int    `json:"id"`
-		Label string `json:"label"`
-	}
-	if err := r.get(ctx, "/tag", nil, &tags); err != nil {
-		return 0, err
-	}
-	for _, t := range tags {
-		if strings.EqualFold(t.Label, label) {
-			return t.ID, nil
-		}
-	}
-	var created struct {
-		ID int `json:"id"`
-	}
-	if err := r.post(ctx, "/tag", map[string]string{"label": label}, &created); err != nil {
-		return 0, err
-	}
-	return created.ID, nil
-}
-
 // Busy reports an active download for the film (GET /queue/details?movieId=).
 func (r *radarr) Busy(ctx context.Context, movieID int) (bool, error) {
 	var out []json.RawMessage

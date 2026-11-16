@@ -1,0 +1,3 @@
+[{"id":101,"seriesId":5,"tvdbId":1,"episodeFileId":0,"seasonNumber":1,"episodeNumber":1,"title":"Earthfall","runtime":30,"monitored":false,"hasFile":false},
+ {"id":102,"seriesId":5,"tvdbId":2,"episodeFileId":77,"seasonNumber":1,"episodeNumber":2,"title":"Alienation","runtime":45,"monitored":true,"hasFile":true},
+ {"id":103,"seriesId":5,"tvdbId":3,"episodeFileId":0,"seasonNumber":1,"episodeNumber":3,"title":"Xenoform","monitored":false,"hasFile":false}]

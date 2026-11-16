@@ -1,0 +1,107 @@
+[
+ {
+  "id": 2001,
+  "path": "/data/intake/job1/Pioneer.One.S01E01.1080p.WEB-DL.mkv",
+  "seasonNumber": 1,
+  "episodes": [
+   {
+    "id": 102,
+    "seasonNumber": 1,
+    "episodeNumber": 2,
+    "seriesId": 5,
+    "hasFile": false
+   }
+  ],
+  "quality": {
+   "quality": {
+    "id": 3,
+    "name": "WEBDL-1080p",
+    "source": "web",
+    "resolution": 1080
+   },
+   "revision": {
+    "version": 1,
+    "real": 0,
+    "isRepack": false
+   }
+  },
+  "languages": [
+   {
+    "id": 3,
+    "name": "Spanish"
+   }
+  ],
+  "indexerFlags": 0,
+  "futureUnknownField": {
+   "keep": [
+    "me",
+    1
+   ]
+  },
+  "customFormats": [
+   {
+    "id": 3,
+    "name": "Not Original Language"
+   }
+  ],
+  "customFormatScore": -10000,
+  "rejections": [
+   {
+    "reason": "Not an upgrade for existing episode file(s)",
+    "type": "permanent"
+   }
+  ],
+  "seriesId": 5
+ },
+ {
+  "id": 2002,
+  "path": "/data/intake/job1/Pioneer.One.S01E02-E03.1080p.WEB-DL.mkv",
+  "seasonNumber": 1,
+  "episodes": [
+   {
+    "id": 102,
+    "seasonNumber": 1,
+    "episodeNumber": 2,
+    "seriesId": 5,
+    "hasFile": false
+   },
+   {
+    "id": 103,
+    "seasonNumber": 1,
+    "episodeNumber": 3,
+    "seriesId": 5,
+    "hasFile": false
+   }
+  ],
+  "quality": {
+   "quality": {
+    "id": 3,
+    "name": "WEBDL-1080p",
+    "source": "web",
+    "resolution": 1080
+   },
+   "revision": {
+    "version": 1,
+    "real": 0,
+    "isRepack": false
+   }
+  },
+  "languages": [
+   {
+    "id": 1,
+    "name": "English"
+   }
+  ],
+  "indexerFlags": 0,
+  "futureUnknownField": {
+   "keep": [
+    "me",
+    1
+   ]
+  },
+  "customFormats": [],
+  "customFormatScore": 0,
+  "rejections": [],
+  "seriesId": 5
+ }
+]

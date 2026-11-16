@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"strings"
 )
 
 // The Importer methods are the same for both apps, so they live on the shared client.
@@ -124,6 +125,31 @@ func (c *client) Commands(ctx context.Context) ([]Command, error) {
 		cs = append(cs, j.command())
 	}
 	return cs, nil
+}
+
+// ensureTag returns the id of the tag with the label, creating it if missing. The apps
+// keep labels in lower case.
+func (c *client) ensureTag(ctx context.Context, label string) (int, error) {
+	label = strings.ToLower(label)
+	var tags []struct {
+		ID    int    `json:"id"`
+		Label string `json:"label"`
+	}
+	if err := c.get(ctx, "/tag", nil, &tags); err != nil {
+		return 0, err
+	}
+	for _, t := range tags {
+		if strings.EqualFold(t.Label, label) {
+			return t.ID, nil
+		}
+	}
+	var created struct {
+		ID int `json:"id"`
+	}
+	if err := c.post(ctx, "/tag", map[string]string{"label": label}, &created); err != nil {
+		return 0, err
+	}
+	return created.ID, nil
 }
 
 // ---- rows ------------------------------------------------------------------------------

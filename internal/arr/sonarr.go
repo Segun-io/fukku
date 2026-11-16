@@ -2,16 +2,15 @@ package arr
 
 import (
 	"context"
-	"errors"
+	"encoding/json"
+	"fmt"
+	"net/url"
+	"strconv"
 
 	"github.com/segun-io/fukku/internal/config"
 )
 
-// ErrNotImplemented is returned by the Sonarr methods that issue #35 has not added yet.
-var ErrNotImplemented = errors.New("arr: not implemented")
-
-// sonarr is a stub until #35: the Importer methods work (they are shared), the series ones
-// return ErrNotImplemented.
+// sonarr is the SeriesManager. The Importer methods come from the shared client.
 type sonarr struct {
 	*client
 }
@@ -21,11 +20,150 @@ func NewSonarr(cfg config.Arr) SeriesManager {
 	return &sonarr{newClient("sonarr", cfg)}
 }
 
-func (s *sonarr) Lookup(context.Context, string) ([]Series, error) { return nil, ErrNotImplemented }
-func (s *sonarr) Series(context.Context, int) (Series, error)      { return Series{}, ErrNotImplemented }
-func (s *sonarr) Add(context.Context, AddSeries) (Series, error)   { return Series{}, ErrNotImplemented }
-func (s *sonarr) Episodes(context.Context, int) ([]Episode, error) { return nil, ErrNotImplemented }
-func (s *sonarr) Busy(context.Context, int) (bool, error)          { return false, ErrNotImplemented }
-func (s *sonarr) SetEpisodesMonitored(context.Context, []int, bool) error {
-	return ErrNotImplemented
+type seriesJSON struct {
+	ID               int           `json:"id"`
+	TVDBID           int           `json:"tvdbId"`
+	Title            string        `json:"title"`
+	Year             int           `json:"year"`
+	OriginalLanguage *languageJSON `json:"originalLanguage"`
+	SeriesType       string        `json:"seriesType"`
+	Path             string        `json:"path"`
+	Seasons          []struct {
+		SeasonNumber int `json:"seasonNumber"`
+	} `json:"seasons"`
+}
+
+func (j seriesJSON) series() Series {
+	s := Series{ID: j.ID, TVDBID: j.TVDBID, Title: j.Title, Year: j.Year, Type: j.SeriesType, Path: j.Path}
+	if j.OriginalLanguage != nil {
+		s.OriginalLanguage = j.OriginalLanguage.Name
+	}
+	for _, x := range j.Seasons {
+		s.Seasons = append(s.Seasons, x.SeasonNumber)
+	}
+	return s
+}
+
+// Lookup returns what Sonarr finds for a title or "tvdb:<id>". It may miss original-language
+// titles that Radarr finds; the caller offers English-title and id search (plan section 6).
+func (s *sonarr) Lookup(ctx context.Context, term string) ([]Series, error) {
+	var out []seriesJSON
+	if err := s.get(ctx, "/series/lookup", url.Values{"term": {term}}, &out); err != nil {
+		return nil, err
+	}
+	res := make([]Series, 0, len(out))
+	for _, j := range out {
+		res = append(res, j.series())
+	}
+	return res, nil
+}
+
+func (s *sonarr) Series(ctx context.Context, id int) (Series, error) {
+	var out seriesJSON
+	if err := s.get(ctx, fmt.Sprintf("/series/%d", id), nil, &out); err != nil {
+		return Series{}, err
+	}
+	return out.series(), nil
+}
+
+// Add puts the show in the library with search off and nothing monitored, so Sonarr goes
+// looking for no episode (flow 3). The lookup by id returns the complete record that
+// POST /series expects.
+func (s *sonarr) Add(ctx context.Context, a AddSeries) (Series, error) {
+	var found []map[string]json.RawMessage
+	if err := s.get(ctx, "/series/lookup", url.Values{"term": {"tvdb:" + strconv.Itoa(a.TVDBID)}}, &found); err != nil {
+		return Series{}, err
+	}
+	var body map[string]json.RawMessage
+	for _, f := range found {
+		var id int
+		if json.Unmarshal(f["tvdbId"], &id) == nil && id == a.TVDBID {
+			body = f
+			break
+		}
+	}
+	if body == nil {
+		return Series{}, fmt.Errorf("sonarr: no show with tvdb id %d in the lookup", a.TVDBID)
+	}
+	tags := []int{}
+	if a.Tag != "" {
+		id, err := s.ensureTag(ctx, a.Tag)
+		if err != nil {
+			return Series{}, err
+		}
+		tags = append(tags, id)
+	}
+	typ := a.Type
+	if typ == "" {
+		typ = "standard"
+	}
+	set := map[string]any{
+		"qualityProfileId": a.QualityProfileID,
+		"rootFolderPath":   a.RootFolder,
+		"seriesType":       typ,
+		"tags":             tags,
+		// Not deployment choices, so not settings: the show is kept, its episodes are not
+		// monitored until a job asks, and nothing is searched.
+		"monitored":    true,
+		"seasonFolder": true,
+		"addOptions": map[string]any{
+			"monitor":                      "none",
+			"searchForMissingEpisodes":     false,
+			"searchForCutoffUnmetEpisodes": false,
+		},
+	}
+	for k, v := range set {
+		data, err := json.Marshal(v)
+		if err != nil {
+			return Series{}, err
+		}
+		body[k] = data
+	}
+	var out seriesJSON
+	if err := s.post(ctx, "/series", body, &out); err != nil {
+		return Series{}, err
+	}
+	return out.series(), nil
+}
+
+type episodeJSON struct {
+	ID            int    `json:"id"`
+	SeasonNumber  int    `json:"seasonNumber"`
+	EpisodeNumber int    `json:"episodeNumber"`
+	Title         string `json:"title"`
+	Runtime       int    `json:"runtime"` // minutes
+	EpisodeFileID int    `json:"episodeFileId"`
+	Monitored     bool   `json:"monitored"`
+}
+
+func (s *sonarr) Episodes(ctx context.Context, seriesID int) ([]Episode, error) {
+	var out []episodeJSON
+	if err := s.get(ctx, "/episode", url.Values{"seriesId": {strconv.Itoa(seriesID)}}, &out); err != nil {
+		return nil, err
+	}
+	eps := make([]Episode, 0, len(out))
+	for _, e := range out {
+		eps = append(eps, Episode{
+			ID: e.ID, SeasonNumber: e.SeasonNumber, Number: e.EpisodeNumber, Title: e.Title,
+			RuntimeMs: int64(e.Runtime) * 60_000, FileID: e.EpisodeFileID, Monitored: e.Monitored,
+		})
+	}
+	return eps, nil
+}
+
+// Busy reports an active download for the show (GET /queue/details?seriesId=).
+func (s *sonarr) Busy(ctx context.Context, seriesID int) (bool, error) {
+	var out []json.RawMessage
+	if err := s.get(ctx, "/queue/details", url.Values{"seriesId": {strconv.Itoa(seriesID)}}, &out); err != nil {
+		return false, err
+	}
+	return len(out) > 0, nil
+}
+
+func (s *sonarr) SetEpisodesMonitored(ctx context.Context, episodeIDs []int, monitored bool) error {
+	if len(episodeIDs) == 0 {
+		return nil
+	}
+	body := map[string]any{"episodeIds": episodeIDs, "monitored": monitored}
+	return s.put(ctx, "/episode/monitor", body, nil)
 }
