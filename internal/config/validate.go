@@ -172,6 +172,7 @@ func validateShared(p *problems, cfg Config) {
 	extensions(p, "upload.subtitleExtensions", u.SubtitleExtensions, false)
 	extensions(p, "upload.archiveExtensions", u.ArchiveExtensions, false)
 	positive(p, "upload.idleUploadExpiry", int64(u.IdleUploadExpiry))
+	positive(p, "upload.requestIdleTimeout", int64(u.RequestIdleTimeout))
 	positive(p, "upload.jobRetention", int64(u.JobRetention))
 	positive(p, "upload.finishedJobRetention", int64(u.FinishedJobRetention))
 	positive(p, "upload.sweepInterval", int64(u.SweepInterval))

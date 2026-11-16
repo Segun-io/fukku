@@ -39,6 +39,8 @@ export const uploadErrorCodes = [
   "in_flight_limit",
   "insufficient_space",
   "storage_unavailable",
+  "offset_mismatch",
+  "upload_busy",
 ] as const;
 
 /** Codes made up by the client: the proxy asked for a sign-in, or the server was unreachable. */

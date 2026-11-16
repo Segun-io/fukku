@@ -200,6 +200,9 @@ const en = {
   "errors.in_flight_limit": "The server is receiving as much as it can. Try again later.",
   "errors.insufficient_space": "The server does not have enough free space.",
   "errors.storage_unavailable": "Storage is not available right now. Try again later.",
+  "errors.offset_mismatch":
+    "The upload got out of step with the server. It continues from where the server is.",
+  "errors.upload_busy": "The server is still working on this upload. Try again in a moment.",
 };
 
 export default en;

@@ -198,6 +198,10 @@ const es: Record<keyof typeof en, string> = {
   "errors.in_flight_limit": "El servidor está recibiendo todo lo que puede. Inténtalo más tarde.",
   "errors.insufficient_space": "El servidor no tiene suficiente espacio libre.",
   "errors.storage_unavailable": "El almacenamiento no está disponible ahora. Inténtalo más tarde.",
+  "errors.offset_mismatch":
+    "La subida se desfasó con el servidor. Continúa desde donde está el servidor.",
+  "errors.upload_busy":
+    "El servidor sigue trabajando en esta subida. Inténtalo de nuevo en un momento.",
 };
 
 export default es;

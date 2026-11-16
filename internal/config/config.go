@@ -111,6 +111,7 @@ type Upload struct {
 	SubtitleExtensions     []string `yaml:"subtitleExtensions"`
 	ArchiveExtensions      []string `yaml:"archiveExtensions"`
 	IdleUploadExpiry       Duration `yaml:"idleUploadExpiry"`
+	RequestIdleTimeout     Duration `yaml:"requestIdleTimeout"`
 	JobRetention           Duration `yaml:"jobRetention"`
 	FinishedJobRetention   Duration `yaml:"finishedJobRetention"`
 	SweepInterval          Duration `yaml:"sweepInterval"`

@@ -138,6 +138,7 @@ same settings.
 | `upload.subtitleExtensions` | `FUKKU_UPLOAD_SUBTITLE_EXTENSIONS` | `.srt, .ass, .ssa` | Accepted subtitle files |
 | `upload.archiveExtensions` | `FUKKU_UPLOAD_ARCHIVE_EXTENSIONS` | `.zip` | Accepted archives |
 | `upload.idleUploadExpiry` | `FUKKU_UPLOAD_IDLE_UPLOAD_EXPIRY` | `2d` | An unfinished upload with no progress for this long is deleted |
+| `upload.requestIdleTimeout` | `FUKKU_UPLOAD_REQUEST_IDLE_TIMEOUT` | `30s` | An upload request that sends no data for this long is closed, so a slow or vanished client cannot hold the server; the bytes received so far are kept and the upload continues from there |
 | `upload.jobRetention` | `FUKKU_UPLOAD_JOB_RETENTION` | `14d` | A job waiting for a decision is deleted after this; the date is shown from day one |
 | `upload.finishedJobRetention` | `FUKKU_UPLOAD_FINISHED_JOB_RETENTION` | `30d` | The record of a `done` or `cancelled` job is deleted after this (its audit entries are kept) |
 | `upload.sweepInterval` | `FUKKU_UPLOAD_SWEEP_INTERVAL` | `15m` | How often the retention sweep runs (it also runs once at start-up) |

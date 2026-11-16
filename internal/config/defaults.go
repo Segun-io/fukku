@@ -57,6 +57,7 @@ func Defaults() Config {
 			SubtitleExtensions:     []string{".srt", ".ass", ".ssa"},
 			ArchiveExtensions:      []string{".zip"},
 			IdleUploadExpiry:       Duration(48 * time.Hour),
+			RequestIdleTimeout:     Duration(30 * time.Second),
 			JobRetention:           Duration(14 * 24 * time.Hour),
 			FinishedJobRetention:   Duration(30 * 24 * time.Hour),
 			SweepInterval:          Duration(15 * time.Minute),

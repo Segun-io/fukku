@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/segun-io/fukku/internal/config"
+	"github.com/segun-io/fukku/internal/uploads"
 	"github.com/segun-io/fukku/internal/version"
 )
 
@@ -23,12 +24,21 @@ type Server struct {
 	log  *slog.Logger
 	ui   fs.FS
 	deps Deps
+	tus  *uploads.Handler // /api/uploads/; nil without a store
 	http *http.Server
 }
 
 // New builds the server. ui is the built single-page app.
 func New(cfg config.Config, log *slog.Logger, ui fs.FS, deps Deps) *Server {
 	s := &Server{cfg: cfg, log: log, ui: ui, deps: deps}
+	if deps.Store != nil {
+		h, err := uploads.New(uploads.Options{Config: cfg, Log: log, Store: deps.Store})
+		if err != nil {
+			log.Error("uploads_unavailable", "error", err)
+		} else {
+			s.tus = h
+		}
+	}
 	s.http = &http.Server{
 		Addr:              cfg.Server.ListenAddress,
 		Handler:           s.Handler(),
@@ -45,6 +55,9 @@ func (s *Server) Run(ctx context.Context) error {
 	ln, err := lc.Listen(ctx, "tcp", s.http.Addr)
 	if err != nil {
 		return err
+	}
+	if s.tus != nil {
+		s.tus.Start(ctx)
 	}
 	s.log.Info("web_listening", "address", ln.Addr().String(), "version", version.Version)
 	errc := make(chan error, 1)
