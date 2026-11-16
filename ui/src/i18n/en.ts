@@ -590,6 +590,8 @@ const en = {
     "Some files have problems you have not agreed to yet. Tick “Import anyway” for each, or leave them out.",
   "errors.incomplete_rows":
     "Some files have no film or episode to go to. Choose one for each, or leave them out.",
+  "errors.flow2":
+    "This film now has a file in Radarr. Match it again so Fukku can offer to merge the new language or keep it as a second version.",
   "errors.nothing_to_import": "There is nothing to import: every file is left out.",
 
   "confirm.title": "Confirm the import",

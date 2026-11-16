@@ -52,7 +52,7 @@ func LibraryPath(roots []string, p string) (root, rel string, ok bool) {
 // The checks after that are the upload probe's, except the extension list: the file is one
 // Radarr already imported. An error means the task could not run.
 func RunLibrary(ctx context.Context, roots []string, args LibraryProbeArgs, opt Options) (LibraryProbeOutput, error) {
-	out := LibraryProbeOutput{Path: args.Path}
+	out := LibraryProbeOutput{Path: args.Path, FileID: args.FileID, TrackedSize: args.TrackedSize}
 	if err := ctx.Err(); err != nil {
 		return LibraryProbeOutput{}, err
 	}
@@ -68,7 +68,11 @@ func RunLibrary(ctx context.Context, roots []string, args LibraryProbeArgs, opt 
 	}
 	defer func() { _ = lib.Close() }()
 	pf := ProbedFile{Path: rel, Kind: "video"}
-	if err := probeVideo(ctx, lib, &pf, opt); err != nil {
+	formats := formatWhitelist
+	if len(opt.LibraryFormats) > 0 {
+		formats = strings.Join(opt.LibraryFormats, ",")
+	}
+	if err := probeVideo(ctx, lib, &pf, opt, formats); err != nil {
 		return LibraryProbeOutput{}, err
 	}
 	out.OK, out.Refusal, out.Media = pf.OK, pf.Refusal, pf.Media

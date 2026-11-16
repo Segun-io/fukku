@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/segun-io/fukku/internal/config"
 	"github.com/segun-io/fukku/internal/media"
 	"github.com/segun-io/fukku/test/fixtures"
 )
@@ -148,4 +149,50 @@ func marshal(t *testing.T, v any) string {
 		t.Fatal(err)
 	}
 	return string(b)
+}
+
+// Library files may be in older containers than uploads: with worker.libraryFormats (its
+// default here) a .flv and a .mpg probe, with only the upload list they are refused, and a
+// playlist renamed to a film is refused either way.
+func TestRunLibraryFormats(t *testing.T) {
+	needTools(t)
+	ctx := context.Background()
+	lib := t.TempDir()
+	spec := fixtures.Video{Duration: 3 * time.Second, Audio: []fixtures.Audio{{Language: "eng"}}}
+	for _, name := range []string{"film.flv", "film.mpg", "other.mp4"} {
+		if name == "film.mpg" { // MPEG-PS takes no AAC
+			if err := fixtures.Generate(ctx, filepath.Join(lib, name), fixtures.Video{Duration: 3 * time.Second}); err != nil {
+				t.Fatalf("%s: %v", name, err)
+			}
+			continue
+		}
+		if err := fixtures.Generate(ctx, filepath.Join(lib, name), spec); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+	}
+	script := "ffconcat version 1.0\nfile '" + filepath.Join(lib, "other.mp4") + "'\n"
+	if err := os.WriteFile(filepath.Join(lib, "list.mkv"), []byte(script), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	wide := opts()
+	wide.LibraryFormats = config.Defaults().Worker.LibraryFormats
+	probe := func(o media.Options, name string) media.LibraryProbeOutput {
+		t.Helper()
+		out, err := media.RunLibrary(ctx, []string{lib}, media.LibraryProbeArgs{Path: filepath.Join(lib, name)}, o)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return out
+	}
+	for _, name := range []string{"film.flv", "film.mpg"} {
+		if out := probe(wide, name); !out.OK || out.Media == nil {
+			t.Errorf("%s with the library formats: %+v", name, out)
+		}
+		if out := probe(opts(), name); out.OK {
+			t.Errorf("%s with the upload list: accepted", name)
+		}
+	}
+	if out := probe(wide, "list.mkv"); out.OK {
+		t.Errorf("a playlist renamed to a film: %+v", out)
+	}
 }

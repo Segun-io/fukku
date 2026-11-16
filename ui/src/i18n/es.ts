@@ -596,6 +596,8 @@ const es: Record<keyof typeof en, string> = {
     "Algunos archivos tienen problemas que aún no has aceptado. Marca «Importar de todos modos» en cada uno, o déjalos fuera.",
   "errors.incomplete_rows":
     "Algunos archivos no tienen película o episodio al que ir. Elige uno para cada uno, o déjalos fuera.",
+  "errors.flow2":
+    "Esta película ya tiene un archivo en Radarr. Vuelve a elegirla para que Fukku ofrezca fusionar el nuevo idioma o guardarlo como segunda versión.",
   "errors.nothing_to_import": "No hay nada que importar: todos los archivos están fuera.",
 
   "confirm.title": "Confirmar la importación",

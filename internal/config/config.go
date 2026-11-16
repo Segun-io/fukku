@@ -201,6 +201,7 @@ type Worker struct {
 	SpoolDir          string   `yaml:"spoolDir"`
 	PollInterval      Duration `yaml:"pollInterval"`
 	ProbeTimeout      Duration `yaml:"probeTimeout"`
+	LibraryFormats    []string `yaml:"libraryFormats"`
 	TaskTimeout       Duration `yaml:"taskTimeout"`
 	Nice              int      `yaml:"nice"`
 	HeartbeatInterval Duration `yaml:"heartbeatInterval"`

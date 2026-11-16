@@ -43,6 +43,7 @@ export const confirmErrorCodes = [
   "needs_override",
   "incomplete_rows",
   "nothing_to_import",
+  "flow2",
 ] as const;
 
 /** Refusals of `/api/uploads/` (#10). */

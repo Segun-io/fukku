@@ -55,6 +55,9 @@ func (p *Proposals) flow2(ctx context.Context, job store.Job, t store.Target, re
 		if err := p.queue.Ack(ctx, id); err != nil {
 			return err
 		}
+		if err := staleProbe(rec, *rec.Library.Probe); err != nil {
+			return p.rescan(ctx, job, t, err)
+		}
 		return p.flow2Ready(ctx, job, t, *rec.Library.Probe)
 	}
 	res, ok, err := p.queue.Result(ctx, id)
@@ -71,7 +74,7 @@ func (p *Proposals) flow2(ctx context.Context, job store.Job, t store.Target, re
 				rec.Library.Path, t.App, rec.Library.AppPath, p.cfg.Paths.LibraryRoots),
 		})
 	}
-	args, err := json.Marshal(media.LibraryProbeArgs{Path: rec.Library.Path})
+	args, err := json.Marshal(media.LibraryProbeArgs{Path: rec.Library.Path, FileID: rec.Library.FileID, TrackedSize: rec.Library.Size})
 	if err != nil {
 		return err
 	}
@@ -117,7 +120,12 @@ func (p *Proposals) useLibraryProbe(ctx context.Context, job store.Job, t store.
 	if err := json.Unmarshal(res.Output, &out); err != nil {
 		return fail(runner.CodeTaskFailed, res.Kind+" task "+res.ID+": unreadable output: "+err.Error())
 	}
-	if out.Path != rec.Library.Path {
+	// A result for another file: another path, or the same path with another tracked file
+	// (the film was matched again after Radarr replaced its file). A worker that does not
+	// echo the file id or size (zero) is not compared on them.
+	if out.Path != rec.Library.Path ||
+		(out.FileID != 0 && out.FileID != rec.Library.FileID) ||
+		(out.TrackedSize != 0 && out.TrackedSize != rec.Library.Size) {
 		p.log.Info("task_discarded", "job", job.ID, "kind", res.Kind, "task", res.ID, "note", "a probe of another library file")
 		return p.queue.Ack(ctx, res.ID)
 	}
@@ -128,6 +136,12 @@ func (p *Proposals) useLibraryProbe(ctx context.Context, job store.Job, t store.
 		}
 		return fail(CodeLibraryUnreadable, fmt.Sprintf("the worker could not probe the library file %q: %s", out.Path, why))
 	}
+	if err := staleProbe(rec, *out.Media); err != nil {
+		if err := p.rescan(ctx, job, t, err); err != nil {
+			return err
+		}
+		return p.queue.Ack(ctx, res.ID)
+	}
 	stored, err := p.storeLibraryProbe(ctx, job, t, rec, *out.Media)
 	if err != nil || !stored {
 		return err // not stored: the job changed meanwhile, and the next pass sees how
@@ -136,6 +150,50 @@ func (p *Proposals) useLibraryProbe(ctx context.Context, job store.Job, t store.
 		return err
 	}
 	return p.flow2Ready(ctx, job, t, *out.Media)
+}
+
+// staleProbe is an error when the probe cannot be of the file Radarr tracked at the match:
+// the size differs, so a file was replaced under the same name between the match and the
+// probe (or the stored probe's). The job goes back to probed (see rescan). A tracked
+// size of 0 (unknown) is not compared.
+func staleProbe(rec Flow2, probe media.Probe) error {
+	if want := rec.Library.Size; want > 0 && probe.Size != want {
+		return fmt.Errorf("the library file %q changed since the match (tracked size %d, probed size %d): rescan the film in Radarr, then match it again",
+			rec.Library.Path, want, probe.Size)
+	}
+	return nil
+}
+
+// rescan sends a matched job whose library probe is stale back to probed, without its
+// target (and so without the stale probe), so the user matches the film again and Radarr
+// is asked for the tracked file again. A failed job would resume in matched and keep the
+// old record. The reason is the transition's note. Nothing happens when the job changed
+// meanwhile.
+func (p *Proposals) rescan(ctx context.Context, job store.Job, t store.Target, why error) error {
+	defer p.Lock(job.ID)()
+	cur, err := p.st.Job(ctx, job.ID)
+	if err != nil {
+		return err
+	}
+	tg, err := p.st.Target(ctx, job.ID)
+	if errors.Is(err, store.ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if cur.State != store.Matched || tg.App != t.App || tg.TitleID != t.TitleID || !tg.MatchedAt.Equal(t.MatchedAt) {
+		return nil
+	}
+	_, err = p.st.ReplaceTarget(ctx, job.ID, store.Matched, store.Probed, nil, store.Change{Actor: actor, Note: why.Error()})
+	if errors.Is(err, store.ErrConflict) || errors.Is(err, store.ErrInvalidTransition) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	p.log.Info("job_state", "job", job.ID, "from", store.Matched, "to", store.Probed, "note", why.Error())
+	return nil
 }
 
 // storeLibraryProbe writes the probe into the target's flow 2 record, under the job's lock
