@@ -182,7 +182,7 @@ The worker compares the upload's duration with the library file's:
 | Auth expiry mid-upload | A `302`/`401` on a chunk pauses and shows "sign in again"; resume from the stored offset |
 | Limits | 80 GiB per file; 300 GiB in flight in total; 3 parallel uploads per user; refuse when free space < size + 100 GiB |
 | Accepted types | Video `.mkv .mp4 .m4v .avi .mov .ts .webm`; subtitles `.srt .ass .ssa`; archives `.zip` |
-| Retention | Idle upload deleted after 48 h; job awaiting a decision deleted after 14 days (date shown from day one); startup sweep of unknown `.incoming` files |
+| Retention | Idle upload deleted after 48 h; job awaiting a decision deleted after 14 days (date shown from day one); startup sweep of unknown `.incoming` files, repeated every 15 min; the records of `done` and `cancelled` jobs are deleted after 30 days, audit entries are kept |
 | Zip-slip | Reject `..`, absolute paths, drive letters and backslashes; extract through `os.Root` under the job directory; NFC-normalise names, strip control characters, max 200 bytes |
 | Entry types | Regular files and directories only; everything else is skipped and listed |
 | Bombs | ≤ 500 entries; bytes counted **as written**; stop at 200 GiB, at the free-space margin, or at a written/compressed ratio > 20; never open nested archives |

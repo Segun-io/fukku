@@ -137,6 +137,8 @@ same settings.
 | `upload.archiveExtensions` | `FUKKU_UPLOAD_ARCHIVE_EXTENSIONS` | `.zip` | Accepted archives |
 | `upload.idleUploadExpiry` | `FUKKU_UPLOAD_IDLE_UPLOAD_EXPIRY` | `2d` | An unfinished upload with no progress for this long is deleted |
 | `upload.jobRetention` | `FUKKU_UPLOAD_JOB_RETENTION` | `14d` | A job waiting for a decision is deleted after this; the date is shown from day one |
+| `upload.finishedJobRetention` | `FUKKU_UPLOAD_FINISHED_JOB_RETENTION` | `30d` | The record of a `done` or `cancelled` job is deleted after this (its audit entries are kept) |
+| `upload.sweepInterval` | `FUKKU_UPLOAD_SWEEP_INTERVAL` | `15m` | How often the retention sweep runs (it also runs once at start-up) |
 | `upload.largeFileHintThreshold` | `FUKKU_UPLOAD_LARGE_FILE_HINT_THRESHOLD` | `20GiB` | Files above this show the hint "large files: upload from home if you can"; `0` turns it off |
 
 ## extract

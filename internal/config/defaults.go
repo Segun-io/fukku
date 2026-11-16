@@ -58,6 +58,8 @@ func Defaults() Config {
 			ArchiveExtensions:      []string{".zip"},
 			IdleUploadExpiry:       Duration(48 * time.Hour),
 			JobRetention:           Duration(14 * 24 * time.Hour),
+			FinishedJobRetention:   Duration(30 * 24 * time.Hour),
+			SweepInterval:          Duration(15 * time.Minute),
 			LargeFileHintThreshold: 20 << 30,
 		},
 		Extract: Extract{

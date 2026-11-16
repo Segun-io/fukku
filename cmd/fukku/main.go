@@ -25,6 +25,7 @@ import (
 	"go.yaml.in/yaml/v3"
 
 	"github.com/segun-io/fukku/internal/config"
+	"github.com/segun-io/fukku/internal/retention"
 	"github.com/segun-io/fukku/internal/spool"
 	"github.com/segun-io/fukku/internal/store"
 	"github.com/segun-io/fukku/internal/version"
@@ -143,7 +144,16 @@ func runWeb(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	swept := make(chan struct{})
+	go func() {
+		defer close(swept)
+		_ = retention.New(cfg, st, q, log, nil).Run(ctx)
+	}()
 	err = web.New(cfg, log, ui.FS(), web.Deps{Queue: q, Store: st}).Run(ctx)
+	cancel()
+	<-swept
 	return errors.Join(err, st.Close())
 }
 

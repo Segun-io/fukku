@@ -111,6 +111,8 @@ type Upload struct {
 	ArchiveExtensions      []string `yaml:"archiveExtensions"`
 	IdleUploadExpiry       Duration `yaml:"idleUploadExpiry"`
 	JobRetention           Duration `yaml:"jobRetention"`
+	FinishedJobRetention   Duration `yaml:"finishedJobRetention"`
+	SweepInterval          Duration `yaml:"sweepInterval"`
 	LargeFileHintThreshold ByteSize `yaml:"largeFileHintThreshold"`
 }
 
