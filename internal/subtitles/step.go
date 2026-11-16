@@ -10,6 +10,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -277,7 +278,13 @@ func plan(files []store.File, rows []store.Row, target store.Target) []item {
 // uploadsFor checks that the video was imported and returns the uploads: one for a film,
 // one per episode the video covers for a show.
 func uploadsFor(base Upload, row store.Row, target store.Target) ([]Upload, error) {
-	if row.JobID == "" || row.Skip || row.Result != store.ResultImported {
+	// With the season-dub policy subtitlesOnly (#57) nothing is imported: the subtitles go
+	// to the episodes that already have a file.
+	if only, ok := flows.SubtitlesOnlyRows(target); ok {
+		if row.JobID == "" || !slices.Contains(only, row.ID) {
+			return nil, errors.New("its episode has no file in the library")
+		}
+	} else if row.JobID == "" || row.Skip || row.Result != store.ResultImported {
 		return nil, errors.New("its video was not imported")
 	}
 	if target.App != "sonarr" {

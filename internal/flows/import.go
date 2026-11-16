@@ -249,6 +249,16 @@ func titleOK(t store.Target, ar arr.Row) error {
 
 // Importing is the runner step for importing jobs (see the top of this file).
 func (e *Engine) Importing(ctx context.Context, job store.Job) error {
+	// subtitlesOnly (#57): the confirmation skipped every row, and nothing is imported; the
+	// post-processing hands the subtitles over.
+	if t, err := e.st.Target(ctx, job.ID); err == nil {
+		if c, ok := seasonDubOf(t); ok && c.Policy == PolicySubtitlesOnly {
+			e.forget(job.ID)
+			return e.p.move(ctx, job, &t, store.Imported, store.Change{Note: "nothing imported: the season dub policy is subtitlesOnly"})
+		}
+	} else if !errors.Is(err, store.ErrNotFound) {
+		return err
+	}
 	if !e.due(job.ID) {
 		return nil
 	}
@@ -762,6 +772,10 @@ func (e *Engine) Imported(ctx context.Context, job store.Job) error {
 	}
 	dubRule := e.p.cfg.Merge.UnmonitorAfterDubOnlyImport
 	note := "monitoring unchanged"
+	choice, _ := seasonDubOf(t)
+	if choice.Policy == PolicySubtitlesOnly { // nothing was imported: nothing to set
+		return e.p.move(ctx, job, &t, store.PostProcessing, store.Change{Note: "nothing imported: the subtitles are handed over"})
+	}
 	var mon monitoring
 	switch t.App {
 	case AppRadarr:
@@ -820,6 +834,20 @@ func (e *Engine) Imported(ctx context.Context, job store.Job) error {
 				mon.Reason = UnmonitorDubOnly
 				note = fmt.Sprintf("%d episode(s) unmonitored: their file has only a dub (merge.unmonitorAfterDubOnlyImport)", len(off))
 			}
+			// A season replaced by a dub is unmonitored as a whole: its own flag, which
+			// the episode call does not touch (C3-sonarr), so that the app's searches
+			// leave it alone (B6-sonarr).
+			if seasons, err := e.dubSeasons(ctx, t, choice, imported, s.OriginalLanguage); err != nil {
+				return e.monitorFailed(ctx, job, t, err)
+			} else if len(seasons) > 0 {
+				for _, n := range seasons {
+					if err := e.p.sonarr.SetSeasonMonitored(ctx, t.TitleID, n, false); err != nil {
+						return e.monitorFailed(ctx, job, t, err)
+					}
+				}
+				mon.Reason = UnmonitorDubOnly
+				note = fmt.Sprintf("%s unmonitored: replaced by a dub (merge.unmonitorAfterDubOnlyImport)", seasonsText(seasons))
+			}
 		}
 		// Monitored: every imported episode is, as Sonarr says now.
 		eps, err := e.p.sonarr.Episodes(ctx, t.TitleID)
@@ -843,6 +871,33 @@ func (e *Engine) Imported(ctx context.Context, job store.Job) error {
 		return err
 	}
 	return e.p.move(ctx, job, &t, store.PostProcessing, store.Change{Note: note})
+}
+
+// dubSeasons are the seasons to unmonitor after a replace (#57): those the confirmation
+// replaced files in, where an imported file has only a dub.
+func (e *Engine) dubSeasons(ctx context.Context, t store.Target, choice seasonDubChoice, imported []arr.Row, original string) ([]int, error) {
+	if choice.Policy != PolicyReplace || len(choice.Seasons) == 0 {
+		return nil, nil
+	}
+	eps, err := e.p.sonarr.Episodes(ctx, t.TitleID)
+	if err != nil {
+		return nil, err
+	}
+	idx := episodeIndex(eps)
+	var out []int
+	for _, ar := range imported {
+		if !dubOnly(original, ar.Languages) {
+			continue
+		}
+		for _, id := range ar.EpisodeIDs {
+			n := idx[id].SeasonNumber
+			if slices.Contains(choice.Seasons, n) && !slices.Contains(out, n) {
+				out = append(out, n)
+			}
+		}
+	}
+	slices.Sort(out)
+	return out, nil
 }
 
 // recordMonitoring stores the monitoring outcome in the target's options, under the job's

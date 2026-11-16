@@ -44,10 +44,15 @@ type ImportRowView struct {
 }
 
 type ResultView struct {
-	TitleLink       *string    `json:"titleLink"`
-	Monitored       *bool      `json:"monitored"`
-	UnmonitorReason string     `json:"unmonitorReason"`
-	PostProcessing  []StepView `json:"postProcessing"`
+	TitleLink       *string `json:"titleLink"`
+	Monitored       *bool   `json:"monitored"`
+	UnmonitorReason string  `json:"unmonitorReason"`
+	// SeasonDub is the policy the user (or seasonDub.policy) applied to episodes that already
+	// had a file: replace (the season is unmonitored when only a dub was imported, so the UI
+	// warns that the title's own Search can still replace it), or subtitlesOnly (nothing was
+	// imported; point the user at the subtitle manager). Null otherwise.
+	SeasonDub      *SeasonDubResult `json:"seasonDub"`
+	PostProcessing []StepView       `json:"postProcessing"`
 }
 
 // StepView is a post-processing step: pending, ok, failed or skipped. The detail of a step
@@ -121,6 +126,9 @@ func (e *Engine) Detail(ctx context.Context, job store.Job, admin bool) (*Import
 	}
 	if mon, ok := monitoringOf(t); ok {
 		rv.Monitored, rv.UnmonitorReason = &mon.Monitored, mon.Reason
+	}
+	if c, ok := seasonDubOf(t); ok {
+		rv.SeasonDub = &SeasonDubResult{Policy: c.Policy, Seasons: append([]int{}, c.Seasons...)}
 	}
 	view := func(ps store.PostStep) StepView {
 		v := StepView{Step: ps.Name, Status: ps.Status}

@@ -186,3 +186,38 @@ func (s *sonarr) SetEpisodesMonitored(ctx context.Context, episodeIDs []int, mon
 	body := map[string]any{"episodeIds": episodeIDs, "monitored": monitored}
 	return s.put(ctx, "/episode/monitor", body, nil)
 }
+
+// SetSeasonMonitored reads the series record, changes the flag of the one season and puts
+// the record back, so that what Fukku does not model survives the round trip.
+func (s *sonarr) SetSeasonMonitored(ctx context.Context, seriesID, season int, monitored bool) error {
+	var body map[string]json.RawMessage
+	if err := s.get(ctx, fmt.Sprintf("/series/%d", seriesID), nil, &body); err != nil {
+		return err
+	}
+	var seasons []map[string]json.RawMessage
+	if err := json.Unmarshal(body["seasons"], &seasons); err != nil {
+		return fmt.Errorf("sonarr: series %d: seasons unreadable: %w", seriesID, err)
+	}
+	found := false
+	for _, sn := range seasons {
+		var n int
+		if json.Unmarshal(sn["seasonNumber"], &n) != nil || n != season {
+			continue
+		}
+		flag, err := json.Marshal(monitored)
+		if err != nil {
+			return err
+		}
+		sn["monitored"] = flag
+		found = true
+	}
+	if !found {
+		return fmt.Errorf("sonarr: series %d has no season %d", seriesID, season)
+	}
+	data, err := json.Marshal(seasons)
+	if err != nil {
+		return err
+	}
+	body["seasons"] = data
+	return s.put(ctx, fmt.Sprintf("/series/%d", seriesID), body, nil)
+}

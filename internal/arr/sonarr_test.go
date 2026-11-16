@@ -318,6 +318,32 @@ func TestSonarrSetEpisodesMonitored(t *testing.T) {
 	}
 }
 
+func TestSonarrSetSeasonMonitored(t *testing.T) {
+	app, s := newSonarr(t, map[string]reply{
+		"GET /api/v3/series/5": {body: `{"id":5,"title":"X","tags":[7],"seasons":[{"seasonNumber":0,"monitored":false},{"seasonNumber":1,"monitored":true,"statistics":{"episodeCount":3}},{"seasonNumber":2,"monitored":true}]}`},
+		"PUT /api/v3/series/5": {body: `{}`},
+	})
+	if err := s.SetSeasonMonitored(ctx, 5, 1, false); err != nil {
+		t.Fatal(err)
+	}
+	got := app.last().json(t)
+	if got["title"] != "X" || got["tags"] == nil {
+		t.Errorf("the record must go back as it was: %v", got)
+	}
+	flags := map[float64]any{}
+	for _, sn := range got["seasons"].([]any) {
+		m := sn.(map[string]any)
+		flags[m["seasonNumber"].(float64)] = m["monitored"]
+	}
+	if flags[0] != false || flags[1] != false || flags[2] != true {
+		t.Errorf("flags = %v, want only season 1 changed", flags)
+	}
+	n := len(app.calls)
+	if err := s.SetSeasonMonitored(ctx, 5, 9, false); err == nil || len(app.calls) != n+1 {
+		t.Errorf("an unknown season must fail before the PUT: %v", err)
+	}
+}
+
 func TestSonarrAppErrorAndKey(t *testing.T) {
 	_, s := newSonarr(t, map[string]reply{
 		"GET /api/v3/episode":         {status: 401, body: `{"message":"bad key ` + testKey + `"}`},

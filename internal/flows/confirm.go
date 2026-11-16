@@ -19,6 +19,9 @@ import (
 type ConfirmRequest struct {
 	Overrides []string         `json:"overrides"`
 	Subtitles []SubtitleChoice `json:"subtitles"`
+	// SeasonDub is what to do with rows whose episodes already have a file (#57): one of
+	// the proposal's seasonDub.offers when seasonDub.ask is set; empty otherwise.
+	SeasonDub string `json:"seasonDub,omitempty"`
 }
 
 // Confirmation is what a confirmation did, for the audit log.
@@ -28,6 +31,11 @@ type Confirmation struct {
 	Rows       []string // the rows to import, in the job's order
 	Overridden []Overridden
 	Subtitles  []SubtitleChoice
+	// SeasonDub is the policy applied to rows that have a file ("": none), with the seasons
+	// and the rows it covers.
+	SeasonDub string
+	Seasons   []int
+	DubRows   []string
 }
 
 // Overridden is a row imported despite its rejections or warnings.
@@ -82,12 +90,17 @@ func (e *Engine) confirm(ctx context.Context, user, email, jobID string, req Con
 		e.log.Warn("import_storage_unavailable", "job", jobID, "error", err)
 		return Confirmation{}, refuse(CodeStorageUnavailable, "The storage is not available: a mount is missing, or the intake and library folders are on different filesystems.")
 	}
+	dub, ex, err := s.chooseDub(req.SeasonDub)
+	if err != nil {
+		return Confirmation{}, err
+	}
+	s.dub = dub
 	views, _, err := s.views(ctx)
 	if err != nil {
 		return Confirmation{}, err
 	}
 	var (
-		c          = Confirmation{Target: s.t}
+		c          = Confirmation{Target: s.t, SeasonDub: dub, Seasons: ex.seasons, DubRows: ex.rows}
 		incomplete []string
 		needs      []string
 	)
@@ -104,11 +117,15 @@ func (e *Engine) confirm(ctx context.Context, user, email, jobID string, req Con
 			incomplete = append(incomplete, v.ID)
 			continue
 		}
-		if len(v.Rejections) > 0 || len(v.Warnings) > 0 {
+		// With replace, the choice answers what the app says of replacing a file it has.
+		replaced := dub == PolicyReplace && slices.Contains(ex.rows, v.ID)
+		if needsOverride(v, replaced) {
 			if !slices.Contains(req.Overrides, v.ID) {
 				needs = append(needs, v.ID)
 				continue
 			}
+		}
+		if len(v.Rejections) > 0 || len(v.Warnings) > 0 {
 			o := Overridden{RowID: v.ID, File: v.Name}
 			for _, r := range v.Rejections {
 				o.Rejections = append(o.Rejections, r.Reason)
@@ -134,7 +151,7 @@ func (e *Engine) confirm(ctx context.Context, user, email, jobID string, req Con
 		err := refuse(CodeNeedsOverride, "Some rows have rejections or warnings: confirm them as overrides, or skip them.")
 		err.Rows = needs
 		return Confirmation{}, err
-	case len(c.Rows) == 0:
+	case len(c.Rows) == 0 && dub != PolicySubtitlesOnly:
 		return Confirmation{}, refuse(CodeNothingToImport, "Every row is skipped: there is nothing to import.")
 	}
 
@@ -175,6 +192,13 @@ func (e *Engine) confirm(ctx context.Context, user, email, jobID string, req Con
 	if err != nil {
 		return Confirmation{}, err
 	}
+	var dubChoice any // nil: the key goes
+	if dub != "" {
+		dubChoice = seasonDubChoice{Policy: dub, Seasons: ex.seasons, Rows: ex.rows}
+	}
+	if opts, err = withOption(opts, "seasonDub", dubChoice); err != nil {
+		return Confirmation{}, err
+	}
 	if string(opts) == string(s.t.Options) {
 		opts = nil // unchanged
 	} else {
@@ -182,6 +206,12 @@ func (e *Engine) confirm(ctx context.Context, user, email, jobID string, req Con
 	}
 	c.Subtitles = req.Subtitles
 	note := fmt.Sprintf("%d file(s) confirmed for %s", len(c.Rows), s.t.App)
+	switch dub {
+	case PolicyReplace:
+		note += fmt.Sprintf(", replacing the existing files of %s", seasonsText(ex.seasons))
+	case PolicySubtitlesOnly:
+		note = fmt.Sprintf("nothing to import for %s: only the subtitles of %s are handed over", s.t.App, seasonsText(ex.seasons))
+	}
 	if len(c.Overridden) > 0 {
 		var ids []string
 		for _, o := range c.Overridden {
@@ -204,9 +234,28 @@ func (e *Engine) confirm(ctx context.Context, user, email, jobID string, req Con
 	return c, nil
 }
 
+// needsOverride reports whether a row still has rejections or warnings the user must
+// override. For a row replaced by the season-dub policy, the choice answers the existing_file
+// warning and the app's refusals to replace a file (replaceCovers).
+func needsOverride(v RowView, replaced bool) bool {
+	for _, r := range v.Rejections {
+		if !replaced || !replaceCovers(r.Reason) {
+			return true
+		}
+	}
+	for _, w := range v.Warnings {
+		if !replaced || w.Code != WarnExistingFile {
+			return true
+		}
+	}
+	return false
+}
+
 // audit is the confirmation's audit entries: import.confirmed, rejection.overridden for
 // each row imported despite its rejections or warnings, and language.overridden, with the
 // custom formats and scores, for each whose language warning (#39) was among them.
+// A season-dub policy adds season.replaced for each season whose files are replaced, and
+// season.subtitles_only for each season whose episodes get the upload's subtitles only.
 func (c Confirmation) audit(user, email string) []store.AuditEntry {
 	overrides := make([]string, 0, len(c.Overridden))
 	for _, o := range c.Overridden {
@@ -224,6 +273,20 @@ func (c Confirmation) audit(user, email string) []store.AuditEntry {
 		"rows": strings.Join(c.Rows, ","), "overrides": strings.Join(overrides, ","),
 		"subtitles": strings.Join(subs, "; "),
 	})}
+	for _, season := range c.Seasons {
+		switch c.SeasonDub {
+		case PolicyReplace:
+			out = append(out, entry("season.replaced", map[string]string{
+				"app": c.Target.App, "titleId": strconv.Itoa(c.Target.TitleID), "title": c.Target.Title,
+				"season": strconv.Itoa(season), "rows": strings.Join(c.DubRows, ","), "policy": PolicyReplace,
+			}))
+		case PolicySubtitlesOnly:
+			out = append(out, entry("season.subtitles_only", map[string]string{
+				"app": c.Target.App, "titleId": strconv.Itoa(c.Target.TitleID), "title": c.Target.Title,
+				"season": strconv.Itoa(season), "rows": strings.Join(c.DubRows, ","), "policy": PolicySubtitlesOnly,
+			}))
+		}
+	}
 	for _, o := range c.Overridden {
 		out = append(out, entry("rejection.overridden", map[string]string{
 			"row": o.RowID, "file": o.File,
