@@ -230,25 +230,12 @@ type item struct {
 	problem error
 }
 
-// choice is what the user picked in the UI for one subtitle file; it overrides the file
-// name. It is read from the job target's options, under "subtitles", keyed by the file's
-// job-relative path: {"subtitles": {"files/Film.es.srt": {"language": "es", "forced": true}}}.
-type choice struct {
-	Language string `json:"language"`
-	Forced   *bool  `json:"forced"`
-	HI       *bool  `json:"hi"`
-}
-
 var langRE = regexp.MustCompile(`^[a-z]{2,3}(-[A-Za-z]{2,4})?$`)
 
 // plan pairs every accepted subtitle file with its video and works out its upload.
 func plan(files []store.File, rows []store.Row, target store.Target) []item {
-	var opts struct {
-		Subtitles map[string]choice `json:"subtitles"`
-	}
-	if len(target.Options) > 0 {
-		_ = json.Unmarshal(target.Options, &opts)
-	}
+	// What the user picked at the confirmation, by file id, overrides the file name.
+	choices := flows.SubtitleChoices(target)
 	rowOf := map[int64]store.Row{}
 	for _, r := range rows {
 		rowOf[r.FileID] = r
@@ -267,15 +254,11 @@ func plan(files []store.File, rows []store.Row, target store.Target) []item {
 		it := item{file: f}
 		base := Upload{App: target.App, TitleID: target.TitleID, Name: path.Base(f.Path)}
 		video, lang, forced, hi, ok := match(f.Path, videos)
-		ch := opts.Subtitles[f.Path]
-		if ch.Language != "" {
-			lang = ch.Language
-		}
-		if ch.Forced != nil {
-			forced = *ch.Forced
-		}
-		if ch.HI != nil {
-			hi = *ch.HI
+		if ch, ok := choices[f.ID]; ok {
+			if ch.Language != "" {
+				lang = ch.Language
+			}
+			forced, hi = ch.Forced, ch.HearingImpaired
 		}
 		base.Language, base.Forced, base.HI = lang, forced, hi
 		switch {

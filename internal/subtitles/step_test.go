@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -126,11 +127,12 @@ func TestLanguageAndFlagsFromFileNames(t *testing.T) {
 func TestTheUIChoiceOverridesTheFileName(t *testing.T) {
 	h := newHarness(t)
 	h.add("Film.mkv", store.KindVideo, "v")
-	h.add("Film.es.srt", store.KindSubtitle, "x")
-	h.add("Film.srt", store.KindSubtitle, "y")
-	h.target.Options = json.RawMessage(`{"subtitles": {
-		"files/Film.es.srt": {"language": "pt", "forced": true, "hi": true},
-		"files/Film.srt": {"language": "fr"}}}`)
+	es := h.add("Film.es.srt", store.KindSubtitle, "x")
+	plain := h.add("Film.srt", store.KindSubtitle, "y")
+	// As the confirmation stores them (flows.SubtitleChoices): by file id.
+	h.target.Options = json.RawMessage(fmt.Sprintf(`{"added": true, "subtitles": {
+		"%d": {"language": "pt", "forced": true, "hearingImpaired": true},
+		"%d": {"language": "fr", "forced": false, "hearingImpaired": false}}}`, es.ID, plain.ID))
 	if _, _, err := h.run(); err != nil {
 		t.Fatal(err)
 	}

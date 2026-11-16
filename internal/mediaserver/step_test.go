@@ -1,7 +1,6 @@
 package mediaserver_test
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"testing"
@@ -10,6 +9,7 @@ import (
 	"github.com/segun-io/fukku/internal/arr"
 	"github.com/segun-io/fukku/internal/arr/arrtest"
 	"github.com/segun-io/fukku/internal/config"
+	"github.com/segun-io/fukku/internal/flows"
 	"github.com/segun-io/fukku/internal/mediaserver"
 	"github.com/segun-io/fukku/internal/mediaserver/mediaservertest"
 	"github.com/segun-io/fukku/internal/store"
@@ -95,25 +95,13 @@ func TestStepRefreshAndFindErrors(t *testing.T) {
 	}
 }
 
-type recorder struct{ steps []store.PostStep }
-
-func (r *recorder) PutPostStep(_ context.Context, s store.PostStep) error {
-	r.steps = append(r.steps, s)
-	return nil
-}
-
 func TestStepProviderNoneIsSkipped(t *testing.T) {
 	fake := &mediaservertest.Fake{}
-	rec := &recorder{}
 	s := movieStep(fake)
 	s.Config.MediaServer.Provider = "none"
-	s.Recorder = rec
-	done, _, err := s.Run(t.Context(), job, target, nil)
-	if err != nil || !done {
-		t.Fatalf("Run = %v, %v", done, err)
-	}
-	if len(rec.steps) != 1 || rec.steps[0].Status != store.StepSkipped || rec.steps[0].Name != "mediaServerRefresh" || rec.steps[0].JobID != "j1" {
-		t.Errorf("recorded %+v", rec.steps)
+	_, _, err := s.Run(t.Context(), job, target, nil)
+	if reason, ok := flows.SkipReason(err); !ok || reason != "no media server is configured" {
+		t.Fatalf("Run = %v", err)
 	}
 	if len(fake.Refreshed) != 0 || len(fake.FindCalls) != 0 {
 		t.Error("the server must not be contacted")
@@ -171,5 +159,21 @@ func TestStepSeasonWithASkippedRow(t *testing.T) {
 func TestItemID(t *testing.T) {
 	if mediaserver.ItemID("item abc") != "abc" || mediaserver.ItemID("no media server") != "" {
 		t.Error("ItemID")
+	}
+}
+
+// The step is the job's Linker: its detail and mediaServer.titleLinkTemplate make the link.
+func TestStepLink(t *testing.T) {
+	s := movieStep(&mediaservertest.Fake{})
+	s.Config.MediaServer.TitleLinkTemplate = "https://media.example.com/web/#/details?id={itemId}"
+	if l, ok := s.Link("item abc123"); !ok || l != "https://media.example.com/web/#/details?id=abc123" {
+		t.Errorf("Link = %q, %v", l, ok)
+	}
+	if _, ok := s.Link(""); ok {
+		t.Error("a link without an item")
+	}
+	s.Config.MediaServer.TitleLinkTemplate = ""
+	if _, ok := s.Link("item abc123"); ok {
+		t.Error("a link without a template")
 	}
 }

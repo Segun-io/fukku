@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -23,6 +24,7 @@ type confirmEnv struct {
 	proposalEnv
 	sentinel string
 	eng      *flows.Engine
+	score    int // the custom-format score of S01E02 (the show's profile's minimum is 0)
 }
 
 // newConfirmEnv is the proposal API and the confirmation behind the whole chain, with a
@@ -45,7 +47,8 @@ func newConfirmEnv(t *testing.T) *confirmEnv {
 	series := &arrtest.FakeSeries{}
 	series.Quals = []arr.Quality{{ID: 3, Name: "WEBDL-1080p"}}
 	series.Langs = []arr.Language{{ID: 1, Name: "English"}}
-	series.Library = []arr.Series{{ID: 11, Title: "Some Show", Year: 2010}}
+	series.Library = []arr.Series{{ID: 11, Title: "Some Show", Year: 2010, QualityProfileID: 4}}
+	series.Profile = []arr.Profile{{ID: 4, Name: "HD", MinFormatScore: 0}}
 	series.Eps = map[int][]arr.Episode{11: {
 		{ID: 101, SeasonNumber: 1, Number: 1, Title: "One", RuntimeMs: 1_320_000},
 		{ID: 102, SeasonNumber: 1, Number: 2, Title: "Two", RuntimeMs: 1_320_000},
@@ -77,8 +80,15 @@ func (e *confirmEnv) ready() (store.Job, []string) {
 			Status: store.FileOK, Report: json.RawMessage(`{"durationMs": 1320000, "video": [{"width": 1920, "height": 1080}]}`)}); err != nil {
 			e.t.Fatal(err)
 		}
-		items = append(items, arr.Row{Path: folder + "/" + name, Quality: arr.Quality{ID: 3, Name: "WEBDL-1080p"},
-			Raw: json.RawMessage(`{"path":"` + folder + "/" + name + `"}`)})
+		it := arr.Row{Path: folder + "/" + name, Quality: arr.Quality{ID: 3, Name: "WEBDL-1080p"},
+			Raw: json.RawMessage(`{"path":"` + folder + "/" + name + `"}`)}
+		if name == "S01E02.mkv" && e.score != 0 {
+			it.CustomFormats, it.CustomFormatScore = []string{"Not Original Language"}, e.score
+		}
+		items = append(items, it)
+	}
+	if _, err := e.st.AddFile(ctx, store.File{JobID: j.ID, Path: "files/S01E01.es.srt", Kind: store.KindSubtitle, Size: 10, Status: store.FileOK}); err != nil {
+		e.t.Fatal(err)
 	}
 	e.series.Proposed[folder] = items
 	e.series.Verdicts = map[string][]arr.Rejection{folder + "/S01E03.mkv": {{Reason: "Not an upgrade for existing episode file(s)", Permanent: true}}}
@@ -190,7 +200,7 @@ func TestConfirmThroughTheFullChain(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &d); err != nil || d.Import == nil || d.Import.Status != "pending" || len(d.Import.Rows) != 3 || d.Result != nil {
 		t.Fatalf("detail %s", rec.Body)
 	}
-	if !strings.Contains(rec.Body.String(), `"import":{"status":"pending","rows":[{"id":"`+rows[0]+`","result":""}`) ||
+	if !strings.Contains(rec.Body.String(), `"import":{"status":"pending","rows":[{"id":"`+rows[0]+`","name":"S01E01.mkv","result":""}`) ||
 		!strings.Contains(rec.Body.String(), `"result":null`) {
 		t.Errorf("detail JSON %s", rec.Body)
 	}
@@ -231,4 +241,57 @@ func TestAStalledImportCannotBeCancelled(t *testing.T) {
 		t.Errorf("cancel offered: %s", rec.Body)
 	}
 	e.want(e.send("user1", "users", "POST", "/api/jobs/"+j.ID+"/cancel", ``, true), http.StatusConflict, "wrong_state")
+}
+
+// The language warning is overridden like a rejection, with an audit entry of its own; the
+// subtitle choices of the body are validated and stored.
+func TestConfirmLanguageOverrideAndSubtitles(t *testing.T) {
+	e := newConfirmEnv(t)
+	e.score = -10000
+	j, rows := e.ready()
+	path := "/api/jobs/" + j.ID + "/confirm"
+	rec := e.send("user1", "users", "POST", path, `{"overrides":["`+rows[2]+`"]}`, true)
+	e.want(rec, http.StatusConflict, "needs_override")
+	if !strings.Contains(rec.Body.String(), `"rows":["`+rows[1]+`"]`) {
+		t.Fatalf("the language warning is not named: %s", rec.Body)
+	}
+	files, _ := e.st.Files(t.Context(), j.ID)
+	var sub int64
+	for _, f := range files {
+		if f.Kind == store.KindSubtitle {
+			sub = f.ID
+		}
+	}
+	both := `"overrides":["` + rows[1] + `","` + rows[2] + `"]`
+	e.want(e.send("user1", "users", "POST", path, `{`+both+`,"subtitles":[{"fileId":1,"language":"es"}]}`, true), http.StatusBadRequest, "bad_request")
+	e.want(e.send("user1", "users", "POST", path, `{`+both+`,"subtitles":[{"fileId":`+strconv.FormatInt(sub, 10)+`,"language":"zz"}]}`, true), http.StatusBadRequest, "bad_request")
+	e.want(e.send("user1", "users", "POST", path, `{`+both+`,"subtitles":[{"fileId":`+strconv.FormatInt(sub, 10)+`,"lang":"es"}]}`, true), http.StatusBadRequest, "bad_request")
+
+	body := `{` + both + `,"subtitles":[{"fileId":` + strconv.FormatInt(sub, 10) + `,"language":"es","forced":true,"hearingImpaired":false}]}`
+	if rec := e.send("user1", "users", "POST", path, body, true); rec.Code != http.StatusAccepted {
+		t.Fatalf("confirm: %d %s", rec.Code, rec.Body)
+	}
+	tg, _ := e.st.Target(t.Context(), j.ID)
+	if c := flows.SubtitleChoices(tg)[sub]; c.Language != "es" || !c.Forced || c.HearingImpaired {
+		t.Errorf("stored choice %+v", c)
+	}
+	log, _ := e.st.AuditLog(t.Context(), j.ID)
+	var lang *store.AuditEntry
+	actions := []string{}
+	for i := range log {
+		actions = append(actions, log[i].Action)
+		if log[i].Action == "language.overridden" {
+			lang = &log[i]
+		}
+		if log[i].Action == "import.confirmed" && !strings.Contains(log[i].Detail["subtitles"], ":es forced=true") {
+			t.Errorf("import.confirmed %+v", log[i].Detail)
+		}
+	}
+	if lang == nil || lang.Detail["row"] != rows[1] || lang.Detail["score"] != "-10000" || lang.Detail["minFormatScore"] != "0" ||
+		lang.Detail["customFormats"] != "Not Original Language" {
+		t.Errorf("language.overridden %+v (entries %v)", lang, actions)
+	}
+	if n := len(actions); n != 4 { // confirmed, two rejection.overridden, one language.overridden
+		t.Errorf("audit %v", actions)
+	}
 }

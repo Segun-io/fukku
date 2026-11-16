@@ -10,6 +10,7 @@ import (
 
 	"github.com/segun-io/fukku/internal/arr"
 	"github.com/segun-io/fukku/internal/config"
+	"github.com/segun-io/fukku/internal/flows"
 	"github.com/segun-io/fukku/internal/pathmap"
 	"github.com/segun-io/fukku/internal/store"
 )
@@ -20,38 +21,39 @@ const StepName = "mediaServerRefresh"
 // ErrNotVisible is returned when the title did not show up within mediaServer.itemWait.
 var ErrNotVisible = errors.New("the title is not visible in the media server yet")
 
-// StepRecorder is the part of the store the step uses to record that it was skipped.
-type StepRecorder interface {
-	PutPostStep(ctx context.Context, s store.PostStep) error
-}
+var (
+	_ flows.PostStep = (*Step)(nil)
+	_ flows.Linker   = (*Step)(nil)
+)
 
 // Step is the post-processing step mediaServerRefresh (#40's PostStep contract). After the
 // import it maps each imported file to the media server's view of the path, tells the server,
 // waits until the server lists the file, and reports the item id in its detail ("item <id>").
+// As a flows.Linker it turns that detail into the job's title link.
 type Step struct {
-	Server   MediaServer
-	Movies   arr.MovieManager  // nil when Radarr is not configured
-	Series   arr.SeriesManager // nil when Sonarr is not configured
-	Config   config.Config
-	Recorder StepRecorder // records StepSkipped with mediaServer.provider none; may be nil
+	Server MediaServer
+	Movies arr.MovieManager  // nil when Radarr is not configured
+	Series arr.SeriesManager // nil when Sonarr is not configured
+	Config config.Config
 }
 
 func (s *Step) Name() string { return StepName }
 
+// Link is the title link of a finished step's detail: mediaServer.titleLinkTemplate with the
+// item id. No template, or no id: no link.
+func (s *Step) Link(detail string) (string, bool) {
+	l := TitleLink(s.Config.MediaServer.TitleLinkTemplate, ItemID(detail))
+	return l, l != ""
+}
+
 // Run performs the step. It is safe to repeat: a repeat refreshes again and looks again.
-// With mediaServer.provider none it records the step as skipped and is done. When the title
-// does not appear within mediaServer.itemWait it returns an error wrapping ErrNotVisible.
+// With mediaServer.provider none it is skipped (flows.Skip). When the title does not appear
+// within mediaServer.itemWait it returns an error wrapping ErrNotVisible, which the engine
+// retries.
 func (s *Step) Run(ctx context.Context, job store.Job, target store.Target, rows []store.Row) (bool, string, error) {
 	ms := s.Config.MediaServer
 	if ms.Provider == "none" || ms.Provider == "" || s.Server == nil {
-		const detail = "no media server is configured"
-		if s.Recorder != nil {
-			err := s.Recorder.PutPostStep(ctx, store.PostStep{JobID: job.ID, Name: StepName, Status: store.StepSkipped, Detail: detail})
-			if err != nil {
-				return false, "", err
-			}
-		}
-		return true, detail, nil
+		return true, "", flows.Skip("no media server is configured")
 	}
 	files, err := s.importedFiles(ctx, target, rows)
 	if err != nil {

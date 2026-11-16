@@ -29,7 +29,8 @@ const sessionExample = `{
     "subtitleExtensions": [".srt", ".ass", ".ssa"],
     "archiveExtensions": [".zip"],
     "largeFileHintThreshold": 21474836480
-  }
+  },
+  "subtitleManager": false
 }`
 
 func compactJSON(t *testing.T, s string) string {
@@ -84,6 +85,30 @@ func TestSessionReflectsConfiguration(t *testing.T) {
 	if !s.User.Admin || !s.Apps.Radarr || s.Apps.Sonarr || s.Upload.SubtitleExtensions == nil ||
 		len(s.UILanguages) != 1 || s.InsecureDev || s.Version != version.Version {
 		t.Fatalf("session %+v", s)
+	}
+}
+
+// subtitleManager is true only with a subtitle manager configured and hand-over on.
+func TestSessionSubtitleManager(t *testing.T) {
+	for _, c := range []struct {
+		provider, url  string
+		handOver, want bool
+	}{
+		{"bazarr", "http://bazarr.example.com:6767", true, true},
+		{"bazarr", "http://bazarr.example.com:6767", false, false},
+		{"none", "http://bazarr.example.com:6767", true, false},
+	} {
+		cfg := testConfig()
+		cfg.Subtitles.Provider, cfg.Subtitles.URL, cfg.Subtitles.HandOverUploads = c.provider, c.url, c.handOver
+		cfg.Subtitles.APIKey = "fake-subtitles-key"
+		got := getSession(t, cfg, fromProxy("GET", "/api/session", nil))
+		var s sessionInfo
+		if err := json.Unmarshal([]byte(got), &s); err != nil {
+			t.Fatal(err)
+		}
+		if s.SubtitleManager != c.want || strings.Contains(got, "bazarr.example.com") || strings.Contains(got, "fake-subtitles-key") {
+			t.Errorf("%+v: %s", c, got)
+		}
 	}
 }
 

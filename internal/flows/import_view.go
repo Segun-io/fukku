@@ -3,6 +3,7 @@ package flows
 import (
 	"context"
 	"errors"
+	"path"
 
 	"github.com/segun-io/fukku/internal/store"
 )
@@ -10,10 +11,16 @@ import (
 // The import and its result as JobDetail (GET /api/jobs/{id}) shows them (#40's contract,
 // used by #44):
 //
-//	"import": {"status": "running", "rows": [{"id": "r1", "result": "imported"}, {"id": "r2", "result": ""}]}
-//	"result": {"titleLink": null, "postProcessing": [{"step": "subtitles", "status": "pending", "detail": ""}]}
+//	"import": {"status": "running", "rows": [{"id": "r1", "name": "Film.mkv", "result": "imported"}, {"id": "r2", "name": "x.mkv", "result": ""}]}
+//	"result": {"titleLink": null, "monitored": false, "unmonitorReason": "dub_only",
+//	           "postProcessing": [{"step": "subtitles", "status": "pending", "detail": ""}]}
 //
 // Both are null before the job is confirmed; result is null until the files are imported.
+// result.monitored is null until the monitoring is set (the imported step); for a show it
+// is true when every imported episode is monitored. unmonitorReason says why Fukku left it
+// unmonitored: dub_only (only a dub was imported, merge.unmonitorAfterDubOnlyImport; the
+// title's own search can still replace it), chosen (the user chose so at the match), or ""
+// (as it was in the app, or monitored).
 
 // Import statuses.
 const (
@@ -28,15 +35,19 @@ type ImportView struct {
 	Rows   []ImportRowView `json:"rows"`
 }
 
-// ImportRowView is a row's result: "" (not yet), imported, failed or skipped.
+// ImportRowView is a row's result: "" (not yet), imported, failed or skipped. Name is the
+// file's name (not its path).
 type ImportRowView struct {
 	ID     string `json:"id"`
+	Name   string `json:"name"`
 	Result string `json:"result"`
 }
 
 type ResultView struct {
-	TitleLink      *string    `json:"titleLink"`
-	PostProcessing []StepView `json:"postProcessing"`
+	TitleLink       *string    `json:"titleLink"`
+	Monitored       *bool      `json:"monitored"`
+	UnmonitorReason string     `json:"unmonitorReason"`
+	PostProcessing  []StepView `json:"postProcessing"`
 }
 
 // StepView is a post-processing step: pending, ok, failed or skipped. The detail of a step
@@ -64,9 +75,17 @@ func (e *Engine) Detail(ctx context.Context, job store.Job, admin bool) (*Import
 	if err != nil {
 		return nil, nil, err
 	}
+	files, err := e.st.Files(ctx, job.ID)
+	if err != nil {
+		return nil, nil, err
+	}
+	names := map[int64]string{}
+	for _, f := range files {
+		names[f.ID] = path.Base(f.Path)
+	}
 	iv = &ImportView{Rows: make([]ImportRowView, 0, len(rows))}
 	for _, r := range rows {
-		iv.Rows = append(iv.Rows, ImportRowView{ID: r.ID, Result: r.Result})
+		iv.Rows = append(iv.Rows, ImportRowView{ID: r.ID, Name: names[r.FileID], Result: r.Result})
 	}
 	switch {
 	case at != store.Importing:
@@ -96,6 +115,13 @@ func (e *Engine) Detail(ctx context.Context, job store.Job, admin bool) (*Import
 		byName[ps.Name] = ps
 	}
 	rv := &ResultView{PostProcessing: []StepView{}}
+	t, err := e.st.Target(ctx, job.ID)
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		return nil, nil, err
+	}
+	if mon, ok := monitoringOf(t); ok {
+		rv.Monitored, rv.UnmonitorReason = &mon.Monitored, mon.Reason
+	}
 	view := func(ps store.PostStep) StepView {
 		v := StepView{Step: ps.Name, Status: ps.Status}
 		if v.Status == "" {

@@ -5,15 +5,20 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strconv"
+	"strings"
 
 	"github.com/segun-io/fukku/internal/store"
 )
 
 // ConfirmRequest is the body of POST /api/jobs/{id}/confirm: the rows whose rejections or
-// warnings the user accepts. Probes B8-radarr and B8-sonarr: with explicit ids, the apps
-// import despite rejections.
+// warnings the user accepts (probes B8-radarr and B8-sonarr: with explicit ids, the apps
+// import despite rejections), and the language and flags of the job's subtitle files, for
+// the hand-over to the subtitle manager (#42). A subtitle file not listed keeps what its
+// name says.
 type ConfirmRequest struct {
-	Overrides []string `json:"overrides"`
+	Overrides []string         `json:"overrides"`
+	Subtitles []SubtitleChoice `json:"subtitles"`
 }
 
 // Confirmation is what a confirmation did, for the audit log.
@@ -22,6 +27,7 @@ type Confirmation struct {
 	Target     store.Target
 	Rows       []string // the rows to import, in the job's order
 	Overridden []Overridden
+	Subtitles  []SubtitleChoice
 }
 
 // Overridden is a row imported despite its rejections or warnings.
@@ -30,6 +36,9 @@ type Overridden struct {
 	File       string // the file's name
 	Rejections []string
 	Warnings   []string
+	// Language is the language warning (custom formats, score and the profile's minimum)
+	// when it was one of the warnings overridden.
+	Language *Notice
 }
 
 // Confirm moves a job from awaiting-confirmation to importing. Every row that is not
@@ -63,6 +72,10 @@ func (e *Engine) confirm(ctx context.Context, user, jobID string, req ConfirmReq
 		if s.find(id) < 0 {
 			return Confirmation{}, badRequest("Row %s is not a row of this job.", id)
 		}
+	}
+	subs, err := s.subtitleChoices(req.Subtitles)
+	if err != nil {
+		return Confirmation{}, err
 	}
 	if err := e.checkStorage(); err != nil {
 		e.log.Warn("import_storage_unavailable", "job", jobID, "error", err)
@@ -101,6 +114,10 @@ func (e *Engine) confirm(ctx context.Context, user, jobID string, req ConfirmReq
 			}
 			for _, w := range v.Warnings {
 				o.Warnings = append(o.Warnings, w.Code)
+				if w.Code == WarnLanguage {
+					lw := w
+					o.Language = &lw
+				}
 			}
 			c.Overridden = append(c.Overridden, o)
 			override[v.ID] = true
@@ -150,6 +167,26 @@ func (e *Engine) confirm(ctx context.Context, user, jobID string, req ConfirmReq
 			return Confirmation{}, err
 		}
 	}
+	// The subtitle choices go where the subtitles step reads them: the target's options.
+	// The target's identity (app, title, matched at) does not change, so the transition
+	// below still finds it.
+	var choices any // nil: the key goes
+	if subs != nil {
+		choices = subs
+	}
+	opts, err := withOption(s.t.Options, "subtitles", choices)
+	if err != nil {
+		return Confirmation{}, err
+	}
+	if string(opts) != string(s.t.Options) {
+		t := s.t
+		t.Options = opts
+		if err := e.st.SetTarget(ctx, jobID, t); err != nil {
+			return Confirmation{}, err
+		}
+		c.Target = t
+	}
+	c.Subtitles = req.Subtitles
 	note := fmt.Sprintf("%d file(s) confirmed for %s", len(c.Rows), s.t.App)
 	if len(c.Overridden) > 0 {
 		note += fmt.Sprintf(", %d despite rejections or warnings", len(c.Overridden))
@@ -165,4 +202,31 @@ func (e *Engine) confirm(ctx context.Context, user, jobID string, req ConfirmReq
 		"rows", len(c.Rows), "overridden", len(c.Overridden))
 	c.Job = next
 	return c, nil
+}
+
+// subtitleChoices validates the subtitle choices of a confirmation (each a subtitle file of
+// the job that passed the checks, once, with a known language) and returns them as stored:
+// by file id, or nil when there are none.
+func (s *session) subtitleChoices(in []SubtitleChoice) (map[string]storedChoice, error) {
+	if len(in) == 0 {
+		return nil, nil
+	}
+	out := map[string]storedChoice{}
+	for i, c := range in {
+		f, ok := s.files[c.FileID]
+		if !ok || f.Kind != store.KindSubtitle || f.Status != store.FileOK {
+			return nil, badRequest("File %d is not a subtitle file of this job.", c.FileID)
+		}
+		key := strconv.FormatInt(c.FileID, 10)
+		if _, dup := out[key]; dup {
+			return nil, badRequest("File %d is listed twice.", c.FileID)
+		}
+		lang := strings.ToLower(strings.TrimSpace(c.Language))
+		if !KnownLanguage(lang) {
+			return nil, badRequest("%q is not a known language code (ISO 639-1, e.g. es).", c.Language)
+		}
+		in[i].Language = lang
+		out[key] = storedChoice{Language: lang, Forced: c.Forced, HearingImpaired: c.HearingImpaired}
+	}
+	return out, nil
 }
