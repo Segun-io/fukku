@@ -20,6 +20,7 @@ services:
   web:
     <<: *hardening
     # Pin by digest once images are published: ghcr.io/segun-io/fukku:<version>@sha256:<digest>
+    # (pre-release images and how to pull them: docs/prerelease.md)
     image: ghcr.io/segun-io/fukku:0.0.0
     command: ["web"]
     environment:

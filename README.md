@@ -28,7 +28,7 @@ pinned versions of Radarr, Sonarr, Bazarr and Jellyfin behave is in
 
 [deploy/compose.example.yaml](deploy/compose.example.yaml) shows the two-container layout,
 and [deploy/fukku.example.yaml](deploy/fukku.example.yaml) an example configuration. No image
-has been published yet.
+has been published yet; pre-releases are described in [docs/prerelease.md](docs/prerelease.md).
 
 ```sh
 fukku check-config --config fukku.yaml           # validate, print with secrets redacted
