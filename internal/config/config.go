@@ -158,6 +158,7 @@ type SeasonDub struct {
 type Worker struct {
 	Concurrency       int      `yaml:"concurrency"`
 	SpoolDir          string   `yaml:"spoolDir"`
+	PollInterval      Duration `yaml:"pollInterval"`
 	ProbeTimeout      Duration `yaml:"probeTimeout"`
 	TaskTimeout       Duration `yaml:"taskTimeout"`
 	Nice              int      `yaml:"nice"`

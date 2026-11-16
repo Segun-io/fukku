@@ -25,6 +25,7 @@ import (
 	"go.yaml.in/yaml/v3"
 
 	"github.com/segun-io/fukku/internal/config"
+	"github.com/segun-io/fukku/internal/spool"
 	"github.com/segun-io/fukku/internal/version"
 	"github.com/segun-io/fukku/internal/web"
 	"github.com/segun-io/fukku/internal/worker"
@@ -114,11 +115,11 @@ func run(args []string, stdout, stderr io.Writer) int {
 
 	switch cmd {
 	case "web":
-		err = web.New(cfg, log, ui.FS()).Run(ctx)
+		err = runWeb(ctx, cfg, log)
 	case "worker":
-		err = worker.New(cfg.Worker, log).Run(ctx)
+		err = worker.New(cfg, log, handlers()).Run(ctx)
 	case "combined":
-		err = runCombined(ctx, cfg, log)
+		err = runCombined(ctx, cfg, log, handlers())
 	}
 	if err != nil {
 		log.Error("exit", "error", err)
@@ -127,13 +128,27 @@ func run(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
-func runCombined(ctx context.Context, cfg config.Config, log *slog.Logger) error {
+// handlers are the worker's task handlers, by kind. The job runner (#29) registers them.
+func handlers() map[string]worker.Handler { return map[string]worker.Handler{} }
+
+// runWeb runs the web process with its dependencies.
+func runWeb(ctx context.Context, cfg config.Config, log *slog.Logger) error {
+	q, err := spool.Open(cfg.Worker.SpoolDir)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = q.Close() }()
+	return web.New(cfg, log, ui.FS(), web.Deps{Queue: q}).Run(ctx)
+}
+
+// runCombined runs the same web process and worker as split mode, in one process.
+func runCombined(ctx context.Context, cfg config.Config, log *slog.Logger, h map[string]worker.Handler) error {
 	log.Warn("combined_mode", "note", "the worker shares the web process's network and secrets; use split mode where you can")
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	errc := make(chan error, 2)
-	go func() { errc <- web.New(cfg, log, ui.FS()).Run(ctx) }()
-	go func() { errc <- worker.New(cfg.Worker, log).Run(ctx) }()
+	go func() { errc <- runWeb(ctx, cfg, log) }()
+	go func() { errc <- worker.New(cfg, log, h).Run(ctx) }()
 	first := <-errc
 	cancel()
 	return errors.Join(first, <-errc)

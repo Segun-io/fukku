@@ -23,12 +23,13 @@ type Server struct {
 	cfg  config.Config
 	log  *slog.Logger
 	ui   fs.FS
+	deps Deps
 	http *http.Server
 }
 
 // New builds the server. ui is the built single-page app.
-func New(cfg config.Config, log *slog.Logger, ui fs.FS) *Server {
-	s := &Server{cfg: cfg, log: log, ui: ui}
+func New(cfg config.Config, log *slog.Logger, ui fs.FS, deps Deps) *Server {
+	s := &Server{cfg: cfg, log: log, ui: ui, deps: deps}
 	s.http = &http.Server{
 		Addr:              cfg.Server.ListenAddress,
 		Handler:           s.Handler(),

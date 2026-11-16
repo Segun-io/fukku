@@ -222,6 +222,7 @@ func validateShared(p *problems, cfg Config) {
 		p.add("worker.concurrency", "must be between 1 and 16")
 	}
 	absPath(p, "worker.spoolDir", w.SpoolDir)
+	positive(p, "worker.pollInterval", int64(w.PollInterval))
 	positive(p, "worker.probeTimeout", int64(w.ProbeTimeout))
 	positive(p, "worker.taskTimeout", int64(w.TaskTimeout))
 	if w.Nice < 0 || w.Nice > 19 {

@@ -13,7 +13,7 @@ import (
 )
 
 func newTestServer(ui fstest.MapFS) *httptest.Server {
-	s := New(config.Defaults(), slog.New(slog.DiscardHandler), ui)
+	s := New(config.Defaults(), slog.New(slog.DiscardHandler), ui, Deps{})
 	return httptest.NewServer(s.Handler())
 }
 

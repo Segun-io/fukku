@@ -84,6 +84,8 @@ time and never committed.
 | `cmd/fukku` | the binary: `web`, `worker`, `combined`, `check-config`, `healthcheck` |
 | `internal/config` | the settings catalogue, YAML and `FUKKU_*` loading, validation |
 | `internal/web`, `internal/worker` | the two processes |
+| `internal/spool` | the task and result files between the two processes; `spooltest` has an in-memory queue |
+| `internal/jobdir` | the layout of the intake root (`.incoming/`, `jobs/<id>/files`, `archives`, `work`) |
 | `ui/` | the React single-page app, embedded in the binary |
 | `test/fixtures` | ffmpeg media and hostile-archive generators |
 | `test/env`, `test/testenv`, `test/probes` | the local integration environment (including the dev stack and its test proxy) and the behaviour probes |

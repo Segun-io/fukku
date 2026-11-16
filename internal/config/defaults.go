@@ -103,6 +103,7 @@ func Defaults() Config {
 		Worker: Worker{
 			Concurrency:       1,
 			SpoolDir:          "/spool",
+			PollInterval:      Duration(time.Second),
 			ProbeTimeout:      Duration(60 * time.Second),
 			TaskTimeout:       Duration(6 * time.Hour),
 			Nice:              10,
