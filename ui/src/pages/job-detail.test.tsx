@@ -218,6 +218,43 @@ describe("a stalled job", () => {
     expect(screen.queryByRole("button", { name: "Try again" })).not.toBeInTheDocument();
   });
 
+  it("stalled while importing: cancelling says the app may still finish the import", async () => {
+    setMockAdmin(true);
+    const detail = jobDetail(fixture(6));
+    const at = "2026-01-01T07:09:00Z";
+    server.use(
+      http.get("/api/jobs/:jobId", () =>
+        HttpResponse.json({
+          ...detail,
+          error: { code: "arr_unavailable", message: "x" },
+          history: [
+            ...detail.history.slice(0, -1),
+            { at, from: "awaiting-confirmation", to: "importing", actor: "user2", note: "" },
+            { at, from: "importing", to: "stalled", actor: "fukku", note: "" },
+          ],
+        }),
+      ),
+    );
+    const user = userEvent.setup();
+    open(6);
+    await user.click(await screen.findByRole("button", { name: "Cancel upload" }));
+    const form = screen.getByRole("form", { name: "Cancel this upload?" });
+    expect(form).toHaveTextContent("The files of this upload are deleted from the server.");
+    expect(form).toHaveTextContent(
+      "The import may still be running in the app: it can still finish and put the files in the library.",
+    );
+  });
+
+  it("stalled before the import: cancelling has no import warning", async () => {
+    setMockAdmin(true);
+    const user = userEvent.setup();
+    open(6);
+    await user.click(await screen.findByRole("button", { name: "Cancel upload" }));
+    const form = screen.getByRole("form", { name: "Cancel this upload?" });
+    expect(form).toHaveTextContent("The files of this upload are deleted from the server.");
+    expect(form).not.toHaveTextContent("The import may still be running");
+  });
+
   it("explains worker_unavailable", async () => {
     setMockAdmin(true);
     server.use(

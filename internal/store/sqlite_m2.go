@@ -341,10 +341,11 @@ func (s *sqliteStore) PutImport(ctx context.Context, i Import) error {
 		return err
 	}
 	if _, err := tx.ExecContext(ctx,
-		`INSERT INTO imports (job_id, command_id, submitted_at, finished_at, baseline) VALUES (?, ?, ?, ?, ?)
+		`INSERT INTO imports (job_id, command_id, submitted_at, finished_at, baseline, refusals_from) VALUES (?, ?, ?, ?, ?, ?)
 		 ON CONFLICT (job_id) DO UPDATE SET command_id = excluded.command_id,
-		   submitted_at = excluded.submitted_at, finished_at = excluded.finished_at, baseline = excluded.baseline`,
-		i.JobID, i.CommandID, nanos(normTime(i.SubmittedAt)), nanos(normTime(i.FinishedAt)), report(i.Baseline)); err != nil {
+		   submitted_at = excluded.submitted_at, finished_at = excluded.finished_at, baseline = excluded.baseline,
+		   refusals_from = excluded.refusals_from`,
+		i.JobID, i.CommandID, nanos(normTime(i.SubmittedAt)), nanos(normTime(i.FinishedAt)), report(i.Baseline), i.RefusalsFrom); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -355,8 +356,8 @@ func (s *sqliteStore) Import(ctx context.Context, jobID string) (Import, error) 
 	var submitted, finished sql.NullInt64
 	var baseline []byte
 	err := s.r.QueryRowContext(ctx,
-		"SELECT command_id, submitted_at, finished_at, baseline FROM imports WHERE job_id = ?", jobID).
-		Scan(&i.CommandID, &submitted, &finished, &baseline)
+		"SELECT command_id, submitted_at, finished_at, baseline, refusals_from FROM imports WHERE job_id = ?", jobID).
+		Scan(&i.CommandID, &submitted, &finished, &baseline, &i.RefusalsFrom)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Import{}, ErrNotFound
 	}

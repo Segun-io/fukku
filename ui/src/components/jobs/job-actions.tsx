@@ -11,9 +11,11 @@ import { visibleActions } from "@/lib/job-text";
 /**
  * The buttons for what `job.actions` allows (cancel, retry, delete). Each one opens a
  * confirmation in place of the buttons; cancelling and deleting carry a warning that has
- * to be ticked, because they cannot be undone.
+ * to be ticked, because they cannot be undone. Cancelling a job whose import may still be
+ * running in the app (`importMayRun`; only an admin can) also says that the app may still
+ * finish it.
  */
-export function JobActions({ job }: { job: Job }) {
+export function JobActions({ job, importMayRun = false }: { job: Job; importMayRun?: boolean }) {
   const { t, formatBytes } = useT();
   const navigate = useNavigate();
   const run = useJobAction(job.id);
@@ -27,12 +29,15 @@ export function JobActions({ job }: { job: Job }) {
   }
 
   if (asking && available.includes(asking)) {
-    const warning =
+    const warnings =
       asking === "cancel"
-        ? t("job.confirm.cancel.warning")
+        ? [
+            t("job.confirm.cancel.warning"),
+            ...(importMayRun ? [t("job.confirm.cancel.importWarning")] : []),
+          ]
         : asking === "delete"
-          ? t("job.confirm.delete.warning")
-          : null;
+          ? [t("job.confirm.delete.warning")]
+          : [];
     return (
       <div className="grid gap-3">
         <ConfirmStep
@@ -49,7 +54,7 @@ export function JobActions({ job }: { job: Job }) {
             },
             { term: t("job.confirm.size"), value: formatBytes(job.totalSize), figure: true },
           ]}
-          warnings={warning ? [warning] : []}
+          warnings={warnings}
           confirmLabel={t(`job.action.${asking}`)}
           busy={run.isPending}
           onConfirm={() =>

@@ -9,8 +9,10 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"testing/fstest"
+	"time"
 
 	"github.com/segun-io/fukku/internal/arr"
 	"github.com/segun-io/fukku/internal/arr/arrtest"
@@ -25,6 +27,26 @@ type confirmEnv struct {
 	sentinel string
 	eng      *flows.Engine
 	score    int // the custom-format score of S01E02 (the show's profile's minimum is 0)
+	clock    *webClock
+}
+
+// webClock is the store's and the server's clock: it starts at the real time and moves
+// only when a test advances it.
+type webClock struct {
+	mu sync.Mutex
+	t  time.Time
+}
+
+func (c *webClock) now() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.t
+}
+
+func (c *webClock) advance(d time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.t = c.t.Add(d)
 }
 
 // newConfirmEnv is the proposal API and the confirmation behind the whole chain, with a
@@ -43,7 +65,8 @@ func newConfirmEnv(t *testing.T) *confirmEnv {
 	cfg.Paths.IntakeRoot = "/data/intake"
 	cfg.Paths.Sentinels = []string{sentinel}
 	cfg.Sonarr.URL = "http://sonarr.example.com:8989"
-	st := storetest.NewFake(nil)
+	clock := &webClock{t: time.Now()}
+	st := storetest.NewFake(clock.now)
 	series := &arrtest.FakeSeries{}
 	series.Quals = []arr.Quality{{ID: 3, Name: "WEBDL-1080p"}}
 	series.Langs = []arr.Language{{ID: 1, Name: "English"}}
@@ -57,8 +80,10 @@ func newConfirmEnv(t *testing.T) *confirmEnv {
 	series.Proposed = map[string][]arr.Row{}
 	p := flows.NewProposals(cfg, nil, st, nil, series, nil)
 	eng := flows.NewEngine(p)
-	h := New(cfg, slog.New(slog.DiscardHandler), fstest.MapFS{}, Deps{Store: st, Proposals: p, Imports: eng}).Handler()
-	return &confirmEnv{proposalEnv: proposalEnv{t: t, h: h, st: st, series: series, p: p}, sentinel: sentinel, eng: eng}
+	srv := New(cfg, slog.New(slog.DiscardHandler), fstest.MapFS{}, Deps{Store: st, Proposals: p, Imports: eng})
+	srv.now = clock.now
+	h := srv.Handler()
+	return &confirmEnv{proposalEnv: proposalEnv{t: t, h: h, st: st, series: series, p: p}, sentinel: sentinel, eng: eng, clock: clock}
 }
 
 // ready is a show job of user1 awaiting confirmation: S01E01, S01E02 and S01E03, the
@@ -254,8 +279,94 @@ func TestAStalledImportCannotBeCancelled(t *testing.T) {
 		t.Fatalf("job %s", got.State)
 	}
 	log, _ := e.st.AuditLog(t.Context(), j.ID)
-	if last := log[len(log)-1]; last.Action != "import.abandoned" || last.Actor != "admin1" || last.Detail["from"] != "stalled" {
+	if last := log[len(log)-1]; last.Action != "import.abandoned" || last.Actor != "admin1" || last.Detail["from"] != "stalled" ||
+		last.Detail["app"] != "sonarr" || last.Detail["command"] != "" {
 		t.Errorf("audit %+v", last)
+	}
+	if h, _ := e.st.History(t.Context(), j.ID); !strings.Contains(h[len(h)-1].Note, "nothing was submitted to sonarr") {
+		t.Errorf("note %q", h[len(h)-1].Note)
+	}
+}
+
+// D. An importing job whose command never ends can be cancelled by an admin once it has
+// been importing for longer than server.jobStuckAfter, and by nobody before. E. The
+// cancellation is audited as import.abandoned with the app's command id, and the job's
+// history says that the app may still finish it.
+func TestAStuckImportCanBeAbandoned(t *testing.T) {
+	e := newConfirmEnv(t)
+	j, rows := e.ready()
+	if rec := e.send("user1", "users", "POST", "/api/jobs/"+j.ID+"/confirm", `{"overrides":["`+rows[2]+`"]}`, true); rec.Code != http.StatusAccepted {
+		t.Fatalf("confirm: %d %s", rec.Code, rec.Body)
+	}
+	// Submitted: the app knows the command, which never ends.
+	if err := e.st.PutImport(t.Context(), store.Import{JobID: j.ID, CommandID: 4321, SubmittedAt: e.clock.now(), Baseline: json.RawMessage(`{}`)}); err != nil {
+		t.Fatal(err)
+	}
+	path := "/api/jobs/" + j.ID
+	offered := func(user, groups string) bool {
+		rec := e.send(user, groups, "GET", path, "", false)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("detail: %d %s", rec.Code, rec.Body)
+		}
+		return strings.Contains(rec.Body.String(), `"cancel"`)
+	}
+
+	// Not stuck yet: nobody may cancel it.
+	e.clock.advance(59 * time.Minute)
+	for _, who := range [][2]string{{"user1", "users"}, {"admin1", "admins"}} {
+		if offered(who[0], who[1]) {
+			t.Errorf("cancel offered to %s before server.jobStuckAfter", who[0])
+		}
+		e.want(e.send(who[0], who[1], "POST", path+"/cancel", ``, true), http.StatusConflict, "wrong_state")
+	}
+
+	// Stuck: an admin may, its user still may not.
+	e.clock.advance(2 * time.Minute)
+	if offered("user1", "users") {
+		t.Error("cancel offered to the user")
+	}
+	e.want(e.send("user1", "users", "POST", path+"/cancel", ``, true), http.StatusConflict, "wrong_state")
+	if !offered("admin1", "admins") {
+		t.Error("cancel not offered to an admin past server.jobStuckAfter")
+	}
+	if rec := e.send("admin1", "admins", "POST", path+"/cancel", ``, true); rec.Code != http.StatusOK {
+		t.Fatalf("admin cancel: %d %s", rec.Code, rec.Body)
+	}
+	if got, _ := e.st.Job(t.Context(), j.ID); got.State != store.Cancelled {
+		t.Fatalf("job %s", got.State)
+	}
+	log, _ := e.st.AuditLog(t.Context(), j.ID)
+	last := log[len(log)-1]
+	if last.Action != "import.abandoned" || last.Actor != "admin1" || last.Detail["from"] != "importing" ||
+		last.Detail["to"] != "cancelled" || last.Detail["app"] != "sonarr" || last.Detail["command"] != "4321" {
+		t.Errorf("audit %+v", last)
+	}
+	h, _ := e.st.History(t.Context(), j.ID)
+	if ev := h[len(h)-1]; ev.From != store.Importing || ev.Actor != "admin1" || !strings.Contains(ev.Note, "sonarr may still finish ManualImport command 4321") {
+		t.Errorf("event %+v", ev)
+	}
+}
+
+// An import submitted whose command id was not stored yet is audited as such.
+func TestAbandonedImportWithoutACommandID(t *testing.T) {
+	e := newConfirmEnv(t)
+	j, rows := e.ready()
+	if rec := e.send("user1", "users", "POST", "/api/jobs/"+j.ID+"/confirm", `{"overrides":["`+rows[2]+`"]}`, true); rec.Code != http.StatusAccepted {
+		t.Fatalf("confirm: %d %s", rec.Code, rec.Body)
+	}
+	if err := e.st.PutImport(t.Context(), store.Import{JobID: j.ID, SubmittedAt: e.clock.now()}); err != nil {
+		t.Fatal(err)
+	}
+	e.clock.advance(2 * time.Hour)
+	if rec := e.send("admin1", "admins", "POST", "/api/jobs/"+j.ID+"/cancel", ``, true); rec.Code != http.StatusOK {
+		t.Fatalf("admin cancel: %d %s", rec.Code, rec.Body)
+	}
+	log, _ := e.st.AuditLog(t.Context(), j.ID)
+	if last := log[len(log)-1]; last.Action != "import.abandoned" || last.Detail["command"] != "unknown" {
+		t.Errorf("audit %+v", last)
+	}
+	if h, _ := e.st.History(t.Context(), j.ID); !strings.Contains(h[len(h)-1].Note, "its id is not known") {
+		t.Errorf("note %q", h[len(h)-1].Note)
 	}
 }
 

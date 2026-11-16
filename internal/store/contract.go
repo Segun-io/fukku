@@ -175,6 +175,9 @@ func ResumeState(from State) State {
 	}
 }
 
+// transitions is the state machine. Importing → Cancelled is an admin giving up on an
+// import whose command never ends (the web API allows it once the job is stuck past
+// server.jobStuckAfter).
 var transitions = map[State]map[State]bool{
 	Uploading:            {Uploaded: true, Cancelled: true, Failed: true},
 	Uploaded:             {Probing: true, Cancelled: true, Failed: true},
@@ -182,7 +185,7 @@ var transitions = map[State]map[State]bool{
 	Probed:               {Matched: true, Cancelled: true, Failed: true},
 	Matched:              {AwaitingConfirmation: true, Probed: true, Cancelled: true, Failed: true, Stalled: true},
 	AwaitingConfirmation: {Importing: true, Matched: true, Probed: true, Cancelled: true, Failed: true},
-	Importing:            {Imported: true, Failed: true, Stalled: true},
+	Importing:            {Imported: true, Failed: true, Stalled: true, Cancelled: true},
 	Imported:             {PostProcessing: true, Failed: true, Stalled: true},
 	PostProcessing:       {Done: true, Failed: true, Stalled: true},
 	// Failed and Stalled also go to the job's own Resume state; Transition checks that.

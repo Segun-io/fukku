@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"maps"
 	"net/http"
 	"path"
 	"path/filepath"
@@ -157,7 +159,7 @@ func (s *Server) view(u auth.User, j store.Job, files []store.File, uploads []st
 			v.TotalSize += f.Size
 		}
 	}
-	v.Actions = actions(j, u.Admin, len(files) > 0 && len(uploads) == 0)
+	v.Actions = s.actions(j, u.Admin, len(files) > 0 && len(uploads) == 0)
 	return v
 }
 
@@ -191,10 +193,10 @@ func jobName(files []store.File, uploads []store.Upload) *string {
 
 // actions is what a user may do with a job now. canSubmit: the job has a file and no
 // unfinished upload.
-func actions(j store.Job, admin, canSubmit bool) []string {
+func (s *Server) actions(j store.Job, admin, canSubmit bool) []string {
 	state := j.State
 	out := []string{}
-	if canCancel(j, admin) {
+	if s.canCancel(j, admin) {
 		out = append(out, "cancel")
 	}
 	if state == store.Failed {
@@ -211,13 +213,26 @@ func actions(j store.Job, admin, canSubmit bool) []string {
 
 // canCancel reports whether a job may be cancelled. A job stalled on its way through the
 // import may be cancelled by an admin only: an import command of it may still be running
-// in the app, and cancelling removes the job's files. (A job that failed there may be
+// in the app, and cancelling removes the job's files. So may an importing job that has
+// been importing for longer than server.jobStuckAfter (a command that never ends); a job
+// that is importing for less is not cancelled by anyone. (A job that failed there may be
 // cancelled by its user: its command has ended.)
-func canCancel(j store.Job, admin bool) bool {
-	if stalledImport(j) {
-		return admin
+func (s *Server) canCancel(j store.Job, admin bool) bool {
+	if s.abandons(j) {
+		return admin && (j.State != store.Importing || s.stuckImport(j))
 	}
 	return slices.Contains(cancellable, j.State)
+}
+
+// abandons reports whether cancelling j gives up on an import that may still be running in
+// the app: j is importing, or stalled on its way through the import.
+func (s *Server) abandons(j store.Job) bool {
+	return j.State == store.Importing || stalledImport(j)
+}
+
+// stuckImport reports whether j has been importing for longer than server.jobStuckAfter.
+func (s *Server) stuckImport(j store.Job) bool {
+	return j.State == store.Importing && s.now().Sub(j.UpdatedAt) > s.cfg.Server.JobStuckAfter.D()
 }
 
 // stalledImport reports whether j is stalled while importing or after it.
@@ -345,7 +360,49 @@ func (s *Server) audit(ctx context.Context, u auth.User, action, jobID string, d
 // move changes a job's state as the user and answers with the job, or maps the store's
 // refusal to 409 wrong_state.
 func (s *Server) move(w http.ResponseWriter, r *http.Request, u auth.User, j store.Job, to store.State, action string) {
-	next, err := s.deps.Store.Transition(r.Context(), j.ID, j.State, to, store.Change{Actor: u.Name})
+	s.moveNoted(w, r, u, j, to, action, "", nil)
+}
+
+// abandon cancels a job whose import may still be running in the app, as an admin. The
+// app may still finish its ManualImport command and put the files in the library after
+// the job's files are gone, and Fukku would not see it: the transition's note and the
+// import.abandoned audit entry name the app and the command (when it is known), so that
+// an admin can check the title in the app.
+func (s *Server) abandon(w http.ResponseWriter, r *http.Request, u auth.User, j store.Job) {
+	ctx := r.Context()
+	detail := map[string]string{}
+	app := "the app"
+	if t, err := s.deps.Store.Target(ctx, j.ID); err == nil {
+		detail["app"], app = t.App, t.App
+	} else if !errors.Is(err, store.ErrNotFound) {
+		s.internalError(w, r, err)
+		return
+	}
+	imp, err := s.deps.Store.Import(ctx, j.ID)
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		s.internalError(w, r, err)
+		return
+	}
+	note := "import abandoned by an admin"
+	switch {
+	case imp.CommandID != 0 && !imp.FinishedAt.IsZero():
+		detail["command"] = strconv.Itoa(imp.CommandID)
+		note = fmt.Sprintf("%s; ManualImport command %d had ended", note, imp.CommandID)
+	case imp.CommandID != 0:
+		detail["command"] = strconv.Itoa(imp.CommandID)
+		note = fmt.Sprintf("%s; %s may still finish ManualImport command %d", note, app, imp.CommandID)
+	case !imp.SubmittedAt.IsZero():
+		detail["command"] = "unknown"
+		note = fmt.Sprintf("%s; %s may still finish a ManualImport submitted for it (its id is not known)", note, app)
+	default:
+		note += "; nothing was submitted to " + app
+	}
+	s.moveNoted(w, r, u, j, store.Cancelled, "import.abandoned", note, detail)
+}
+
+// moveNoted is move with a note on the transition and more detail in the audit entry.
+func (s *Server) moveNoted(w http.ResponseWriter, r *http.Request, u auth.User, j store.Job, to store.State, action, note string, detail map[string]string) {
+	next, err := s.deps.Store.Transition(r.Context(), j.ID, j.State, to, store.Change{Actor: u.Name, Note: note})
 	switch {
 	case errors.Is(err, store.ErrNotFound):
 		notFound(w)
@@ -357,7 +414,9 @@ func (s *Server) move(w http.ResponseWriter, r *http.Request, u auth.User, j sto
 		s.internalError(w, r, err)
 		return
 	}
-	s.audit(r.Context(), u, action, j.ID, map[string]string{"from": string(j.State), "to": string(next.State)})
+	audit := map[string]string{"from": string(j.State), "to": string(next.State)}
+	maps.Copy(audit, detail)
+	s.audit(r.Context(), u, action, j.ID, audit)
 	s.respondJob(w, r, u, next, http.StatusOK)
 }
 
@@ -526,13 +585,12 @@ func (s *Server) cancelJob(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if !canCancel(j, u.Admin) {
+	if !s.canCancel(j, u.Admin) {
 		wrongState(w)
 		return
 	}
-	if stalledImport(j) {
-		// An admin gives up on an import that may still be running: audited as such.
-		s.move(w, r, u, j, store.Cancelled, "import.abandoned")
+	if s.abandons(j) {
+		s.abandon(w, r, u, j)
 		return
 	}
 	s.move(w, r, u, j, store.Cancelled, "job.cancelled")

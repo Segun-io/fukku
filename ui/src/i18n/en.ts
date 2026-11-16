@@ -257,6 +257,8 @@ const en = {
   "job.confirm.cancel.title": "Cancel this upload?",
   "job.confirm.cancel.warning":
     "The files of this upload are deleted from the server. This cannot be undone.",
+  "job.confirm.cancel.importWarning":
+    "The import may still be running in the app: it can still finish and put the files in the library. Check the title in the app afterwards.",
   "job.confirm.retry.title": "Try this upload again?",
   "job.confirm.delete.title": "Delete this upload?",
   "job.confirm.delete.warning": "The upload and its files are deleted for good.",

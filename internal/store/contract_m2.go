@@ -52,6 +52,11 @@ type Import struct {
 	// (the import code's JSON; empty: not recorded), so that a file the app had already,
 	// or got by itself meanwhile, is never taken for the import's.
 	Baseline json.RawMessage
+	// RefusalsFrom is the number of the job's history events when the app last answered a
+	// whole pass of the import (0: none yet): the import code counts the app's refusals in
+	// a row from there on, so that refusals with a successful poll between them are not
+	// taken for a run.
+	RefusalsFrom int
 }
 
 // Post-processing step statuses.

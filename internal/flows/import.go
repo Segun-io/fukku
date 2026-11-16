@@ -284,7 +284,7 @@ func (e *Engine) Importing(ctx context.Context, job store.Job) error {
 			return e.appError(ctx, job, w, "command", err, true)
 		}
 		if !gone && (cmd.Status == "queued" || cmd.Status == "started" || cmd.Status == "") {
-			return nil
+			return e.answered(ctx, w, job.State)
 		}
 		got, err := e.arrived(ctx, w.t, w.plan, base)
 		if err != nil {
@@ -295,6 +295,8 @@ func (e *Engine) Importing(ctx context.Context, job store.Job) error {
 		}
 		why := cmd.Message
 		switch {
+		case !base.recorded && e.cfgMode(w.t.App) != "move":
+			why = "the import has no baseline (an earlier version submitted it), so with importMode copy its files cannot be told from the app's own: check the title in the app"
 		case gone:
 			why = "the app no longer knows the import command (it may have restarted)"
 		case cmd.Status == "completed":
@@ -321,6 +323,7 @@ func (e *Engine) Importing(ctx context.Context, job store.Job) error {
 	}
 	if found != 0 {
 		w.imp.JobID, w.imp.CommandID, w.imp.FinishedAt = job.ID, found, time.Time{}
+		w.imp.RefusalsFrom = len(w.hist) // the app answered the whole pass
 		if err := e.st.PutImport(ctx, w.imp); err != nil {
 			return err
 		}
@@ -335,6 +338,9 @@ func (e *Engine) Importing(ctx context.Context, job store.Job) error {
 type tracked struct {
 	Movie    *trackedFile   `json:"movie,omitempty"`
 	Episodes map[string]int `json:"episodes,omitempty"`
+	// recorded: read from an import's baseline (baselineOf). False for an import whose
+	// baseline was not recorded; with importMode copy nothing then counts as arrived.
+	recorded bool
 }
 
 type trackedFile struct {
@@ -343,11 +349,15 @@ type trackedFile struct {
 }
 
 // baselineOf reads an import's baseline. One that was not recorded (an import submitted by
-// an earlier version) counts as "nothing tracked".
+// an earlier version), or cannot be read, is "nothing tracked" and not recorded: with
+// importMode move the job's file being gone still tells the import's file apart; with
+// copy nothing can, so arrived counts nothing (it fails safe).
 func baselineOf(imp store.Import) tracked {
 	var b tracked
-	if len(imp.Baseline) > 0 {
-		_ = json.Unmarshal(imp.Baseline, &b)
+	if len(imp.Baseline) > 0 && json.Unmarshal(imp.Baseline, &b) == nil {
+		b.recorded = true
+	} else {
+		b = tracked{}
 	}
 	return b
 }
@@ -379,21 +389,30 @@ func (e *Engine) look(ctx context.Context, t store.Target) (tracked, error) {
 
 // arrived reports, for each planned row, whether the import brought its file: the app
 // tracks a file for it (the film, or every episode of the row) that it did not track before
-// the first submission (base), of the job's file's size (when the app gives one), and with
-// importMode move the job's file is gone. A file the app had already, or got by itself
-// meanwhile (a download of another release), does not count.
+// the first submission (base), of the job's file's size, and with importMode move the job's
+// file is gone. A file the app had already, or got by itself meanwhile (a download of
+// another release), does not count.
+//
+// With importMode move a size the app reports as 0 (unknown) is not held against the file:
+// the job's file being gone tells it apart. With copy the job's file stays, so the size
+// and the baseline are all there is: a size of 0 is "not arrived", and an import without a
+// recorded baseline has nothing arrived (it fails safe rather than taking the app's own
+// file for the import's).
 func (e *Engine) arrived(ctx context.Context, t store.Target, plan []planned, base tracked) ([]bool, error) {
+	move := e.cfgMode(t.App) == "move"
+	out := make([]bool, len(plan))
+	if !move && !base.recorded {
+		return out, nil
+	}
 	now, err := e.look(ctx, t)
 	if err != nil {
 		return nil, err
 	}
-	move := e.cfgMode(t.App) == "move"
 	gone := func(p string) bool {
 		_, err := os.Lstat(p) // the directory entry only: the web process never opens media
 		return errors.Is(err, fs.ErrNotExist)
 	}
-	sameSize := func(app, ours int64) bool { return app == 0 || app == ours }
-	out := make([]bool, len(plan))
+	sameSize := func(app, ours int64) bool { return app == ours || (move && app == 0) }
 	switch t.App {
 	case AppRadarr:
 		f := now.Movie
@@ -496,7 +515,8 @@ func (e *Engine) submit(ctx context.Context, job store.Job, w work, got []bool) 
 	}
 	// "Submitting" is stored before the call, so that after a crash the next pass looks for
 	// the command among the app's before it submits again.
-	imp := store.Import{JobID: job.ID, SubmittedAt: e.now(), Baseline: baseline}
+	// The app has answered every call of this pass: its refusals so far are not counted.
+	imp := store.Import{JobID: job.ID, SubmittedAt: e.now(), Baseline: baseline, RefusalsFrom: len(w.hist)}
 	if err := e.st.PutImport(ctx, imp); err != nil {
 		return err
 	}
@@ -601,12 +621,31 @@ func (e *Engine) fail(ctx context.Context, job store.Job, t store.Target, code, 
 	return e.p.move(ctx, job, &t, store.Failed, store.Change{ErrorCode: code, ErrorText: t.App + ": " + text})
 }
 
+// answered ends a pass in which the app answered every call and the command still runs.
+// When refusals were counted before it, the import records that the run of refusals is
+// broken (Import.RefusalsFrom), so that refusals with a successful poll between them never
+// add up to server.arrStallLimit. Otherwise nothing is written: polls are frequent.
+func (e *Engine) answered(ctx context.Context, w work, state store.State) error {
+	if w.refusals(state) == 0 {
+		return nil
+	}
+	w.imp.RefusalsFrom = len(w.hist)
+	return e.st.PutImport(ctx, w.imp)
+}
+
+// refusals counts the app's refusals in a row while the import may be running: those of
+// the history since the app last answered a whole pass (Import.RefusalsFrom).
+func (w work) refusals(state store.State) int {
+	return refusals(w.hist[min(max(w.imp.RefusalsFrom, 0), len(w.hist)):], state)
+}
+
 // appError ends a pass whose call to the app failed. An app that does not answer stalls
 // the job (arr_unavailable), whatever the state of the import. An answer that refuses the
 // call (a 4xx other than 401, 403 and 429: the film was deleted, say) fails it with
 // import_failed, unless an import may still be running (running): then the job stalls too,
 // so that a command half way is not given up on at the first refusal, but the refusals in a
 // row are counted, and at server.arrStallLimit the job fails with a message that says so.
+// A pass the app answers throughout breaks the run (answered).
 func (e *Engine) appError(ctx context.Context, job store.Job, w work, call string, err error, running bool) error {
 	if ctx.Err() != nil {
 		return ctx.Err()
@@ -619,7 +658,7 @@ func (e *Engine) appError(ctx context.Context, job store.Job, w work, call strin
 		e.forget(job.ID)
 		return e.p.move(ctx, job, &w.t, store.Failed, store.Change{ErrorCode: CodeImportFailed, ErrorText: text})
 	}
-	if n := refusals(w.hist, job.State) + 1; n >= max(e.p.cfg.Server.ArrStallLimit, 1) {
+	if n := w.refusals(job.State) + 1; n >= max(e.p.cfg.Server.ArrStallLimit, 1) {
 		e.forget(job.ID)
 		return e.p.move(ctx, job, &w.t, store.Failed, store.Change{
 			ErrorCode: CodeImportFailed,
