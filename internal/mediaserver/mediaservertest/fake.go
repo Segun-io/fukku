@@ -23,11 +23,15 @@ type Fake struct {
 	Items       map[string]string
 	Pending     map[string]string
 	FindsNeeded int
+	// ScanOnly makes Pending appear only after a Scan, as in a library that was never scanned.
+	ScanOnly bool
 
 	Refreshed [][]string // the paths of every Refresh call
 	FindCalls []string   // the path of every Find call
+	Scans     int        // the number of Scan calls
 
 	refreshed bool
+	scanned   bool
 	finds     int
 }
 
@@ -48,6 +52,17 @@ func (f *Fake) Refresh(_ context.Context, paths []string) error {
 	return nil
 }
 
+func (f *Fake) Scan(context.Context) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.Scans++
+	if err := f.Err["Scan"]; err != nil {
+		return false, err
+	}
+	f.scanned = true
+	return true, nil
+}
+
 func (f *Fake) Find(_ context.Context, path string) (string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -55,7 +70,7 @@ func (f *Fake) Find(_ context.Context, path string) (string, error) {
 	if err := f.Err["Find"]; err != nil {
 		return "", err
 	}
-	if f.refreshed {
+	if (f.refreshed && !f.ScanOnly) || f.scanned {
 		f.finds++
 		if f.finds > f.FindsNeeded {
 			if f.Items == nil {

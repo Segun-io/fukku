@@ -91,6 +91,24 @@ func (j *Jellyfin) Refresh(ctx context.Context, paths []string) error {
 	}
 }
 
+// Scan starts a scan of every library (POST /Library/Refresh) unless the "Scan Media Library"
+// task is already running: a second request could restart a long scan.
+func (j *Jellyfin) Scan(ctx context.Context) (bool, error) {
+	var tasks []struct {
+		Key   string `json:"Key"`
+		State string `json:"State"`
+	}
+	if err := j.do(ctx, http.MethodGet, "/ScheduledTasks", nil, nil, &tasks); err != nil {
+		return false, err
+	}
+	for _, t := range tasks {
+		if t.Key == "RefreshLibrary" && t.State != "Idle" {
+			return false, nil
+		}
+	}
+	return true, j.do(ctx, http.MethodPost, "/Library/Refresh", nil, nil, nil)
+}
+
 // refreshLibraries refreshes each library item (Movies, Shows) that holds one of the paths.
 // Jellyfin has no item for a film's folder, so the library item is the parent to refresh.
 // The default metadata and image modes download nothing again.

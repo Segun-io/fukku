@@ -98,6 +98,7 @@ type MediaServer struct {
 	URL               string   `yaml:"url"`
 	APIKey            Secret   `yaml:"apiKey"`
 	RefreshMethod     string   `yaml:"refreshMethod"`
+	RefreshFallback   bool     `yaml:"refreshFallback"`
 	TitleLinkTemplate string   `yaml:"titleLinkTemplate"`
 	RequestTimeout    Duration `yaml:"requestTimeout"`
 	ItemWait          Duration `yaml:"itemWait"`

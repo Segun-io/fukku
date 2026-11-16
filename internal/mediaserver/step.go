@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -28,13 +29,14 @@ var (
 
 // Step is the post-processing step mediaServerRefresh (#40's PostStep contract). After the
 // import it maps each imported file to the media server's view of the path, tells the server,
-// waits until the server lists the file, and reports the item id in its detail ("item <id>").
+// waits until the server lists the file, and reports the item id in its detail ("item <id>", plus a note when the fallback scan was needed).
 // As a flows.Linker it turns that detail into the job's title link.
 type Step struct {
 	Server MediaServer
 	Movies arr.MovieManager  // nil when Radarr is not configured
 	Series arr.SeriesManager // nil when Sonarr is not configured
 	Config config.Config
+	Log    *slog.Logger // nil: the default logger
 }
 
 func (s *Step) Name() string { return StepName }
@@ -89,38 +91,87 @@ func (s *Step) Run(ctx context.Context, job store.Job, target store.Target, rows
 	if poll <= 0 {
 		poll = 2 * time.Second
 	}
+	ids, missing, err := s.waitFor(ctx, look, wait, poll)
+	if err != nil {
+		return false, "", err
+	}
+	listed := len(look) - missing
+	scanNote := ""
+	if missing > 0 && ms.RefreshFallback && ms.RefreshMethod != MethodLibraryScan && ms.RefreshMethod != MethodNone {
+		// A library the server never scanned with content in it ignores a library refresh:
+		// scan every library. A libraryScan already did, and none means hands off. This runs
+		// once per attempt, and the server skips it while a scan is already running.
+		started, scanErr := s.Server.Scan(ctx)
+		switch {
+		case scanErr != nil:
+			if ctx.Err() != nil {
+				return false, "", ctx.Err()
+			}
+			s.log().Error("media_server_fallback_scan", "job", job.ID, "outcome", "failed", "error", scanErr)
+			scanNote = ", the fallback library scan failed: " + scanErr.Error()
+		default:
+			outcome := "started"
+			if !started {
+				outcome = "already_running"
+			}
+			s.log().Info("media_server_fallback_scan", "job", job.ID, "outcome", outcome,
+				"waited", wait, "listed", listed, "of", len(look))
+			scanNote = ", after a full library scan"
+			if ids, missing, err = s.waitFor(ctx, look, wait, poll); err != nil {
+				return false, "", err
+			}
+		}
+	}
+	if missing > 0 {
+		return false, "", fmt.Errorf("%w after %s (%d of %d items listed%s)", ErrNotVisible, wait, len(look)-missing, len(look), scanNote)
+	}
+	detail := "item " + ids[0]
+	if scanNote == ", after a full library scan" {
+		detail += " (found only after a full library scan: " + fmt.Sprint(listed) + " of " + fmt.Sprint(len(look)) + " items were listed after " + wait.String() + ")"
+	}
+	return true, detail, nil
+}
+
+func (s *Step) log() *slog.Logger {
+	if s.Log != nil {
+		return s.Log
+	}
+	return slog.Default()
+}
+
+// waitFor polls until the server lists every path or wait has passed. It returns the item
+// ids and how many paths are still missing.
+func (s *Step) waitFor(ctx context.Context, look []string, wait, poll time.Duration) ([]string, int, error) {
 	deadline := time.Now().Add(wait)
-	first := ""
 	for {
 		ids, missing, err := s.find(ctx, look)
 		if err != nil {
-			return false, "", fmt.Errorf("look for the title in the media server: %w", err)
+			return nil, 0, fmt.Errorf("look for the title in the media server: %w", err)
 		}
-		if missing == 0 {
-			first = ids[0]
-			break
-		}
-		if !time.Now().Add(poll).Before(deadline) {
-			return false, "", fmt.Errorf("%w after %s (%d of %d items listed)", ErrNotVisible, wait, len(look)-missing, len(look))
+		if missing == 0 || !time.Now().Add(poll).Before(deadline) {
+			return ids, missing, nil
 		}
 		t := time.NewTimer(poll)
 		select {
 		case <-ctx.Done():
 			t.Stop()
-			return false, "", ctx.Err()
+			return nil, 0, ctx.Err()
 		case <-t.C:
 		}
 	}
-	return true, "item " + first, nil
 }
 
 // ItemID returns the item id a finished step reported in its detail, or "".
 func ItemID(detail string) string {
-	id, ok := strings.CutPrefix(detail, "item ")
+	rest, ok := strings.CutPrefix(detail, "item ")
 	if !ok {
 		return ""
 	}
-	return strings.TrimSpace(id)
+	f := strings.Fields(rest) // the id, then maybe a note in brackets
+	if len(f) == 0 {
+		return ""
+	}
+	return f[0]
 }
 
 func (s *Step) find(ctx context.Context, paths []string) (ids []string, missing int, err error) {

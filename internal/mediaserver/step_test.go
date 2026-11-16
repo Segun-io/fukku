@@ -1,8 +1,15 @@
 package mediaserver_test
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"slices"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -175,5 +182,169 @@ func TestStepLink(t *testing.T) {
 	s.Config.MediaServer.TitleLinkTemplate = ""
 	if _, ok := s.Link("item abc123"); ok {
 		t.Error("a link without a template")
+	}
+}
+
+// neverScannedJellyfin is an httptest Jellyfin like a library that was never scanned with
+// content in it: refreshing the library item answers 204 and lists nothing; only a full scan
+// (POST /Library/Refresh) makes the film visible.
+type neverScannedJellyfin struct {
+	mu      sync.Mutex
+	scanned bool
+	scans   int
+	calls   []string
+
+	ignoreScan bool // a scan is counted but shows nothing new
+	scanStatus int  // the status POST /Library/Refresh answers, when not 0
+	running    bool // the scan task is already running
+}
+
+func (f *neverScannedJellyfin) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls = append(f.calls, r.Method+" "+r.URL.Path)
+	switch r.Method + " " + r.URL.Path {
+	case "GET /Library/VirtualFolders":
+		_, _ = w.Write([]byte(`[{"Name":"Movies","Locations":["/media/movies"],"ItemId":"lib-movies"}]`))
+	case "GET /Items":
+		items := []map[string]string{}
+		if f.scanned && r.URL.Query().Get("Path") == serverFile {
+			items = append(items, map[string]string{"Id": "item-scan", "Path": serverFile})
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"Items": items})
+	case "GET /ScheduledTasks":
+		state := "Idle"
+		if f.running {
+			state = "Running"
+		}
+		_, _ = w.Write([]byte(`[{"Key":"RefreshLibrary","State":"` + state + `"}]`))
+	case "POST /Library/Refresh":
+		if f.scanStatus != 0 {
+			http.Error(w, "boom", f.scanStatus)
+			return
+		}
+		f.scanned = !f.ignoreScan
+		f.scans++
+		w.WriteHeader(http.StatusNoContent)
+	default:
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+func jellyfinStep(t *testing.T, f *neverScannedJellyfin, fallback bool, method string) *mediaserver.Step {
+	t.Helper()
+	srv := httptest.NewServer(f)
+	t.Cleanup(srv.Close)
+	s := movieStep(nil)
+	s.Config.MediaServer.RefreshFallback = fallback
+	s.Config.MediaServer.RefreshMethod = method
+	s.Server = mediaserver.NewJellyfin(config.MediaServer{URL: srv.URL, APIKey: apiKey, RefreshMethod: method})
+	return s
+}
+
+func TestStepFallsBackToAFullScanOnANeverScannedLibrary(t *testing.T) {
+	f := &neverScannedJellyfin{}
+	done, detail, err := jellyfinStep(t, f, true, "libraryRefresh").Run(t.Context(), job, target, nil)
+	if err != nil || !done {
+		t.Fatalf("Run = %v, %q, %v", done, detail, err)
+	}
+	if id := mediaserver.ItemID(detail); id != "item-scan" {
+		t.Errorf("item id = %q, detail %q", id, detail)
+	}
+	if !strings.Contains(detail, "full library scan") {
+		t.Errorf("the detail should name the fallback: %q", detail)
+	}
+	if f.scans != 1 {
+		t.Errorf("scans = %d, want exactly 1", f.scans)
+	}
+	if !slices.Contains(f.calls, "POST /Items/lib-movies/Refresh") {
+		t.Errorf("the library item was not refreshed first: %v", f.calls)
+	}
+}
+
+func TestStepNoFallbackWhenItIsOffOrTheMethodDoesNotFit(t *testing.T) {
+	for name, c := range map[string]struct {
+		fallback bool
+		method   string
+	}{"setting off": {false, "libraryRefresh"}, "none": {true, "none"}} {
+		f := &neverScannedJellyfin{}
+		done, _, err := jellyfinStep(t, f, c.fallback, c.method).Run(t.Context(), job, target, nil)
+		if done || !errors.Is(err, mediaserver.ErrNotVisible) {
+			t.Errorf("%s: Run = %v, %v; want ErrNotVisible", name, done, err)
+		}
+		if f.scans != 0 {
+			t.Errorf("%s: scans = %d, want 0", name, f.scans)
+		}
+	}
+}
+
+func TestStepFallbackThatStillShowsNothingFails(t *testing.T) {
+	fake := &mediaservertest.Fake{}
+	_, _, err := movieStep(fake).Run(t.Context(), job, target, nil)
+	if !errors.Is(err, mediaserver.ErrNotVisible) || !strings.Contains(err.Error(), "full library scan") {
+		t.Fatalf("Run = %v", err)
+	}
+	if fake.Scans != 1 {
+		t.Errorf("scans = %d, want 1", fake.Scans)
+	}
+}
+
+func TestStepFallbackWithTheFake(t *testing.T) {
+	fake := &mediaservertest.Fake{Pending: map[string]string{serverFile: "item-3"}, ScanOnly: true}
+	done, detail, err := movieStep(fake).Run(t.Context(), job, target, nil)
+	if err != nil || !done || mediaserver.ItemID(detail) != "item-3" || fake.Scans != 1 {
+		t.Fatalf("Run = %v, %q, %v (scans %d)", done, detail, err, fake.Scans)
+	}
+}
+
+func TestStepLibraryScanMethodGetsNoSecondScan(t *testing.T) {
+	f := &neverScannedJellyfin{ignoreScan: true}
+	done, _, err := jellyfinStep(t, f, true, "libraryScan").Run(t.Context(), job, target, nil)
+	if done || !errors.Is(err, mediaserver.ErrNotVisible) {
+		t.Fatalf("Run = %v, %v; want ErrNotVisible", done, err)
+	}
+	if f.scans != 1 { // the method's own scan only
+		t.Errorf("scans = %d, want 1", f.scans)
+	}
+}
+
+func TestStepFallbackScanFailureKeepsTheNotVisibleError(t *testing.T) {
+	f := &neverScannedJellyfin{scanStatus: http.StatusForbidden}
+	s := jellyfinStep(t, f, true, "libraryRefresh")
+	var logs strings.Builder
+	s.Log = slog.New(slog.NewTextHandler(&logs, nil))
+	done, _, err := s.Run(t.Context(), job, target, nil)
+	if done || !errors.Is(err, mediaserver.ErrNotVisible) {
+		t.Fatalf("Run = %v, %v; want ErrNotVisible", done, err)
+	}
+	if !strings.Contains(err.Error(), "0 of 1 items listed") || !strings.Contains(err.Error(), "scan failed") {
+		t.Errorf("error = %v", err)
+	}
+	if !strings.Contains(logs.String(), "media_server_fallback_scan") || !strings.Contains(logs.String(), "failed") {
+		t.Errorf("log = %s", logs.String())
+	}
+}
+
+func TestStepFallbackWaitsWhileAScanIsAlreadyRunning(t *testing.T) {
+	f := &neverScannedJellyfin{running: true}
+	done, _, err := jellyfinStep(t, f, true, "libraryRefresh").Run(t.Context(), job, target, nil)
+	if done || !errors.Is(err, mediaserver.ErrNotVisible) {
+		t.Fatalf("Run = %v, %v", done, err)
+	}
+	if f.scans != 0 {
+		t.Errorf("scans = %d, want 0 while a scan runs", f.scans)
+	}
+}
+
+func TestStepCancelledDuringTheSecondWait(t *testing.T) {
+	f := &neverScannedJellyfin{ignoreScan: true}
+	ctx, cancel := context.WithTimeout(t.Context(), 450*time.Millisecond) // itemWait is 300 ms
+	defer cancel()
+	done, _, err := jellyfinStep(t, f, true, "libraryRefresh").Run(ctx, job, target, nil)
+	if done || !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Run = %v, %v; want the context's error", done, err)
+	}
+	if f.scans != 1 {
+		t.Errorf("scans = %d, want 1", f.scans)
 	}
 }
