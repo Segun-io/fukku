@@ -106,10 +106,22 @@ e2e-fixtures: $(DEV_DEP) ## generate the files the end-to-end tests upload into 
 e2e-check: e2e-deps ## lint and type-check the Playwright project
 	$(IN_DEV) bash -c 'cd test/e2e && npm run lint && npm run typecheck'
 
+# The large upload of exit-m1-large-upload.spec.ts (issue #15): 5GiB in make e2e and CI,
+# 60GiB in make e2e-large. dev-up raises the stack's upload limits to fit it.
+E2E_LARGE_SIZE ?= 5GiB
+E2E_MAX_IN_FLIGHT ?= 128GiB
+
 .PHONY: e2e
+e2e: export FUKKU_E2E_LARGE_SIZE = $(E2E_LARGE_SIZE)
+e2e: export FUKKU_DEV_MAX_FILE_SIZE = $(E2E_LARGE_SIZE)
+e2e: export FUKKU_DEV_MAX_IN_FLIGHT = $(E2E_MAX_IN_FLIGHT)
 e2e: ## Playwright through the UI and API against the dev stack; make e2e ARGS='smoke.spec.ts -g home'
 	$(MAKE) --no-print-directory image env-up dev-up e2e-deps e2e-fixtures
 	test/e2e/run.sh $(ARGS)
+
+.PHONY: e2e-large
+e2e-large: ## the large-upload test at 60GiB (by hand: needs about 65GiB free for test/env/.run/data)
+	$(MAKE) --no-print-directory e2e E2E_LARGE_SIZE=60GiB ARGS='exit-m1-large-upload.spec.ts $(ARGS)'
 
 ## ---- build ------------------------------------------------------------------------
 

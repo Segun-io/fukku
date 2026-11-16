@@ -245,6 +245,32 @@ describe("after a reload", () => {
     expect(seen[1]?.offset).toBe("1200");
   });
 
+  // A restart of the server: the HEAD that continues the upload gets a 502 from the proxy. The
+  // page must wait and ask again, never create a second upload of the same file.
+  it("when the server is briefly down, it waits and continues the same upload", async () => {
+    const user = userEvent.setup();
+    const { jobId, url } = await interrupted();
+    let down = 1;
+    server.use(
+      http.head("/api/uploads/:id", () => {
+        if (down-- > 0) return new HttpResponse("Bad Gateway", { status: 502 });
+        return undefined;
+      }),
+    );
+    const seen = record();
+    const { router } = renderApp("/upload");
+    await screen.findByText("Your upload was interrupted");
+
+    await user.upload(await picker(), [video("Example Film (2001).mkv", 3000)]);
+
+    await waitFor(() => expect(router.state.location.pathname).toBe(`/jobs/${jobId}`), {
+      timeout: 8000,
+    });
+    expect(seen.map((r) => r.method)).toEqual(["HEAD", "HEAD", "PATCH"]);
+    expect(seen.every((r) => r.path === url)).toBe(true);
+    expect(seen[2]?.offset).toBe("1200");
+  });
+
   it("refuses a file that is not the one that was interrupted, and explains why", async () => {
     const user = userEvent.setup();
     await interrupted();

@@ -60,7 +60,9 @@ another /24 before `make dev-up`. The full contract of the stack, including the 
 API for tests, is in [test/env/compose.yaml](test/env/compose.yaml).
 
 Browser tests (Playwright, in a pinned image) run against this stack with `make e2e`; see
-[test/e2e/README.md](test/e2e/README.md).
+[test/e2e/README.md](test/e2e/README.md). They include a 5 GiB upload that survives a reload,
+a restart and dropped connections; `make e2e-large` runs it at 60 GiB (by hand, it needs about
+65 GiB free under `test/env/.run`).
 
 ## Development
 

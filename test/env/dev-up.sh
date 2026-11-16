@@ -15,12 +15,20 @@ case "$subnet" in
 esac
 proxy_ip="${subnet%.0/24}.10"
 
+# The upload limits of the stack (256MiB and 1GiB unless set); make e2e raises them for the
+# large-upload test.
+for size in "${FUKKU_DEV_MAX_FILE_SIZE:-256MiB}" "${FUKKU_DEV_MAX_IN_FLIGHT:-1GiB}"; do
+  [[ "$size" =~ ^[0-9]+([KMGT]i?B)?$ ]] || { echo "FUKKU_DEV_MAX_FILE_SIZE and FUKKU_DEV_MAX_IN_FLIGHT are sizes such as 5GiB, got $size" >&2; exit 1; }
+done
+
 mkdir -p .run/fukku/data .run/fukku/spool .run/data/intake
 touch .run/data/.mounted
 cat > .run/dev.env <<ENV
 FUKKU_IMAGE=$image
 FUKKU_DEV_SUBNET=$subnet
 FUKKU_DEV_PROXY_IP=$proxy_ip
+FUKKU_DEV_MAX_FILE_SIZE=${FUKKU_DEV_MAX_FILE_SIZE:-256MiB}
+FUKKU_DEV_MAX_IN_FLIGHT=${FUKKU_DEV_MAX_IN_FLIGHT:-1GiB}
 ENV
 compose=(docker compose --env-file .run/.env --env-file .run/dev.env -f compose.yaml --profile fukku)
 

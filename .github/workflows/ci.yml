@@ -91,6 +91,12 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/dev-image
+      # The large-upload test writes 5 GiB under test/env/.run/data (and checks there is room):
+      # drop toolchains this job does not use.
+      - name: free disk space
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc
+          df -h /
       # Builds the image, starts the test environment and the dev stack, runs the tests in the
       # pinned Playwright image (browsers are not downloaded).
       - run: make e2e

@@ -69,3 +69,25 @@ each one that changes proxy state should call `network.reset()` and `session.res
 3. Wait on observable state (a response, an element, an offset), never on a fixed sleep.
 4. `make e2e ARGS='<name>.spec.ts'` until green, then `make check` (lints and type-checks this
    project with Biome and `tsc`).
+
+## The large upload (`exit-m1-large-upload.spec.ts`)
+
+The M1 exit criterion of plan §15 (issue #15), through the real upload page as `user1`: one
+large file is uploaded, and on the way the page is reloaded and the same file chosen again
+(at about 20 %), `fukku-web` restarts (40 %), the connection is cut three times (60 %), and the
+session expires, once with a redirect to sign-in and once with 401 (80 %). It must continue
+each time without sending a confirmed byte again, end `probed`, and the file in the job
+directory must have the source's SHA-256 (also checked over 16 MiB around each interruption).
+
+- The file is the generated film from `/fixtures` followed by a hole up to the size, with a
+  4 KiB marker every MiB so that a misplaced or repeated chunk changes the hash. It costs
+  4 KiB per MiB in the runner's `/files` tmpfs; the receiving side needs the full size free
+  (the test checks, and cancels the job at the end so the runner removes it).
+- `FUKKU_E2E_LARGE_SIZE` is the size: `make e2e` (and CI) uses 5GiB, above 4 GiB so a 32-bit
+  offset would show. `make e2e-large` runs only this test at 60GiB; run it by hand on a
+  machine with the space. `make e2e E2E_LARGE_SIZE=20GiB` picks any other size.
+- The stack's limits for it are set by `make e2e` through `dev-up` (`FUKKU_DEV_MAX_FILE_SIZE`,
+  `FUKKU_DEV_MAX_IN_FLIGHT`), not by changing defaults; `make dev-up` alone keeps the small
+  limits. Run on its own: `make e2e ARGS='exit-m1-large-upload.spec.ts'`.
+- A failed run attaches `upload-events.json`: every upload request the page sent and what it
+  got, in order.

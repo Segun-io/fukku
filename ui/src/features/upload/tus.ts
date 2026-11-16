@@ -32,12 +32,34 @@ export function toPath(url: string): string {
   return u.pathname + u.search;
 }
 
-function failureOf(err: unknown): TusFailure {
-  const res = (err as { originalResponse?: unknown } | null)?.originalResponse as
-    | { getStatus(): number; getBody(): string }
-    | null
-    | undefined;
+type TusError = {
+  originalRequest?: { getURL(): string } | null;
+  originalResponse?: {
+    getStatus(): number;
+    getBody(): string;
+    getUnderlyingObject?(): unknown;
+  } | null;
+};
+
+/**
+ * Whether the answer came from another address than the one asked: the browser followed a
+ * redirect, which for an upload request means the proxy in front of Fukku sent it to its
+ * sign-in page. A sign-in page on this origin answers the redirected request itself (often
+ * 404 or 405 to a PATCH), and that answer must not be taken for the upload's.
+ */
+function redirected(e: TusError): boolean {
+  const asked = e.originalRequest?.getURL();
+  const xhr = e.originalResponse?.getUnderlyingObject?.() as { responseURL?: unknown } | undefined;
+  const answered = xhr?.responseURL;
+  if (!asked || typeof answered !== "string" || answered === "") return false;
+  return new URL(answered).href !== new URL(asked, window.location.origin).href;
+}
+
+export function failureOf(err: unknown): TusFailure {
+  const e = (err ?? {}) as TusError;
+  const res = e.originalResponse;
   if (!res) return { status: 0, code: undefined };
+  if (redirected(e)) return { status: 0, code: "signed_out" };
   let code: string | undefined;
   try {
     const body: unknown = JSON.parse(res.getBody());
@@ -51,7 +73,11 @@ function failureOf(err: unknown): TusFailure {
 
 export function startTus(o: TusOptions): TusHandle {
   const upload: Upload = new Upload(o.file, {
-    endpoint: absolute(o.endpoint),
+    // Continuing an upload: no endpoint. When the first request (HEAD) fails, tus-js-client
+    // would otherwise create a new upload at once, for any answer but 423; the server then
+    // refuses it as a second file of the same name. Without an endpoint the failure comes
+    // here with the HEAD's answer, and the queue decides (a 404 starts over, a 5xx waits).
+    endpoint: o.uploadUrl ? null : absolute(o.endpoint),
     uploadUrl: o.uploadUrl ? absolute(o.uploadUrl) : null,
     chunkSize: o.chunkSize,
     retryDelays: null,
