@@ -6,6 +6,8 @@
 /* Hallmark · dropped the card around the home page · the card on white paper was the stock template; its three sentences stay */
 /* Hallmark · redesign of the upload and job pages (#32): full, app screens, inside the shell and the system above; each page leads with what its state needs next · states: loading, empty, error, interrupted, signed out */
 /* Hallmark · dropped { <Button type="button" variant="outline" onClick={() => void up.discard()}> {t("upload.discard")} </Button> }, onClick={() => void copyFolder()}, onDragLeave={() => setOver(false)} · none is gone, each was rewired: discarding asks first once bytes were sent, copying lives in the CopyField pattern, and leaving the drop outline ignores its children */
+/* Hallmark · redesign of the import screens (#48): full, app screens, inside the shell and the system above; the match step, the mapping editor, the confirmation, import progress and the result · signature kept: a row is a file label, the name over its figures, with its state in words at the far edge · states: loading, waiting for the app, checking, not checked, refused, empty, error */
+/* Hallmark · reworded "Already in Radarr · Already has a file" to two labelled states · 63 names the middle dot; "Continue" to "Continue to the confirmation" · a button names what it does */
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "./fonts.css";

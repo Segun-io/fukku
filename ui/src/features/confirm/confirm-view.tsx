@@ -1,11 +1,13 @@
 import { Link, useNavigate } from "@tanstack/react-router";
-import { LoaderCircle, TriangleAlert } from "lucide-react";
+import { Ban, CircleAlert, ListTree, LoaderCircle } from "lucide-react";
 import { useRef, useState } from "react";
 import { ApiError } from "@/api/client";
 import { useConfirm, useEditRow } from "@/api/confirm";
 import type { Proposal } from "@/api/proposal";
 import type { JobDetail, SubtitleChoice } from "@/api/types";
 import { ErrorMessage } from "@/components/error-message";
+import { StatusLabel } from "@/components/patterns/status-label";
+import { Notice } from "@/components/shell/notice";
 import { Button } from "@/components/ui/button";
 import { useT } from "@/i18n";
 import { hasIssues, hintText, issueSignature } from "./notices";
@@ -82,27 +84,44 @@ export function ConfirmView({ job, proposal, subtitleManager }: Props) {
       ref={form}
       noValidate
       onSubmit={submit}
-      className="grid gap-8"
+      className="grid gap-10"
       aria-busy={confirm.isPending}
     >
-      <p className="max-w-[65ch] text-ink-2">{t("confirm.intro", { app })}</p>
-
-      <section aria-labelledby="confirm-target" className="grid gap-1">
-        <h2 id="confirm-target" className="text-sm font-normal text-muted-foreground">
+      <section aria-labelledby="confirm-target" className="grid gap-1 border-y py-4">
+        <h2
+          id="confirm-target"
+          className="font-sans text-sm font-normal tracking-normal text-muted-foreground"
+        >
           {t("confirm.target", { app })}
         </h2>
-        <p translate="no" className="text-xl font-medium [overflow-wrap:anywhere]">
+        <p translate="no" className="text-lg font-medium [overflow-wrap:anywhere]">
           {titleText}
         </p>
       </section>
 
-      {proposal.hints.map((h) => (
-        <p key={h.code} role="note" className="max-w-[65ch] border-l-2 border-primary pl-4">
-          {t(hintText(h.code).key, hintText(h.code).params)}
-        </p>
-      ))}
+      {proposal.hints.map((h) =>
+        h.code === "dvd_order" ? (
+          <Notice
+            key={h.code}
+            role="note"
+            tone="caution"
+            icon={ListTree}
+            title={t("mapping.hint.dvd_order.title")}
+          >
+            {t(hintText(h.code).key, hintText(h.code).params)}
+          </Notice>
+        ) : (
+          <Notice
+            key={h.code}
+            role="note"
+            tone="caution"
+            icon={ListTree}
+            title={t(hintText(h.code).key, hintText(h.code).params)}
+          />
+        ),
+      )}
 
-      <section aria-labelledby="confirm-rows" className="grid gap-1">
+      <section aria-labelledby="confirm-rows" className="grid gap-3">
         <h2 id="confirm-rows">{t("confirm.rows.title", { count: rows.length })}</h2>
         <ul className="divide-y border-y">
           {rows.map((row) => (
@@ -133,15 +152,30 @@ export function ConfirmView({ job, proposal, subtitleManager }: Props) {
 
       {subtitleManager && <SubtitlesSection files={subs} choices={choices} onChange={setChoices} />}
 
-      <div className="grid gap-3">
-        {leftIn.length === 0 && (
+      <div className="grid gap-4">
+        {leftIn.length === 0 ? (
           <p role="status" className="max-w-[65ch] text-ink-2">
             {t("confirm.nothing")}
           </p>
+        ) : (
+          <ul aria-label={t("confirm.count.label")} className="flex flex-wrap gap-x-6 gap-y-1">
+            <li>
+              <StatusLabel tone="done" className="text-base">
+                {t("confirm.count.in", { count: leftIn.length })}
+              </StatusLabel>
+            </li>
+            {rows.length > leftIn.length && (
+              <li>
+                <StatusLabel tone="waiting" icon={Ban} className="text-base">
+                  {t("confirm.count.out", { count: rows.length - leftIn.length })}
+                </StatusLabel>
+              </li>
+            )}
+          </ul>
         )}
         {missing.length > 0 && needTick.length > 0 && (
-          <p role="alert" className="flex items-center gap-2 text-destructive">
-            <TriangleAlert aria-hidden="true" className="size-5 shrink-0" />
+          <p role="alert" className="flex items-start gap-2 text-destructive">
+            <CircleAlert aria-hidden="true" className="mt-0.5 size-5 shrink-0" />
             {t("confirm.override.missing")}
           </p>
         )}
@@ -163,8 +197,8 @@ export function ConfirmView({ job, proposal, subtitleManager }: Props) {
           </Button>
         </div>
         {badLanguage && subtitleManager && choices.some((c) => !isLanguage(c.language)) && (
-          <p role="alert" className="flex items-center gap-2 text-destructive">
-            <TriangleAlert aria-hidden="true" className="size-5 shrink-0" />
+          <p role="alert" className="flex items-start gap-2 text-destructive">
+            <CircleAlert aria-hidden="true" className="mt-0.5 size-5 shrink-0" />
             {t("confirm.subtitles.invalid")}
           </p>
         )}

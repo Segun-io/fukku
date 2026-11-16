@@ -1,5 +1,5 @@
 import type { JobFile, SubtitleChoice } from "@/api/types";
-import { fieldClass } from "@/features/match/match-options";
+import { inputClass } from "@/components/patterns/field";
 import { useT } from "@/i18n";
 import { guessSubtitle, twoLetterLanguage } from "@/lib/subtitle-name";
 
@@ -64,7 +64,7 @@ export function SubtitlesSection({ files, choices, onChange }: Props) {
                   {t("confirm.subtitles.language", { name: f.name })}
                   <input
                     type="text"
-                    className={fieldClass}
+                    className={inputClass}
                     value={choice.language}
                     maxLength={2}
                     autoCapitalize="none"

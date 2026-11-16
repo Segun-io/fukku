@@ -6,14 +6,31 @@
 //   /jobs?mock=admin          the user is an administrator
 //   /jobs?mock=season         adds the season below
 //   /jobs?mock=mapping        adds a season and a film waiting for their files to be checked
+//   /jobs?mock=mapping,rejected   the app refuses two files of that season, and the film
+//   /jobs?mock=mapping,pending    the app has not answered yet
+//   /jobs?mock=mapping,slow       every change takes four seconds to check
+//   /jobs?mock=mapping,failing    every change fails to be checked
+//   /jobs?mock=importing      adds an import that is running and one that waits for the app
+//   /jobs?mock=dub            adds a finished import of a dub: unmonitored, one step failed
 //
 // The choice is kept for the tab (sessionStorage), so it survives a reload; `?mock=` with
 // nothing after it clears it. Names are made up.
 
-import type { Job, JobFile } from "@/api/types";
+import type { Job, JobDetail, JobFile, JobState } from "@/api/types";
 import { mappingFilmJobId, mappingJobId } from "./mapping-fixtures";
 
-export const scenarioNames = ["empty", "admin", "season", "mapping"] as const;
+export const scenarioNames = [
+  "empty",
+  "admin",
+  "season",
+  "mapping",
+  "rejected",
+  "pending",
+  "slow",
+  "failing",
+  "importing",
+  "dub",
+] as const;
 export type Scenario = (typeof scenarioNames)[number];
 
 const storageKey = "fukku.mock";
@@ -113,3 +130,97 @@ export const mappingJobs: Job[] = [
     actions: ["cancel"],
   },
 ];
+
+// ---- Imports under way and finished (#40) ------------------------------------------------
+
+const hex = (n: number) => n.toString(16).padStart(32, "0");
+export const importingJobId = hex(0x4b01);
+export const waitingJobId = hex(0x4b02);
+export const dubJobId = hex(0x4b03);
+
+function importJob(id: string, state: JobState, name: string, hour: number): Job {
+  const at = (minute: number) => `2026-01-02T${String(hour).padStart(2, "0")}:${minute}:00Z`;
+  return {
+    id,
+    owner: "user1",
+    state,
+    attempt: 1,
+    error: null,
+    name,
+    fileCount: 4,
+    totalSize: 4 * episodeSize,
+    createdAt: at(10),
+    updatedAt: at(40),
+    expiresAt: null,
+    actions: state === "done" ? ["delete"] : ["cancel"],
+  };
+}
+
+/** What the store recorded on the way to `last`, one minute apart. */
+function historyTo(job: Job, last: JobState[]): JobDetail["history"] {
+  const reached: JobState[] = [
+    "uploading",
+    "uploaded",
+    "probing",
+    "probed",
+    "matched",
+    "awaiting-confirmation",
+    ...last,
+  ];
+  const start = new Date(job.createdAt).getTime();
+  return reached.map((to, i) => ({
+    at: new Date(start + i * 60_000).toISOString(),
+    from: i === 0 ? null : (reached[i - 1] ?? null),
+    to,
+    actor: i === 0 ? job.owner : "fukku",
+    note: "",
+  }));
+}
+
+const episodeFile = (n: number) => `Lighthouse.Letters.S02E0${n}.1080p.WEB-DL.mkv`;
+const importRows = (results: string[]) =>
+  results.map((result, i) => ({ id: `r${i + 1}`, name: episodeFile(i + 1), result }));
+const lighthouse = { app: "sonarr", titleId: 12, title: "Lighthouse Letters", year: 2019 } as const;
+
+const importing = importJob(importingJobId, "importing", "Lighthouse Letters - Season 2.zip", 12);
+const waiting: Job = {
+  ...importJob(waitingJobId, "stalled", "Lighthouse Letters - Season 2 (second try).zip", 11),
+  error: { code: "arr_unavailable", message: "The app is not answering." },
+};
+const dub = importJob(dubJobId, "done", "Sintel.2010.1080p.Spanish.mkv", 10);
+
+/** `importing`: one import that moves and one that waits for the app. */
+export const importingJobs: Job[] = [importing, waiting];
+/** `dub`: a finished import that left the title unmonitored, with one step that failed. */
+export const dubJobs: Job[] = [dub];
+
+/** What `GET /api/jobs/{id}` adds for the jobs above. */
+export const importDetails: Record<string, Partial<JobDetail>> = {
+  [importingJobId]: {
+    target: lighthouse,
+    history: historyTo(importing, ["importing"]),
+    import: { status: "running", rows: importRows(["imported", "imported", "", ""]) },
+  },
+  [waitingJobId]: {
+    target: lighthouse,
+    history: historyTo(waiting, ["importing", "stalled"]),
+    import: { status: "running", rows: importRows(["imported", "", "", ""]) },
+  },
+  [dubJobId]: {
+    target: { app: "radarr", titleId: 20, title: "Sintel", year: 2010 },
+    history: historyTo(dub, ["importing", "imported", "post-processing", "done"]),
+    import: {
+      status: "done",
+      rows: [{ id: "r1", name: "Sintel.2010.1080p.Spanish.mkv", result: "imported" }],
+    },
+    result: {
+      titleLink: "https://media.example.com/web/index.html#!/details?id=0a1b2c",
+      monitored: false,
+      unmonitorReason: "dub_only",
+      postProcessing: [
+        { step: "mediaServerRefresh", status: "ok", detail: "" },
+        { step: "subtitles", status: "failed", detail: "subtitle manager: no answer in 30 s" },
+      ],
+    },
+  },
+};

@@ -1,9 +1,9 @@
-import { Link, useParams } from "@tanstack/react-router";
-import { ArrowLeft } from "lucide-react";
+import { useParams } from "@tanstack/react-router";
 import { ApiError } from "@/api/client";
 import { useJob } from "@/api/jobs";
 import { useApps } from "@/api/match";
 import { errorKey } from "@/components/error-message";
+import { BackToJob, FlowHeader } from "@/components/patterns/flow-header";
 import { EmptyState, ErrorState, LoadingState } from "@/components/shell/states";
 import { MatchView } from "@/features/match/match-view";
 import { useT } from "@/i18n";
@@ -17,18 +17,7 @@ export function MatchPage() {
   const job = useJob(id);
   const apps = useApps();
 
-  const back = (
-    <p>
-      <Link
-        to="/jobs/$id"
-        params={{ id }}
-        className="inline-flex min-h-11 items-center gap-1.5 text-sm underline-offset-4 hover:underline"
-      >
-        <ArrowLeft aria-hidden="true" className="size-4" />
-        {t("match.back")}
-      </Link>
-    </p>
-  );
+  const back = <BackToJob id={id}>{t("match.back")}</BackToJob>;
 
   const jobData = job.data;
   const appsData = apps.data;
@@ -79,10 +68,13 @@ export function MatchPage() {
   } else {
     body = (
       <>
-        <h1>{t("match.title")}</h1>
-        <p translate="no" className="text-ink-2 [overflow-wrap:anywhere]">
-          {jobData.name ?? t("jobs.unnamed")}
-        </p>
+        <FlowHeader
+          step="match"
+          title={t("match.title")}
+          subject={jobData.name ?? t("jobs.unnamed")}
+        >
+          <p>{t("match.intro")}</p>
+        </FlowHeader>
         <MatchView job={jobData} apps={usable} />
       </>
     );

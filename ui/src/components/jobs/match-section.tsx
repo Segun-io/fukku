@@ -22,7 +22,8 @@ export function MatchSection({ job, className }: { job: JobDetail; className?: s
     return (
       <section className={cn("grid gap-3", className)}>
         <h2>{t("job.match")}</h2>
-        <div>
+        <p className="max-w-[65ch] text-ink-2">{t("job.match.body")}</p>
+        <div className="grid sm:block">
           <Button asChild size="lg">
             <Link to="/jobs/$id/match" params={{ id: job.id }}>
               {t("job.match")}
@@ -37,27 +38,28 @@ export function MatchSection({ job, className }: { job: JobDetail; className?: s
     return (
       <section className={cn("grid gap-3", className)}>
         <h2>{t("job.target.title")}</h2>
-        <p translate="no" className="[overflow-wrap:anywhere]">
+        <p translate="no" className="text-lg font-medium [overflow-wrap:anywhere]">
           {t("job.target.body", {
             title: job.target.title,
             year: String(job.target.year),
             app: appName[job.target.app],
           })}
         </p>
-        <div className="flex flex-wrap gap-2">
-          <Button asChild>
+        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+          <Button asChild size="lg">
             <Link to="/jobs/$id/mapping" params={{ id: job.id }}>
               {t("job.mapping")}
             </Link>
           </Button>
-          <Button asChild variant="outline">
+          <Button asChild size="lg" variant="outline">
             <Link to="/jobs/$id/confirm" params={{ id: job.id }}>
               {t("job.review")}
             </Link>
           </Button>
           <Button
             type="button"
-            variant="outline"
+            size="lg"
+            variant="ghost"
             disabled={undo.isPending}
             onClick={() =>
               undo.mutate(null, {

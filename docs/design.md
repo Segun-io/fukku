@@ -175,7 +175,9 @@ a notice. Sentences are at most 65 characters wide (`max-w-[65ch]`).
 - A control sinks 2px when pressed, over 120ms.
 - Colours change on hover over 120–150ms.
 - Nothing else. No entrance animation, no looping animation next to content, no toast.
-  `LoadingState` pulses while it is on screen and is the only loop.
+  `LoadingState` pulses while it is on screen and is the only loop, apart from the small
+  spinner inside a button whose request is running. A row or a step that waits shows a
+  still icon (`Clock`, `Hourglass`) and says "Checking…" or "Working".
 - With `prefers-reduced-motion: reduce` every transition and animation is cut to nothing
   (`base.css`); no content depends on motion.
 
@@ -376,6 +378,50 @@ A caption over a native `<select>` that looks like the language switch. Use it f
 or a choice among a handful of fixed values. Native on purpose: keyboard, screen reader and
 the phone's own picker work without code.
 
+### Fields in a row: `inputClass`, `selectClass`
+
+`patterns/field.ts`. The look of a native text field and a native select where `SelectField`
+does not fit: a cell of the mapping editor, a field that has its own label. 16px text, 40px
+high (44px for a finger), the control edge, and the one focus ring. A select in a row has no
+visible caption of its own: the column header (or, below 64rem, the caption above it) names
+it, and its accessible name says which file it belongs to ("Season of …").
+
+### State of a row: `StatusLabel`
+
+One of the four meanings of §3 as a line of words with its icon: `tone` is `done`,
+`waiting`, `caution` or `error`; `icon` swaps in another icon of the same meaning (`Ban` for
+skipped or left out, `Hourglass` for waiting on an app). Use it for the state of a file in
+the mapping editor, the confirmation and the import, for a step after the import, and for
+the counts above a list. For the state of a whole upload use `StateBadge`.
+
+- **Put it in the same place in every row**, with a fixed width from 40rem
+  (`shrink-0 sm:w-36` to `sm:w-56`), so the states read down one column, as they do in the
+  list of uploads. Below 40rem it stands under the name.
+- **"Checking…" takes that place.** A row that waits for an app says so where its state
+  stands, and what was under the row stays there, greyed, until the new verdict replaces it.
+  Nothing moves while a row is checked; the row may change height once, when the verdict
+  arrives.
+- The words carry the state. Sentences that explain it (a rejection, a warning, what to do)
+  go under the row at the full width, never in a narrow column.
+
+### Head of a step: `FlowHeader`, `FlowSteps`, `BackToJob`
+
+The three decisions between "the files are checked" and "it is in the library" (choose the
+title, check the files, confirm) start the same way: `BackToJob` (the way back, named for
+where it goes), then `FlowHeader` with the `step`, the `h1`, the `subject` (the upload's
+name, or the chosen title and its app, set like the name on a file label) and one or two
+sentences as children.
+
+- `FlowSteps` only says where the user is. It uses the markers of the status timeline and
+  is not a navigation: the way on is the page's one green button, the way back is the link.
+  Below 40rem only the current step is written out; the others are read out, not shown.
+- A page that is not one of the three steps (the job page) does not use it.
+
+### Notice with a heading
+
+`Notice` takes `titleAs="h2"` (or `h3`) when it opens a part of the page and its title
+belongs in the outline ("This film already has a file"). The look does not change.
+
 ## 11. Accessibility
 
 - Everything works with a keyboard alone, in reading order. The focus ring is one 2px
@@ -403,7 +449,7 @@ the phone's own picker work without code.
 
 ## 13. The pages
 
-How the three pages of M1 are put together from the patterns. A new page follows the same
+How the pages are put together from the patterns. A new page follows the same
 two rules.
 
 - **A page leads with what its state needs next and ends with what is only for the
@@ -461,12 +507,98 @@ figures, how long it is kept, and the actions `job.actions` allows (each opens a
 Under the file list: what an archive left out, then what was found in each video, as a
 disclosure that is open for up to three videos and closed for a season.
 
+### One upload, from the chosen title on (`/jobs/$id`)
+
+The header is the same. Under it, the part of the import the upload is in leads, and the
+record follows:
+
+| State | What leads |
+| --- | --- |
+| checked | "Choose the film or show" (one sentence, the green button), then "Import it by hand" as the other way |
+| matched, waiting for you | "Chosen title": the title and its app, "Check the files" (green), "Review and import" (outline), "Choose a different title" (ghost: the way back) |
+| importing | "Importing": "2 of 4 files in the library" in the figure face over a tray that fills (the file label, counted in files), then each file with its `StatusLabel` |
+| stalled while importing | the same, with the tray grey and one line that says which app the import waits for; the timeline below says why |
+| finishing | the steps after the import, each with its `StatusLabel` ("Working", "Done", "Failed", "Not used") |
+| done | "Result": the done `Notice` with the link to the title as its button; directly under it, when the title was left unmonitored, a caution `Notice` that says so and that the title's own Search in Radarr or Sonarr can still replace the file (decision on #61); then "Steps after the import" for the record. A failed step says what to do under its name, then the technical detail |
+
+### Choose the film or show (`/jobs/$id/match`)
+
+One column of the flow's width: `BackToJob`, `FlowHeader`, then the form in the order it is
+filled in. What it is (two radios, only when both apps are set up), the title to search for,
+the results, the options of the chosen title, and "Use this title".
+
+- The results are one raised strip of rows; a row is a radio with the title and year, what
+  the library already has of it as `StatusLabel`s ("Already in Radarr" is a fact, "Already
+  has a file" is a caution), and three lines of the description. The chosen row is mint.
+- A film that already has a file cannot go on in this version: a caution `Notice` says so
+  in place of the options, with the way out.
+- "Import it by hand instead" stays the last thing on the page, under a hairline.
+
+### Check the files (`/jobs/$id/mapping`)
+
+The full width of the shell: this is the one table of the app. `BackToJob`, `FlowHeader`
+(the subject is the chosen title and its app), then:
+
+1. Hints about all the files (caution `Notice`).
+2. The counts between two hairlines ("2 to import", "2 need attention", "1 skipped", each a
+   `StatusLabel`) with the one filter, "Only files that need attention".
+3. For a show, the bulk edits: one line that says what is selected (or what selecting is
+   for), then "Move episodes by", "Season" and "Clear selection". While a bulk change is
+   checked, that first line says so.
+4. The files, as one raised strip. **A row is a file label**: the name over its figures
+   (how long the file is, against how long the episode should be) with its state at the far
+   edge; then the controls (season, episode and second episode, quality, languages, skip);
+   then, at the full width, what is against it in sentences, with the one-click fix a
+   warning can offer. A row with nothing against it ends after its controls.
+5. The one action, "Continue to the confirmation", with the sentence that says why it
+   waits, or what happens to the files that need attention.
+
+From 64rem the strip is a `<table>` whose rows are laid out with CSS grid (`display: grid`
+on the `tr`, named areas): the column headers name the controls, and the headers of the
+file and of the notes are read out but not shown. Because an element laid out as a grid can
+lose its table role in a browser, the roles are written out (`table`, `rowgroup`, `row`,
+`columnheader`, `cell`); do the same wherever a table's rows are not `display: table-row`. Below 64rem the same cells are a list;
+each control carries its caption, and season and episodes share a line. Six states of a
+row, each a `StatusLabel`: "No problems found.", "Needs attention", "Refused", "Skipped",
+"Checking…", "Not checked" (with "Try again" and "Undo my change" under the row).
+
+A rejection is the app's own sentence, quoted, after who refuses and before what the user
+can do: "Sonarr refuses this file: “…”. To import it anyway, confirm it on the next step,
+or skip it here."
+
+### Confirm the import (`/jobs/$id/confirm`)
+
+One column of the flow's width: `BackToJob`, `FlowHeader` (the subject is the upload's
+name), "Goes into Radarr as" with the title between two hairlines, hints, then the files
+as rows on paper, the subtitle files, and the decision.
+
+- A file's head is its name with its state at the far edge: "Ready to import", "Needs your
+  decision", "Imported anyway" (ticked), "Left out", or "Radarr is checking your change…"
+  in that same place.
+- Under it: where it goes and what the file is, side by side; quality and languages, side
+  by side (a language is a button with its name and an ✕; "Add a language…" is a select in
+  the same line); custom formats and score in one line of small text.
+- What is against a file is the caution box of `ConfirmStep` with its own tick, "Import
+  anyway". Pressed without the tick, "Import" outlines the box in red, moves the focus to
+  the tick and says what is missing above the button.
+- A file that is left out keeps its name, one sentence and "Include this file again"; its
+  controls are not shown.
+- Above the button, what will happen in figures: "4 files will be imported", "1 is left
+  out". Then "Import" (green) and "Choose a different title" (ghost).
+
 ### Looking at the pages
 
 `npm run dev:mock` shows every state without a server. A file whose name carries a code in
 square brackets is refused with it (`Film [insufficient_space].mkv`), `[signed_out]` ends
 the session a third of the way in, and `?mock=` starts from other data: `/jobs?mock=empty`,
-`?mock=admin`, `?mock=season` (24 episodes with long names).
+`?mock=admin`, `?mock=season` (24 episodes with long names). For the import screens:
+`?mock=mapping` adds a season and a film that wait for their files to be checked (open
+"Check the files" or "Review and import" from the upload); add `,rejected` for files the
+app refuses, `,pending` for an app that has not answered yet, `,slow` to look at
+"Checking…" for four seconds and `,failing` for a change that cannot be checked.
+`?mock=importing` adds an import that runs and one that waits for its app; `?mock=dub` adds
+a finished import of a dub, unmonitored, with a failed step. The names are listed in
+`ui/src/mocks/scenarios.ts`.
 
 ### Before and after
 
@@ -490,6 +622,33 @@ applied. The pictures are in `docs/design/pages/`.
 | An upload, still uploading | [before](design/pages/before/job-uploading-360-light-en.webp), [after](design/pages/after/job-uploading-360-light-en.webp) | [before](design/pages/before/job-uploading-360-dark-es.webp), [after](design/pages/after/job-uploading-360-dark-es.webp) | [before](design/pages/before/job-uploading-desktop-light-es.webp), [after](design/pages/after/job-uploading-desktop-light-es.webp) | [before](design/pages/before/job-uploading-desktop-dark-en.webp), [after](design/pages/after/job-uploading-desktop-dark-en.webp) |
 | An upload, 24 files | [before](design/pages/before/job-season-360-light-en.webp), [after](design/pages/after/job-season-360-light-en.webp) |  |  | [before](design/pages/before/job-season-desktop-dark-en.webp), [after](design/pages/after/job-season-desktop-dark-en.webp) |
 | An upload, deleting it | [before](design/pages/before/job-confirm-360-light-en.webp), [after](design/pages/after/job-confirm-360-light-en.webp) |  |  | [before](design/pages/before/job-confirm-desktop-dark-en.webp), [after](design/pages/after/job-confirm-desktop-dark-en.webp) |
+
+The import screens (#48), taken the same way. The fixture season is five files of an
+invented show: a double episode, a file named for the wrong episode, a Spanish dub and an
+episode that already has a file.
+
+| State | 360, light, English | 360, dark, Spanish | Desktop, light, Spanish | Desktop, dark, English |
+| --- | --- | --- | --- | --- |
+| Choose the title, nothing searched | [before](design/pages/before/match-empty-360-light-en.webp), [after](design/pages/after/match-empty-360-light-en.webp) | [before](design/pages/before/match-empty-360-dark-es.webp), [after](design/pages/after/match-empty-360-dark-es.webp) | [before](design/pages/before/match-empty-desktop-light-es.webp), [after](design/pages/after/match-empty-desktop-light-es.webp) | [before](design/pages/before/match-empty-desktop-dark-en.webp), [after](design/pages/after/match-empty-desktop-dark-en.webp) |
+| Choose the title, a film chosen | [before](design/pages/before/match-options-360-light-en.webp), [after](design/pages/after/match-options-360-light-en.webp) | [before](design/pages/before/match-options-360-dark-es.webp), [after](design/pages/after/match-options-360-dark-es.webp) | [before](design/pages/before/match-options-desktop-light-es.webp), [after](design/pages/after/match-options-desktop-light-es.webp) | [before](design/pages/before/match-options-desktop-dark-en.webp), [after](design/pages/after/match-options-desktop-dark-en.webp) |
+| Choose the title, a show chosen | [before](design/pages/before/match-series-360-light-en.webp), [after](design/pages/after/match-series-360-light-en.webp) |  |  | [before](design/pages/before/match-series-desktop-dark-en.webp), [after](design/pages/after/match-series-desktop-dark-en.webp) |
+| Choose the title, the film has a file | [before](design/pages/before/match-exists-360-light-en.webp), [after](design/pages/after/match-exists-360-light-en.webp) | [before](design/pages/before/match-exists-360-dark-es.webp), [after](design/pages/after/match-exists-360-dark-es.webp) | [before](design/pages/before/match-exists-desktop-light-es.webp), [after](design/pages/after/match-exists-desktop-light-es.webp) | [before](design/pages/before/match-exists-desktop-dark-en.webp), [after](design/pages/after/match-exists-desktop-dark-en.webp) |
+| Choose the title, nothing found | [before](design/pages/before/match-none-360-light-en.webp), [after](design/pages/after/match-none-360-light-en.webp) |  |  | [before](design/pages/before/match-none-desktop-dark-en.webp), [after](design/pages/after/match-none-desktop-dark-en.webp) |
+| An upload, title chosen | [before](design/pages/before/job-matched-360-light-en.webp), [after](design/pages/after/job-matched-360-light-en.webp) | [before](design/pages/before/job-matched-360-dark-es.webp), [after](design/pages/after/job-matched-360-dark-es.webp) | [before](design/pages/before/job-matched-desktop-light-es.webp), [after](design/pages/after/job-matched-desktop-light-es.webp) | [before](design/pages/before/job-matched-desktop-dark-en.webp), [after](design/pages/after/job-matched-desktop-dark-en.webp) |
+| Check the files, the fixture season | [before](design/pages/before/mapping-season-360-light-en.webp), [after](design/pages/after/mapping-season-360-light-en.webp) | [before](design/pages/before/mapping-season-360-dark-es.webp), [after](design/pages/after/mapping-season-360-dark-es.webp) | [before](design/pages/before/mapping-season-desktop-light-es.webp), [after](design/pages/after/mapping-season-desktop-light-es.webp) | [before](design/pages/before/mapping-season-desktop-dark-en.webp), [after](design/pages/after/mapping-season-desktop-dark-en.webp) |
+| Check the files, two files refused | [before](design/pages/before/mapping-rejected-360-light-en.webp), [after](design/pages/after/mapping-rejected-360-light-en.webp) | [before](design/pages/before/mapping-rejected-360-dark-es.webp), [after](design/pages/after/mapping-rejected-360-dark-es.webp) | [before](design/pages/before/mapping-rejected-desktop-light-es.webp), [after](design/pages/after/mapping-rejected-desktop-light-es.webp) | [before](design/pages/before/mapping-rejected-desktop-dark-en.webp), [after](design/pages/after/mapping-rejected-desktop-dark-en.webp) |
+| Check the files, a row being checked | [before](design/pages/before/mapping-checking-360-light-en.webp), [after](design/pages/after/mapping-checking-360-light-en.webp) | [before](design/pages/before/mapping-checking-360-dark-es.webp), [after](design/pages/after/mapping-checking-360-dark-es.webp) | [before](design/pages/before/mapping-checking-desktop-light-es.webp), [after](design/pages/after/mapping-checking-desktop-light-es.webp) | [before](design/pages/before/mapping-checking-desktop-dark-en.webp), [after](design/pages/after/mapping-checking-desktop-dark-en.webp) |
+| Check the files, a change not checked | [before](design/pages/before/mapping-failed-360-light-en.webp), [after](design/pages/after/mapping-failed-360-light-en.webp) | [before](design/pages/before/mapping-failed-360-dark-es.webp), [after](design/pages/after/mapping-failed-360-dark-es.webp) | [before](design/pages/before/mapping-failed-desktop-light-es.webp), [after](design/pages/after/mapping-failed-desktop-light-es.webp) | [before](design/pages/before/mapping-failed-desktop-dark-en.webp), [after](design/pages/after/mapping-failed-desktop-dark-en.webp) |
+| Check the files, a film | [before](design/pages/before/mapping-film-360-light-en.webp), [after](design/pages/after/mapping-film-360-light-en.webp) |  |  | [before](design/pages/before/mapping-film-desktop-dark-en.webp), [after](design/pages/after/mapping-film-desktop-dark-en.webp) |
+| Check the files, waiting for the app | [before](design/pages/before/mapping-pending-360-light-en.webp), [after](design/pages/after/mapping-pending-360-light-en.webp) |  |  | [before](design/pages/before/mapping-pending-desktop-dark-en.webp), [after](design/pages/after/mapping-pending-desktop-dark-en.webp) |
+| Confirm, the fixture season | [before](design/pages/before/confirm-season-360-light-en.webp), [after](design/pages/after/confirm-season-360-light-en.webp) | [before](design/pages/before/confirm-season-360-dark-es.webp), [after](design/pages/after/confirm-season-360-dark-es.webp) | [before](design/pages/before/confirm-season-desktop-light-es.webp), [after](design/pages/after/confirm-season-desktop-light-es.webp) | [before](design/pages/before/confirm-season-desktop-dark-en.webp), [after](design/pages/after/confirm-season-desktop-dark-en.webp) |
+| Confirm, a film | [before](design/pages/before/confirm-film-360-light-en.webp), [after](design/pages/after/confirm-film-360-light-en.webp) |  |  | [before](design/pages/before/confirm-film-desktop-dark-en.webp), [after](design/pages/after/confirm-film-desktop-dark-en.webp) |
+| Confirm, a refused file, no tick yet | [before](design/pages/before/confirm-rejected-360-light-en.webp), [after](design/pages/after/confirm-rejected-360-light-en.webp) | [before](design/pages/before/confirm-rejected-360-dark-es.webp), [after](design/pages/after/confirm-rejected-360-dark-es.webp) | [before](design/pages/before/confirm-rejected-desktop-light-es.webp), [after](design/pages/after/confirm-rejected-desktop-light-es.webp) | [before](design/pages/before/confirm-rejected-desktop-dark-en.webp), [after](design/pages/after/confirm-rejected-desktop-dark-en.webp) |
+| An upload, importing | [before](design/pages/before/import-running-360-light-en.webp), [after](design/pages/after/import-running-360-light-en.webp) | [before](design/pages/before/import-running-360-dark-es.webp), [after](design/pages/after/import-running-360-dark-es.webp) | [before](design/pages/before/import-running-desktop-light-es.webp), [after](design/pages/after/import-running-desktop-light-es.webp) | [before](design/pages/before/import-running-desktop-dark-en.webp), [after](design/pages/after/import-running-desktop-dark-en.webp) |
+| An upload, waiting for the app | [before](design/pages/before/import-waiting-360-light-en.webp), [after](design/pages/after/import-waiting-360-light-en.webp) | [before](design/pages/before/import-waiting-360-dark-es.webp), [after](design/pages/after/import-waiting-360-dark-es.webp) | [before](design/pages/before/import-waiting-desktop-light-es.webp), [after](design/pages/after/import-waiting-desktop-light-es.webp) | [before](design/pages/before/import-waiting-desktop-dark-en.webp), [after](design/pages/after/import-waiting-desktop-dark-en.webp) |
+| An upload, imported: unmonitored, a step failed | [before](design/pages/before/import-result-360-light-en.webp), [after](design/pages/after/import-result-360-light-en.webp) | [before](design/pages/before/import-result-360-dark-es.webp), [after](design/pages/after/import-result-360-dark-es.webp) | [before](design/pages/before/import-result-desktop-light-es.webp), [after](design/pages/after/import-result-desktop-light-es.webp) | [before](design/pages/before/import-result-desktop-dark-en.webp), [after](design/pages/after/import-result-desktop-dark-en.webp) |
+
+![The mapping editor with the fixture season, 1280 px wide, light mode, Spanish](design/pages/after/mapping-season-desktop-light-es.webp)
 
 ![The upload page with an upload in progress, 360 px wide, light mode](design/pages/after/upload-progress-360-light-en.webp)
 

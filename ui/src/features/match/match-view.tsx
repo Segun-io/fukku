@@ -4,12 +4,14 @@ import { useId, useState } from "react";
 import { useLookup } from "@/api/match";
 import type { AppName, Apps, JobDetail } from "@/api/types";
 import { ErrorMessage } from "@/components/error-message";
+import { inputClass } from "@/components/patterns/field";
+import { StatusLabel } from "@/components/patterns/status-label";
 import { EmptyState, LoadingState } from "@/components/shell/states";
 import { Button } from "@/components/ui/button";
 import { useT } from "@/i18n";
 import { cn } from "@/lib/utils";
 import { guessKind, type Hit, toHit } from "./hits";
-import { ExistsNotice, fieldClass, MatchOptions, nameOf } from "./match-options";
+import { ExistsNotice, MatchOptions, nameOf } from "./match-options";
 
 type Props = { job: JobDetail; apps: Apps };
 
@@ -27,9 +29,9 @@ function KindChoice({
   const name = useId();
   if (available.length < 2) return null;
   return (
-    <fieldset className="grid gap-2">
+    <fieldset className="grid gap-1">
       <legend className="font-medium">{t("match.kind.legend")}</legend>
-      <div className="flex flex-wrap gap-x-6">
+      <div className="flex flex-wrap gap-x-8">
         {available.map((kind) => (
           <label key={kind} className="flex min-h-11 items-center gap-2">
             <input
@@ -60,32 +62,41 @@ function HitRow({
   group: string;
 }) {
   const { t } = useT();
-  const notes = [
-    hit.inLibrary && t("match.hit.inLibrary", { app: nameOf(hit.app) }),
-    hit.hasFile && t("match.hit.hasFile"),
-    hit.seasons.length > 0 && t("match.hit.seasons", { count: hit.seasons.length }),
-  ].filter(Boolean);
   return (
     <li>
       <label
         className={cn(
-          "flex min-h-11 cursor-pointer items-start gap-3 border-l-2 border-transparent py-3 pl-3",
-          "has-[:focus-visible]:ring-[3px] has-[:focus-visible]:ring-ring/50",
-          checked && "border-primary bg-accent/40",
+          "flex min-h-11 cursor-pointer items-start gap-3 px-4 py-4 hover:bg-accent/60",
+          "has-[:focus-visible]:outline-2 has-[:focus-visible]:-outline-offset-2 has-[:focus-visible]:outline-ring",
+          checked && "bg-primary-soft hover:bg-primary-soft",
         )}
       >
         <input
           type="radio"
           name={group}
-          className="mt-1 size-5 shrink-0 accent-primary"
+          className="mt-0.5 size-5 shrink-0 accent-primary outline-none"
           checked={checked}
           onChange={onSelect}
         />
-        <span className="grid min-w-0 gap-1">
+        <span className="grid min-w-0 gap-1.5">
           <span translate="no" className="font-medium [overflow-wrap:anywhere]">
             {t("match.hit.name", { title: hit.title, year: String(hit.year) })}
           </span>
-          {notes.length > 0 && <span className="text-sm text-primary">{notes.join(" · ")}</span>}
+          {(hit.inLibrary || hit.hasFile || hit.seasons.length > 0) && (
+            <span className="flex flex-wrap gap-x-4 gap-y-1">
+              {hit.inLibrary && (
+                <StatusLabel tone="done">
+                  {t("match.hit.inLibrary", { app: nameOf(hit.app) })}
+                </StatusLabel>
+              )}
+              {hit.hasFile && <StatusLabel tone="caution">{t("match.hit.hasFile")}</StatusLabel>}
+              {hit.seasons.length > 0 && (
+                <span className="text-sm text-ink-2">
+                  {t("match.hit.seasons", { count: hit.seasons.length })}
+                </span>
+              )}
+            </span>
+          )}
           <span className="line-clamp-3 max-w-[65ch] text-sm text-ink-2">
             {hit.overview || t("match.hit.noOverview")}
           </span>
@@ -126,8 +137,6 @@ export function MatchView({ job, apps }: Props) {
 
   return (
     <div className="grid gap-8">
-      <p className="max-w-[65ch] text-ink-2">{t("match.intro")}</p>
-
       <KindChoice available={available} value={kind} onChange={changeKind} />
 
       <search>
@@ -138,8 +147,9 @@ export function MatchView({ job, apps }: Props) {
           <div className="flex gap-2">
             <input
               id={inputId}
+              name="term"
               type="text"
-              className={cn(fieldClass, "min-w-0 flex-1")}
+              className={cn(inputClass, "flex-1")}
               value={text}
               onChange={(e) => setText(e.target.value)}
               aria-describedby={hintId}
@@ -168,14 +178,14 @@ export function MatchView({ job, apps }: Props) {
       )}
 
       {hits.length > 0 && (
-        <fieldset className="grid gap-2">
-          <legend className="text-lg leading-tight tracking-[-0.02em]">
+        <fieldset className="grid min-w-0 gap-3">
+          <legend className="float-left font-display text-lg leading-tight font-bold tracking-[-0.02em]">
             {t("match.results.title")}
           </legend>
           <p role="status" className="text-sm text-muted-foreground">
             {t("match.results.count", { count: hits.length })}
           </p>
-          <ul className="divide-y border-y">
+          <ul className="clear-both divide-y overflow-hidden rounded-xl border bg-card shadow-sm">
             {hits.map((h) => (
               <HitRow
                 key={h.id}
@@ -194,7 +204,7 @@ export function MatchView({ job, apps }: Props) {
         <MatchOptions key={`${hit.app}-${hit.id}`} jobId={job.id} hit={hit} infos={apps} />
       )}
 
-      <p>
+      <p className="border-t pt-4">
         <Link
           to="/jobs/$id"
           params={{ id: job.id }}

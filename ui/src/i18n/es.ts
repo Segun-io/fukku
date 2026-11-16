@@ -56,6 +56,10 @@ const es: Record<keyof typeof en, string> = {
 
   // ---- patterns: status timeline -------------------------------------------------------
   "patterns.timeline.label": "Lo que ha pasado hasta ahora",
+  "patterns.flow.label": "Pasos de la importación",
+  "patterns.flow.step.match": "Elegir el título",
+  "patterns.flow.step.mapping": "Revisar los archivos",
+  "patterns.flow.step.confirm": "Confirmar",
   "patterns.timeline.step.done": "Hecho",
   "patterns.timeline.step.current": "Ahora",
   "patterns.timeline.step.upcoming": "Pendiente",
@@ -132,6 +136,8 @@ const es: Record<keyof typeof en, string> = {
   "patterns.demo.picker.compact": "Con archivos debajo",
   "patterns.demo.copy.title": "Campo para copiar",
   "patterns.demo.select.title": "Campo de selección",
+  "patterns.demo.status.title": "Estado de una fila",
+  "patterns.demo.flow.title": "Cabecera de un paso",
   "patterns.demo.shell.title": "Estados de la aplicación",
   "patterns.demo.shell.banner": "Aviso de desarrollo inseguro",
   "patterns.demo.shell.offline": "Sin conexión",
@@ -295,7 +301,7 @@ const es: Record<keyof typeof en, string> = {
   "job.skipped.item": "{name}: {reason}",
   "job.manual.title": "Impórtalo a mano",
   "job.manual.intro":
-    "Los archivos están revisados, pero Fukku todavía no puede añadirlos a Radarr o Sonarr. En la aplicación, abre Importación manual y elige la carpeta que se muestra aquí.",
+    "O hazlo tú en Radarr o Sonarr: abre Importación manual allí y elige la carpeta que se muestra aquí.",
   "job.manual.folder": "Carpeta en {app}",
   "job.manual.copy": "Copiar",
   "job.manual.copyFor": "Copiar la carpeta de {app}",
@@ -417,6 +423,8 @@ const es: Record<keyof typeof en, string> = {
     "El servidor sigue trabajando en esta subida. Inténtalo de nuevo en un momento.",
 
   "job.match": "Elegir la película o la serie",
+  "job.match.body":
+    "Indica de qué título son estos archivos; luego los revisas y los importas. La importación la hace Radarr o Sonarr.",
   "job.target.title": "Título elegido",
   "job.target.body": "{title} ({year}) en {app}",
   "job.target.change": "Elegir otro título",
@@ -480,7 +488,7 @@ const es: Record<keyof typeof en, string> = {
   "mapping.back": "Volver al envío",
   "mapping.target": "{title} ({year}) en {app}",
   "mapping.intro":
-    "Cada archivo está en su fila, con lo que {app} entiende de él. Cambia lo que esté mal; {app} vuelve a comprobar cada cambio.",
+    "Cada archivo tiene su fila, con lo que {app} entiende de él. Cambia lo que esté mal: {app} vuelve a revisar cada cambio.",
   "mapping.fromNames":
     "La temporada y los episodios salen de los nombres de los archivos o de lo que {app} supone. Compáralos con lo que es cada archivo de verdad.",
   "mapping.pending.title": "{app} está revisando los archivos",
@@ -524,17 +532,24 @@ const es: Record<keyof typeof en, string> = {
   "mapping.quality.none": "No ofrecida",
   "mapping.skip.for": "Omitir {name}",
   "mapping.skip.label": "Omitir",
-  "mapping.checking": "Comprobando…",
-  "mapping.failed": "El cambio no se comprobó.",
+  "mapping.checking": "Revisando…",
+  "mapping.failed": "El cambio no se revisó.",
   "mapping.failed.wrongState":
     "Los archivos cambiaron mientras editabas y la lista se recargó. Repite tu cambio.",
   "mapping.retry": "Intentar de nuevo",
   "mapping.discard": "Deshacer mi cambio",
   "mapping.ok": "Sin problemas.",
+  "mapping.state.attention": "Necesita atención",
+  "mapping.state.refused": "Rechazado",
+  "mapping.state.skipped": "Omitido",
+  "mapping.state.failed": "Sin revisar",
+  "mapping.languages.none": "Ninguno",
   "mapping.notOffered":
     "{app} no ofreció este archivo, así que no se puede cambiar ni importar. Solo puedes omitirlo.",
-  "mapping.rejection.permanent": "{app} lo rechaza: {reason}",
-  "mapping.rejection.temporary": "{app} lo rechazaría por ahora: {reason}",
+  "mapping.rejection.permanent":
+    "{app} rechaza este archivo: «{reason}». Para importarlo de todos modos, confírmalo en el paso siguiente, u omítelo aquí.",
+  "mapping.rejection.temporary":
+    "{app} rechaza este archivo por ahora: «{reason}». Puede cambiar solo. Para importarlo de todos modos, confírmalo en el paso siguiente.",
   "mapping.warning.double_episode":
     "Este archivo dura casi el doble que un episodio. Puede contener dos.",
   "mapping.warning.double_episode.action": "Hacerlo de los episodios {first} y {second}",
@@ -563,13 +578,13 @@ const es: Record<keyof typeof en, string> = {
   "mapping.bulk.shift.apply": "Mover episodios",
   "mapping.bulk.season": "Temporada",
   "mapping.bulk.season.apply": "Cambiar la temporada",
-  "mapping.bulk.checking": "Comprobando los archivos elegidos…",
-  "mapping.bulk.failed": "El cambio en los archivos elegidos no se comprobó.",
-  "mapping.continue": "Continuar",
+  "mapping.bulk.checking": "Revisando los archivos elegidos…",
+  "mapping.bulk.failed": "El cambio en los archivos elegidos no se revisó.",
+  "mapping.continue": "Seguir a la confirmación",
   "mapping.continue.attention":
     "Los archivos que necesitan atención se confirman uno por uno en el paso siguiente.",
   "mapping.continue.none": "Nada que importar. Arregla un archivo o deja de omitirlo primero.",
-  "mapping.continue.busy": "Espera a que terminen las comprobaciones.",
+  "mapping.continue.busy": "Espera a que terminen las revisiones.",
 
   // ---- confirmation, progress and result (#44) ------------------------------------------
   "job.review": "Revisar e importar",
@@ -605,14 +620,23 @@ const es: Record<keyof typeof en, string> = {
   "confirm.languages.none": "No se encontró ninguno",
   "confirm.languages.remove": "Quitar {name}",
   "confirm.languages.add": "Añadir un idioma",
-  "confirm.languages.choose": "Elegir…",
+  "confirm.languages.choose": "Añadir un idioma…",
   "confirm.formats": "Formatos personalizados",
   "confirm.formats.none": "Ninguno",
   "confirm.score": "Puntuación de formatos personalizados",
-  "confirm.checking": "{app} está comprobando tu cambio…",
+  "confirm.checking": "{app} está revisando tu cambio…",
   "confirm.issues.title": "Lee esto antes de importar",
-  "confirm.rejection": "La aplicación lo rechaza:",
+  "confirm.rejection": "{app} rechaza este archivo:",
   "confirm.override": "Importar de todos modos",
+  "confirm.state.ready": "Listo para importar",
+  "confirm.state.issues": "Necesita tu decisión",
+  "confirm.state.agreed": "Se importa de todos modos",
+  "confirm.state.out": "Se deja fuera",
+  "confirm.count.label": "Lo que va a pasar",
+  "confirm.count.in.one": "Se importará {count} archivo",
+  "confirm.count.in.other": "Se importarán {count} archivos",
+  "confirm.count.out.one": "{count} se deja fuera",
+  "confirm.count.out.other": "{count} se dejan fuera",
   "confirm.override.missing":
     "Marca «Importar de todos modos» en cada archivo con un problema, o déjalo fuera.",
   "confirm.override.stale":
@@ -661,6 +685,8 @@ const es: Record<keyof typeof en, string> = {
   "import.app": "la aplicación",
   "import.running":
     "{app} está moviendo los archivos a la biblioteca. Esta página se actualiza sola.",
+  "import.waiting": "La importación espera a {app} y continúa sola.",
+  "import.count": "{done} de {total} archivos en la biblioteca",
   "import.rows": "Archivos",
   "import.row": "Archivo {n} de {total}",
   "import.row.waiting": "En espera",

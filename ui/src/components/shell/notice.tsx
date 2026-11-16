@@ -24,6 +24,8 @@ type NoticeProps = Omit<React.ComponentProps<"div">, "title"> & {
   tone: NoticeTone;
   icon: LucideIcon;
   title: React.ReactNode;
+  /** Set when the notice opens a part of the page and its title belongs in the outline. */
+  titleAs?: "p" | "h2" | "h3";
   /** One or two buttons or links, shown under the text. */
   action?: React.ReactNode;
 };
@@ -33,6 +35,7 @@ export function Notice({
   tone,
   icon: Icon,
   title,
+  titleAs: Title = "p",
   action,
   children,
   className,
@@ -51,7 +54,9 @@ export function Notice({
     >
       <Icon aria-hidden="true" className={cn("mt-0.5 size-5", style.icon)} />
       <div className="min-w-0">
-        <p className="font-bold">{title}</p>
+        <Title className="font-sans text-base leading-[1.55] font-bold tracking-normal">
+          {title}
+        </Title>
         {children && <div className="mt-1 max-w-[65ch] text-sm text-ink-2">{children}</div>}
         {action && <div className="mt-3 flex flex-wrap items-center gap-2">{action}</div>}
       </div>
