@@ -28,6 +28,8 @@ import (
 //	409 incomplete_rows    rows without a title or an episode (edit or skip them); "rows" as above
 //	409 nothing_to_import  every row is skipped
 //	409 wrong_state        the job is not awaiting confirmation (or the rows changed meanwhile)
+//	409 flow2              the film already has a file (flow 2, #52): the job's "flow2" says
+//	                       what can be done instead
 //	400 bad_request        an override names no row of the job; a subtitle choice names no
 //	                       subtitle file of the job, a file twice, or an unknown language
 //	503 storage_unavailable  a sentinel is missing, or the intake and library roots are on

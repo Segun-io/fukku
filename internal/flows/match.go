@@ -28,7 +28,6 @@ const (
 const (
 	CodeBadRequest       = "bad_request"
 	CodeWrongState       = "wrong_state"
-	CodeAlreadyInLibrary = "already_in_library"
 	CodeTitleInUse       = "title_in_use"
 	CodeTitleBusy        = "title_busy"
 	CodeArrUnavailable   = "arr_unavailable"
@@ -423,6 +422,8 @@ type options struct {
 	RootFolder       string `json:"rootFolder,omitempty"`
 	Monitored        *bool  `json:"monitored,omitempty"`
 	SeriesType       string `json:"seriesType,omitempty"`
+	// Flow2 marks a film that already has a file in the library (flow2.go).
+	Flow2 *Flow2 `json:"flow2,omitempty"`
 }
 
 // matchable are the states a job can be matched from; from the last two, choosing again
@@ -502,9 +503,10 @@ func (m *Matcher) Match(ctx context.Context, user string, job store.Job, req Mat
 		return store.Job{}, wrongState()
 	}
 	// Choosing again replaces the target and, with it, the rows. The same title again keeps
-	// the record of how it came into the library.
+	// the record of how it came into the library, and for flow 2 the probe of its library
+	// file, unless the film's file changed meanwhile.
 	if old, err := m.store.Target(wctx, job.ID); err == nil {
-		if old.App == app && old.TitleID == t.id && !opts.Added {
+		if old.App == app && old.TitleID == t.id && !opts.Added && sameLibraryFile(old, opts.Flow2) {
 			raw = old.Options
 		}
 	} else if !errors.Is(err, store.ErrNotFound) {
@@ -595,13 +597,15 @@ func (m *Matcher) matchMovie(ctx context.Context, job store.Job, req MatchReques
 		if err != nil {
 			return t, opts, arrFailure(fmt.Errorf("radarr movie: %w", err))
 		}
-		if film.File != nil {
-			return t, opts, refuse(CodeAlreadyInLibrary, "The film already has a file in the library.")
-		}
 		if err := m.checkFree(ctx, AppRadarr, hit.ID, job.ID, func(ctx context.Context) (bool, error) {
 			return m.radarr.Busy(ctx, hit.ID)
 		}); err != nil {
 			return t, opts, err
+		}
+		if film.File != nil {
+			// Flow 2 (#52): another language of a film in the library. The job carries the
+			// tracked file; the matched step compares it with the upload.
+			return t, options{Flow2: newFlow2(film.File, m.cfg)}, nil
 		}
 		return t, options{}, nil
 	}

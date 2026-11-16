@@ -168,6 +168,7 @@ func runWeb(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 		deps.Sonarr = arr.NewSonarr(cfg.Sonarr)
 	}
 	deps.Proposals = flows.NewProposals(cfg, log, st, deps.Radarr, deps.Sonarr, deps.Locks)
+	deps.Proposals.SetQueue(q) // the library probe of flow 2 jobs (#52)
 	// The import engine (#40) and its post-processing steps, in the order they run.
 	deps.Imports = flows.NewEngine(deps.Proposals)
 	deps.Imports.SetMetrics(deps.Metrics)

@@ -17,6 +17,7 @@ import (
 	"github.com/segun-io/fukku/internal/config"
 	"github.com/segun-io/fukku/internal/jobdir"
 	"github.com/segun-io/fukku/internal/pathmap"
+	"github.com/segun-io/fukku/internal/spool"
 	"github.com/segun-io/fukku/internal/store"
 )
 
@@ -97,6 +98,11 @@ type Proposals struct {
 	sonarr arr.SeriesManager // nil: not configured
 	locks  *JobLocks
 	now    func() time.Time
+
+	// queue carries the library probe of flow 2 jobs (SetQueue, flow2_step.go); nil: none.
+	queue spool.Queue
+	// workerDown reports whether the worker's heartbeat is too old, and why. Tests replace it.
+	workerDown func() (string, bool)
 }
 
 // NewProposals builds the proposal flow. locks is shared with the match flow (nil: its own).
@@ -107,7 +113,9 @@ func NewProposals(cfg config.Config, log *slog.Logger, st store.Store, radarr ar
 	if locks == nil {
 		locks = NewJobLocks()
 	}
-	return &Proposals{cfg: cfg, log: log, st: st, radarr: radarr, sonarr: sonarr, locks: locks, now: time.Now}
+	p := &Proposals{cfg: cfg, log: log, st: st, radarr: radarr, sonarr: sonarr, locks: locks, now: time.Now}
+	p.workerDown = p.heartbeatDown
+	return p
 }
 
 // Lock takes the job's lock (shared with the match flow) and returns the unlock. Hold it
@@ -161,6 +169,9 @@ func (p *Proposals) Matched(ctx context.Context, job store.Job) error {
 	}
 	if err != nil {
 		return err
+	}
+	if rec, ok := Flow2Of(t); ok {
+		return p.flow2(ctx, job, t, rec) // a film already in the library (#52, flow2_step.go)
 	}
 	imp := p.importer(t.App)
 	if imp == nil {

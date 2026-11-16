@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 
 	"github.com/segun-io/fukku/internal/config"
 	"github.com/segun-io/fukku/internal/extract"
@@ -14,11 +15,12 @@ import (
 	"github.com/segun-io/fukku/internal/spool"
 )
 
-// Handlers returns the worker's task handlers: probe (package media) and extract (package
-// extract), with their settings taken from cfg.
+// Handlers returns the worker's task handlers: probe and libraryProbe (package media) and
+// extract (package extract), with their settings taken from cfg.
 func Handlers(cfg config.Config) map[string]Handler {
 	probe := media.OptionsFrom(cfg)
 	limits := extract.LimitsFrom(cfg)
+	libraryRoots := slices.Clone(cfg.Paths.LibraryRoots)
 	return map[string]Handler{
 		spool.KindProbe: func(ctx context.Context, job *os.Root, raw json.RawMessage) (any, error) {
 			var args media.ProbeArgs
@@ -26,6 +28,15 @@ func Handlers(cfg config.Config) map[string]Handler {
 				return nil, err
 			}
 			return media.Run(ctx, job, args, probe)
+		},
+		// The library probe (#52) does not use the job directory: it reads the library file,
+		// confined to this process's own paths.libraryRoots (media.RunLibrary).
+		spool.KindLibraryProbe: func(ctx context.Context, _ *os.Root, raw json.RawMessage) (any, error) {
+			var args media.LibraryProbeArgs
+			if err := decodeArgs(raw, &args); err != nil {
+				return nil, err
+			}
+			return media.RunLibrary(ctx, libraryRoots, args, probe)
 		},
 		spool.KindExtract: func(ctx context.Context, job *os.Root, raw json.RawMessage) (any, error) {
 			var args extract.Args

@@ -718,7 +718,16 @@ func TestDiscard(t *testing.T) {
 		t.Fatal(err)
 	}
 	e.q.Complete(stale.ID, nil)
-	if l := e.leftovers(j.ID); len(l) != 2 {
+	// And a flow 2 library probe (#52) of each attempt: a result, and a waiting task.
+	lib1 := spool.Task{ID: LibraryProbeID(j.ID, 1), Kind: spool.KindLibraryProbe, Job: j.ID}
+	lib2 := spool.Task{ID: LibraryProbeID(j.ID, 2), Kind: spool.KindLibraryProbe, Job: j.ID}
+	for _, task := range []spool.Task{lib1, lib2} {
+		if err := e.q.Submit(e.ctx, task); err != nil {
+			t.Fatal(err)
+		}
+	}
+	e.q.Complete(lib1.ID, nil)
+	if l := e.leftovers(j.ID); len(l) != 4 {
 		t.Fatalf("leftovers %v", l)
 	}
 	for range 2 { // safe to repeat

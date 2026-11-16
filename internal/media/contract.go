@@ -20,6 +20,10 @@ type VideoTrack struct {
 	Height    int    `json:"height"`
 	FrameRate string `json:"frameRate,omitempty"` // as a fraction, e.g. "24000/1001"
 	Default   bool   `json:"default"`
+	// DurationMs is the stream's own duration (ffprobe's stream duration, or the Matroska
+	// DURATION tag), 0 when the file does not say. Unlike the container's duration it does
+	// not grow when an audio track starts late, so flow 2 compares cuts with it (#52).
+	DurationMs int64 `json:"durationMs,omitempty"`
 }
 
 // AudioTrack is one audio stream.
@@ -41,6 +45,29 @@ type SubtitleTrack struct {
 	Default         bool   `json:"default"`
 	Forced          bool   `json:"forced"`
 	HearingImpaired bool   `json:"hearingImpaired"`
+}
+
+// RefusalOutsideLibrary is the refusal of a library probe whose path is not a clean path
+// inside one of paths.libraryRoots (LibraryProbedFile.Refusal).
+const RefusalOutsideLibrary = "outside_library"
+
+// LibraryProbeArgs are the args of a spool task of kind "libraryProbe" (#52): the probe of
+// a file in the library, which flow 2 compares with the upload. Unlike every other task's,
+// the path is not job-relative: it is the library file as Fukku sees it (absolute, after
+// paths.mappings.radarr), and the worker reads it only when it lies inside one of its own
+// paths.libraryRoots, through an os.Root of that root, read-only.
+type LibraryProbeArgs struct {
+	Path string `json:"path"` // e.g. "/data/media/movies/Film (2001)/Film (2001) WEBDL-1080p.mkv"
+}
+
+// LibraryProbeOutput is its output. Path echoes the args, so the web process can tell a
+// result for an earlier library file (the user chose another title meanwhile) from one for
+// the file it asked about.
+type LibraryProbeOutput struct {
+	Path    string `json:"path"`
+	OK      bool   `json:"ok"`
+	Refusal string `json:"refusal,omitempty"` // outside_library, unreadable, no_video_stream, no_duration, timeout
+	Media   *Probe `json:"media,omitempty"`   // when OK
 }
 
 // ProbeArgs are the args of a spool task of kind "probe".

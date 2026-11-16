@@ -50,7 +50,8 @@ type Overridden struct {
 // they were judged (an edit meanwhile makes it judge again), and the transition checks
 // that the job still has the same title.
 //
-// Refusals: wrong_state, bad_request (an override names no row of the job),
+// Refusals: wrong_state, flow2 (the film already has a file: flow 2, #52), bad_request (an
+// override names no row of the job),
 // storage_unavailable (the filesystem checks fail), incomplete_rows (rows without a title
 // or episodes: edit or skip them), needs_override (Rows lists them), nothing_to_import;
 // arr_unavailable when the app does not answer.
@@ -68,6 +69,10 @@ func (e *Engine) confirm(ctx context.Context, user, email, jobID string, req Con
 	s, err := e.p.edit(ctx, jobID)
 	if err != nil {
 		return Confirmation{}, err
+	}
+	if _, ok := Flow2Of(s.t); ok {
+		// Importing the upload would replace the film's file: flow 2 merges or adds a version.
+		return Confirmation{}, refuse(CodeFlow2, "The film already has a file in the library: this job can merge the new language into it or keep it as a second version, not import it.")
 	}
 	for _, id := range req.Overrides {
 		if s.find(id) < 0 {

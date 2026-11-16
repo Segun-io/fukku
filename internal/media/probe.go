@@ -258,6 +258,7 @@ type rawProbe struct {
 		Channels     int               `json:"channels"`
 		AvgFrameRate string            `json:"avg_frame_rate"`
 		RFrameRate   string            `json:"r_frame_rate"`
+		Duration     string            `json:"duration"`
 		Tags         map[string]string `json:"tags"`
 		Disposition  map[string]int    `json:"disposition"`
 	} `json:"streams"`
@@ -284,7 +285,8 @@ func (r rawProbe) toProbe(size int64) Probe {
 				continue // cover art, not a video stream
 			}
 			m.Video = append(m.Video, VideoTrack{Index: s.Index, Codec: s.CodecName, Width: s.Width,
-				Height: s.Height, FrameRate: frameRate(s.AvgFrameRate, s.RFrameRate), Default: def})
+				Height: s.Height, FrameRate: frameRate(s.AvgFrameRate, s.RFrameRate), Default: def,
+				DurationMs: streamDuration(s.Duration, s.Tags)})
 		case "audio":
 			m.Audio = append(m.Audio, AudioTrack{Index: s.Index, Codec: s.CodecName, Language: lang,
 				Title: title, Channels: s.Channels, Default: def})
@@ -295,6 +297,47 @@ func (r rawProbe) toProbe(size int64) Probe {
 		}
 	}
 	return m
+}
+
+// streamDuration is a stream's duration in ms: ffprobe's own (MP4 and most containers),
+// else Matroska's DURATION tag ("00:20:00.020000000"; the key may carry a language
+// suffix). 0 when neither says.
+func streamDuration(d string, tags map[string]string) int64 {
+	if ms := secondsMs(d); ms > 0 {
+		return ms
+	}
+	for k, v := range tags {
+		if strings.EqualFold(k, "DURATION") || strings.HasPrefix(strings.ToUpper(k), "DURATION-") {
+			if ms := clockMs(v); ms > 0 {
+				return ms
+			}
+		}
+	}
+	return 0
+}
+
+// secondsMs reads a number of seconds ("20.020000"); 0 for anything else.
+func secondsMs(s string) int64 {
+	f, err := strconv.ParseFloat(s, 64)
+	if err != nil || f <= 0 || math.IsInf(f, 0) || math.IsNaN(f) {
+		return 0
+	}
+	return int64(math.Round(f * 1000))
+}
+
+// clockMs reads "HH:MM:SS.fraction"; 0 for anything else.
+func clockMs(s string) int64 {
+	parts := strings.Split(s, ":")
+	if len(parts) != 3 {
+		return 0
+	}
+	h, err1 := strconv.Atoi(parts[0])
+	m, err2 := strconv.Atoi(parts[1])
+	sec, err3 := strconv.ParseFloat(parts[2], 64)
+	if err1 != nil || err2 != nil || err3 != nil || h < 0 || m < 0 || m > 59 || sec < 0 || sec >= 60 {
+		return 0
+	}
+	return int64(math.Round((float64(h)*3600 + float64(m)*60 + sec) * 1000))
 }
 
 func frameRate(vals ...string) string {
