@@ -357,6 +357,66 @@ const es: Record<keyof typeof en, string> = {
     "La subida se desfasó con el servidor. Continúa desde donde está el servidor.",
   "errors.upload_busy":
     "El servidor sigue trabajando en esta subida. Inténtalo de nuevo en un momento.",
+
+  "job.match": "Elegir la película o la serie",
+  "job.target.title": "Título elegido",
+  "job.target.body": "{title} ({year}) en {app}",
+  "job.target.change": "Elegir otro título",
+  "match.title": "Elegir la película o la serie",
+  "match.intro":
+    "Indica de qué título son estos archivos. Fukku lo añade a Radarr o a Sonarr si es nuevo; no se descarga nada.",
+  "match.back": "Volver a la subida",
+  "match.manual": "Importarlo a mano",
+  "match.kind.legend": "¿Qué es?",
+  "match.kind.movie": "Una película",
+  "match.kind.series": "Una serie",
+  "match.kind.hint": "Elegido a partir de los archivos que subiste. Cámbialo si no es correcto.",
+  "match.search.label": "Título",
+  "match.search.hint":
+    "¿No aparece? Prueba el título en inglés o un id: tmdb:<id> para una película, tvdb:<id> para una serie.",
+  "match.search.submit": "Buscar",
+  "match.results.title": "Resultados",
+  "match.results.count.one": "{count} resultado",
+  "match.results.count.other": "{count} resultados",
+  "match.results.none.title": "No se encontró nada para «{term}»",
+  "match.results.none.body":
+    "Prueba el título en inglés, un nombre más corto o un id como tmdb:<id> o tvdb:<id>.",
+  "match.hit.name": "{title} ({year})",
+  "match.hit.inLibrary": "Ya está en {app}",
+  "match.hit.hasFile": "Ya tiene un archivo",
+  "match.hit.seasons.one": "{count} temporada",
+  "match.hit.seasons.other": "{count} temporadas",
+  "match.hit.noOverview": "Sin descripción.",
+  "match.exists.title": "Esta película ya tiene un archivo",
+  "match.exists.body":
+    "Añadir otro idioma a una película que ya está en la biblioteca llegará en una versión posterior. Por ahora, impórtala a mano.",
+  "match.options.title": "Opciones",
+  "match.options.inLibrary": "{title} ya está en {app}. Sus ajustes se quedan como están.",
+  "match.profile": "Perfil de calidad",
+  "match.profile.choose": "Elige un perfil",
+  "match.profile.needed": "Elige un perfil de calidad para continuar.",
+  "match.folder": "Carpeta raíz",
+  "match.monitored": "Reemplazarla cuando aparezca una copia mejor",
+  "match.seriesType": "Tipo de serie",
+  "match.seriesType.standard": "Estándar",
+  "match.seriesType.anime": "Anime",
+  "match.seriesType.daily": "Diaria",
+  "match.submit": "Usar este título",
+  "match.noApps.title": "Radarr y Sonarr no están configurados",
+  "match.noApps.body":
+    "Pide a quien administra Fukku que conecte alguno. Mientras tanto puedes importar los archivos a mano.",
+  "match.wrongState.title": "Esta subida no se puede asociar ahora",
+  "match.wrongState.body": "Solo se puede elegir un título cuando los archivos están revisados.",
+  "errors.already_in_library":
+    "Esta película ya tiene un archivo. Añadir otro idioma llegará en una versión posterior.",
+  "errors.title_in_use": "Otra subida ya está trabajando con este título. Espera a que termine.",
+  "errors.title_busy": "Este título se está descargando ahora. Inténtalo de nuevo cuando termine.",
+  "errors.arr_unavailable":
+    "No se puede contactar con Radarr o Sonarr ahora. Inténtalo de nuevo en un momento.",
+  "match.profile.none": "{app} no tiene perfiles de calidad. Añade uno allí y vuelve.",
+  "match.unavailable.title": "Radarr y Sonarr no responden",
+  "errors.app_not_configured": "Esa aplicación no está configurada en Fukku.",
+  "errors.title_not_found": "La aplicación ya no conoce ese título. Busca de nuevo.",
 };
 
 export default es;

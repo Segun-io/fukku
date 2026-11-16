@@ -10,6 +10,7 @@ import { AppShell } from "@/components/shell/app-shell";
 import { NotFound } from "@/components/shell/states";
 import { JobDetailPage } from "@/pages/job-detail";
 import { JobsPage } from "@/pages/jobs";
+import { MatchPage } from "@/pages/match";
 import { UploadPage } from "@/pages/upload";
 
 const rootRoute = createRootRoute({ component: AppShell, notFoundComponent: NotFound });
@@ -37,6 +38,12 @@ const jobRoute = createRoute({
   component: JobDetailPage,
 });
 
+const matchRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/jobs/$id/match",
+  component: MatchPage,
+});
+
 // The pattern examples (docs/design.md) exist in development builds only: `npm run dev`.
 // In a production build this branch, and the page behind it, are removed.
 const devRoutes = import.meta.env.DEV
@@ -54,6 +61,7 @@ const routeTree = rootRoute.addChildren([
   uploadRoute,
   jobsRoute,
   jobRoute,
+  matchRoute,
   ...devRoutes,
 ]);
 

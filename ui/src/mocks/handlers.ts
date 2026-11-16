@@ -2,16 +2,19 @@
 // `uploads.ts`). State changes are kept in memory; `resetMocks()` puts the fixtures back.
 
 import { HttpResponse, http } from "msw";
-import type { Job, JobAction, JobState } from "@/api/types";
+import type { Job, JobAction, JobState, MatchRequest, Target } from "@/api/types";
 import { jobs as fixtureJobs, jobDetail, session } from "./fixtures";
+import { apps, movieHits, searchMovies, searchSeries, seriesHits } from "./match-fixtures";
 import { type Scenario, seasonFiles, seasonJob } from "./scenarios";
 import { filesOf, pendingOf, resetUploads, uploadHandlers } from "./uploads";
 
 let jobs: Job[] = structuredClone(fixtureJobs);
+let targets: Record<string, Target> = {};
 let admin = false;
 
 export function resetMocks() {
   jobs = structuredClone(fixtureJobs);
+  targets = {};
   admin = false;
   resetUploads();
 }
@@ -100,6 +103,8 @@ export const handlers = [
     if (!job) return notFound();
     const detail = jobDetail(job);
     if (job.id === seasonJob.id) detail.files = seasonFiles;
+    const target = targets[job.id];
+    if (target) detail.target = target;
     if (job.state === "uploading") {
       // The files and unfinished uploads the mock tus endpoint holds for this job.
       detail.files = [...detail.files, ...filesOf(job.id)];
@@ -141,5 +146,56 @@ export const handlers = [
     if (!job.actions.includes("delete")) return failure(409, "job_active", "The job is active.");
     jobs = jobs.filter((j) => j !== job);
     return new HttpResponse(null, { status: 204 });
+  }),
+
+  // ---- Match (#37) ----
+
+  http.get("/api/apps", () => HttpResponse.json(apps)),
+
+  http.get("/api/lookup/movies", ({ request }) =>
+    HttpResponse.json({
+      results: searchMovies(new URL(request.url).searchParams.get("term") ?? ""),
+    }),
+  ),
+
+  http.get("/api/lookup/series", ({ request }) =>
+    HttpResponse.json({
+      results: searchSeries(new URL(request.url).searchParams.get("term") ?? ""),
+    }),
+  ),
+
+  http.post("/api/jobs/:id/match", async ({ params, request }) => {
+    const job = jobs.find((j) => j.id === params.id && j.owner === session.user.name);
+    if (!job) return notFound();
+    if (!["probed", "matched", "awaiting-confirmation"].includes(job.state)) {
+      return failure(409, "wrong_state", "The job cannot be matched now.");
+    }
+    const body = (await request.json()) as MatchRequest;
+    const info = apps[body.app];
+    if (!info) return failure(404, "app_not_configured", "That app is not configured.");
+    if (!info.rootFolders.some((f) => f.path === body.rootFolder)) {
+      return failure(400, "bad_request", "That root folder is not one the app lists.");
+    }
+    if (body.app === "radarr") {
+      const hit = movieHits.find((h) => h.tmdbId === body.tmdbId);
+      if (!hit) return failure(404, "title_not_found", "The app does not know that title.");
+      if (hit.hasFile) return failure(409, "already_in_library", "The film already has a file.");
+      targets[job.id] = { app: "radarr", titleId: hit.tmdbId, title: hit.title, year: hit.year };
+    } else {
+      const hit = seriesHits.find((h) => h.tvdbId === body.tvdbId);
+      if (!hit) return failure(404, "title_not_found", "The app does not know that title.");
+      targets[job.id] = { app: "sonarr", titleId: hit.tvdbId, title: hit.title, year: hit.year };
+    }
+    return HttpResponse.json(move(job, "matched"));
+  }),
+
+  http.delete("/api/jobs/:id/match", ({ params }) => {
+    const job = jobs.find((j) => j.id === params.id && j.owner === session.user.name);
+    if (!job) return notFound();
+    if (job.state !== "matched" && job.state !== "awaiting-confirmation") {
+      return failure(409, "wrong_state", "The job has no title chosen.");
+    }
+    delete targets[job.id];
+    return HttpResponse.json(move(job, "probed"));
   }),
 ];

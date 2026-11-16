@@ -7,6 +7,7 @@ import type { JobDetail } from "@/api/types";
 import { errorKey } from "@/components/error-message";
 import { JobActions } from "@/components/jobs/job-actions";
 import { ManualImportSection } from "@/components/jobs/manual-import";
+import { MatchSection } from "@/components/jobs/match-section";
 import { ProbeDetails } from "@/components/jobs/probe-details";
 import { StateBadge } from "@/components/jobs/state-badge";
 import { FileList, type FileListItem } from "@/components/patterns/file-list";
@@ -148,6 +149,8 @@ function JobView({ job }: { job: JobDetail }) {
         )}
         <JobActions job={job} />
       </header>
+
+      <MatchSection job={job} className={job.state === "probed" ? "border-t pt-8" : section} />
 
       {job.state === "probed" && (
         <ManualImportSection items={job.manualImport} className="border-t pt-8" />

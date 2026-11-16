@@ -28,6 +28,16 @@ export const jobErrorCodes = [
   "job_active",
 ] as const;
 
+/** Codes of the match endpoints (#37). */
+export const matchErrorCodes = [
+  "already_in_library",
+  "title_in_use",
+  "title_busy",
+  "arr_unavailable",
+  "app_not_configured",
+  "title_not_found",
+] as const;
+
 /** Refusals of `/api/uploads/` (#10). */
 export const uploadErrorCodes = [
   "bad_name",
@@ -52,6 +62,7 @@ export type UploadErrorCode = (typeof uploadErrorCodes)[number];
 export const knownErrorCodes = [
   ...commonErrorCodes,
   ...jobErrorCodes,
+  ...matchErrorCodes,
   ...uploadErrorCodes,
   ...clientErrorCodes,
 ] as const;
@@ -205,7 +216,12 @@ export type ManualImport = {
   url: string | null;
 };
 
+/** The title a job was matched to (#37); `null` until the job is matched. */
+export type Target = { app: AppName; titleId: number; title: string; year: number };
+
 export type JobDetail = Job & {
+  /** Set from `matched` on (#37). */
+  target?: Target | null;
   files: JobFile[];
   /** Unfinished uploads, only while `uploading`. */
   uploads: JobUpload[];
@@ -222,3 +238,65 @@ export type JobFilter = {
 };
 
 export type JobList = { jobs: Job[] };
+
+// ---- Match (#37) ----------------------------------------------------------------------
+
+export type AppName = "radarr" | "sonarr";
+export type SeriesType = "standard" | "anime" | "daily";
+
+export type QualityProfile = { id: number; name: string };
+export type RootFolder = { path: string };
+
+/** `qualityProfileId` and `rootFolder` are null when the settings name nothing the app lists. */
+type AppDefaults = { qualityProfileId: number | null; rootFolder: string | null };
+
+export type AppInfo = {
+  qualityProfiles: QualityProfile[];
+  rootFolders: RootFolder[];
+  /** True when the app did not answer: the lists are then empty. */
+  unavailable?: boolean;
+};
+
+export type RadarrInfo = AppInfo & { defaults: AppDefaults & { monitored: boolean } };
+
+export type SonarrInfo = AppInfo & {
+  seriesTypes: SeriesType[];
+  defaults: AppDefaults & { seriesType: SeriesType };
+};
+
+/** `GET /api/apps`: an app that is not configured is left out. */
+export type Apps = { radarr?: RadarrInfo; sonarr?: SonarrInfo };
+
+export type MovieHit = {
+  tmdbId: number;
+  title: string;
+  year: number;
+  overview: string;
+  inLibrary: boolean;
+  hasFile: boolean;
+};
+
+export type SeriesHit = {
+  tvdbId: number;
+  title: string;
+  year: number;
+  overview: string;
+  inLibrary: boolean;
+  seasons: number[];
+};
+
+export type MatchRequest =
+  | {
+      app: "radarr";
+      tmdbId: number;
+      qualityProfileId?: number;
+      rootFolder?: string;
+      monitored: boolean;
+    }
+  | {
+      app: "sonarr";
+      tvdbId: number;
+      qualityProfileId?: number;
+      rootFolder?: string;
+      seriesType: SeriesType;
+    };

@@ -243,7 +243,7 @@ const filesByJob: Record<string, JobFile[]> = {
 
 /** The states a job passed on its way to `state`, as the store records them. */
 function historyFor(job: Job): JobDetail["history"] {
-  const path: JobState[] = ["uploading", "uploaded", "probing", "probed"];
+  const path: JobState[] = ["uploading", "uploaded", "probing", "probed", "matched"];
   const reached: JobState[] =
     job.state === "failed" || job.state === "stalled"
       ? ["uploading", "uploaded", "probing", job.state]
