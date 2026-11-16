@@ -249,12 +249,18 @@ func titleOK(t store.Target, ar arr.Row) error {
 
 // Importing is the runner step for importing jobs (see the top of this file).
 func (e *Engine) Importing(ctx context.Context, job store.Job) error {
-	// subtitlesOnly (#57): the confirmation skipped every row, and nothing is imported; the
-	// post-processing hands the subtitles over.
+	// subtitlesOnly (#57): when the confirmation skipped every row (every episode has a file),
+	// nothing is imported; the post-processing hands the subtitles over.
 	if t, err := e.st.Target(ctx, job.ID); err == nil {
 		if c, ok := seasonDubOf(t); ok && c.Policy == PolicySubtitlesOnly {
-			e.forget(job.ID)
-			return e.p.move(ctx, job, &t, store.Imported, store.Change{Note: "nothing imported: the season dub policy is subtitlesOnly"})
+			rows, err := e.st.Rows(ctx, job.ID)
+			if err != nil {
+				return err
+			}
+			if !slices.ContainsFunc(rows, func(r store.Row) bool { return !r.Skip }) {
+				e.forget(job.ID)
+				return e.p.move(ctx, job, &t, store.Imported, store.Change{Note: "nothing imported: the season dub policy is subtitlesOnly"})
+			}
 		}
 	} else if !errors.Is(err, store.ErrNotFound) {
 		return err
@@ -773,7 +779,7 @@ func (e *Engine) Imported(ctx context.Context, job store.Job) error {
 	dubRule := e.p.cfg.Merge.UnmonitorAfterDubOnlyImport
 	note := "monitoring unchanged"
 	choice, _ := seasonDubOf(t)
-	if choice.Policy == PolicySubtitlesOnly { // nothing was imported: nothing to set
+	if choice.Policy == PolicySubtitlesOnly && len(imported) == 0 { // nothing was imported: nothing to set
 		return e.p.move(ctx, job, &t, store.PostProcessing, store.Change{Note: "nothing imported: the subtitles are handed over"})
 	}
 	var mon monitoring
@@ -873,8 +879,10 @@ func (e *Engine) Imported(ctx context.Context, job store.Job) error {
 	return e.p.move(ctx, job, &t, store.PostProcessing, store.Change{Note: note})
 }
 
-// dubSeasons are the seasons to unmonitor after a replace (#57): those the confirmation
-// replaced files in, where an imported file has only a dub.
+// dubSeasons are the seasons whose own flag is set off after a replace (#57): those the
+// confirmation replaced files in, when imported dub-only files cover every episode of the
+// season. The flag reaches every episode of the season (C3-sonarr), so with a partial
+// season only the imported episodes are unmonitored (by the caller), never the others.
 func (e *Engine) dubSeasons(ctx context.Context, t store.Target, choice seasonDubChoice, imported []arr.Row, original string) ([]int, error) {
 	if choice.Policy != PolicyReplace || len(choice.Seasons) == 0 {
 		return nil, nil
@@ -883,17 +891,26 @@ func (e *Engine) dubSeasons(ctx context.Context, t store.Target, choice seasonDu
 	if err != nil {
 		return nil, err
 	}
-	idx := episodeIndex(eps)
-	var out []int
+	dub := map[int]bool{} // episodes with an imported dub-only file
 	for _, ar := range imported {
-		if !dubOnly(original, ar.Languages) {
-			continue
-		}
-		for _, id := range ar.EpisodeIDs {
-			n := idx[id].SeasonNumber
-			if slices.Contains(choice.Seasons, n) && !slices.Contains(out, n) {
-				out = append(out, n)
+		if dubOnly(original, ar.Languages) {
+			for _, id := range ar.EpisodeIDs {
+				dub[id] = true
 			}
+		}
+	}
+	var out []int
+	for _, n := range choice.Seasons {
+		covered, seen := true, false
+		for _, ep := range eps {
+			if ep.SeasonNumber != n {
+				continue
+			}
+			seen = true
+			covered = covered && dub[ep.ID]
+		}
+		if seen && covered {
+			out = append(out, n)
 		}
 	}
 	slices.Sort(out)

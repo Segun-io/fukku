@@ -103,6 +103,7 @@ func (e *Engine) confirm(ctx context.Context, user, email, jobID string, req Con
 		c          = Confirmation{Target: s.t, SeasonDub: dub, Seasons: ex.seasons, DubRows: ex.rows}
 		incomplete []string
 		needs      []string
+		sharing    []string
 	)
 	override := map[string]bool{}
 	for i, v := range views {
@@ -119,6 +120,10 @@ func (e *Engine) confirm(ctx context.Context, user, email, jobID string, req Con
 		}
 		// With replace, the choice answers what the app says of replacing a file it has.
 		replaced := dub == PolicyReplace && slices.Contains(ex.rows, v.ID)
+		if replaced && len(ex.shared[v.ID]) > 0 && !slices.Contains(req.Overrides, v.ID) {
+			sharing = append(sharing, v.ID)
+			continue
+		}
 		if needsOverride(v, replaced) {
 			if !slices.Contains(req.Overrides, v.ID) {
 				needs = append(needs, v.ID)
@@ -146,6 +151,10 @@ func (e *Engine) confirm(ctx context.Context, user, email, jobID string, req Con
 	case len(incomplete) > 0:
 		err := refuse(CodeIncompleteRows, "Some rows have no title or no episode: choose one or skip them.")
 		err.Rows = incomplete
+		return Confirmation{}, err
+	case len(sharing) > 0:
+		err := refuse(CodeSharedFile, "Replacing these files would remove the library file of other episodes too (a file that holds several): add those episodes to the job, skip the rows, or confirm them as overrides.")
+		err.Rows = sharing
 		return Confirmation{}, err
 	case len(needs) > 0:
 		err := refuse(CodeNeedsOverride, "Some rows have rejections or warnings: confirm them as overrides, or skip them.")

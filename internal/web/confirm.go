@@ -35,6 +35,9 @@ import (
 //	409 season_dub_choice  rows whose episodes already have a file and seasonDub.policy is
 //	                       ask: "rows" lists them; send "seasonDub" with one of the proposal's
 //	                       seasonDub.offers ("replace", "subtitlesOnly"), or skip the rows
+//	409 shared_file        with replace: the library file of these rows also holds episodes
+//	                       outside the job (a double); "rows" as above; list one in overrides
+//	                       to accept losing those episodes' file
 //	409 nothing_to_import  every row is skipped
 //	409 wrong_state        the job is not awaiting confirmation (or the rows changed meanwhile)
 //	400 bad_request        an override names no row of the job; a subtitle choice names no
@@ -96,7 +99,7 @@ func (s *Server) confirmError(w http.ResponseWriter, r *http.Request, err error)
 		return
 	}
 	switch e.Code {
-	case flows.CodeNeedsOverride, flows.CodeIncompleteRows, flows.CodeSeasonDubChoice:
+	case flows.CodeNeedsOverride, flows.CodeIncompleteRows, flows.CodeSeasonDubChoice, flows.CodeSharedFile:
 		writeJSON(w, http.StatusConflict, rowsErrorBody{rowsError{Code: e.Code, Message: e.Message, Rows: e.Rows}})
 	case flows.CodeNothingToImport:
 		writeError(w, http.StatusConflict, e.Code, e.Message)

@@ -39,7 +39,7 @@ func TestConfirmSeasonDub(t *testing.T) {
 		e, j, rows := setup(t)
 		path := "/api/jobs/" + j.ID + "/confirm"
 		rec := e.send("user1", "users", "GET", "/api/jobs/"+j.ID+"/proposal", "", false)
-		if !strings.Contains(rec.Body.String(), `"seasonDub":{"policy":"ask","ask":true,"offers":["replace","subtitlesOnly"],"seasons":[{"season":1,"episodes":3,"existing":2}]}`) {
+		if !strings.Contains(rec.Body.String(), `"seasonDub":{"policy":"ask","ask":true,"offers":["replace","subtitlesOnly"],"seasons":[{"season":1,"episodes":3,"existing":2,"new":1}]}`) {
 			t.Errorf("proposal JSON %s", rec.Body)
 		}
 
@@ -85,10 +85,11 @@ func TestConfirmSeasonDub(t *testing.T) {
 		if a, ok := audited(t, e, j)["season.subtitles_only"]; !ok || a.Detail["season"] != "1" {
 			t.Errorf("audit %+v", a)
 		}
+		// The rows with a file are skipped; S01E02, which has none, imports as usual.
 		stored, _ := e.st.Rows(t.Context(), j.ID)
-		for _, r := range stored {
-			if !r.Skip || r.Result != store.ResultSkipped {
-				t.Errorf("row %s: skip %v result %q", r.ID, r.Skip, r.Result)
+		for i, r := range stored {
+			if want := i != 1; r.Skip != want {
+				t.Errorf("row %s: skip %v, want %v", r.ID, r.Skip, want)
 			}
 		}
 		rec := e.send("user1", "users", "GET", "/api/jobs/"+j.ID, "", false)

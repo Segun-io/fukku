@@ -39,6 +39,11 @@ const (
 // the rows whose episodes already have a file (seasonDub.policy is ask). Rows lists them.
 const CodeSeasonDubChoice = "season_dub_choice"
 
+// CodeSharedFile is the refusal of a replace that would remove the library file of an
+// episode outside the job: the file holds several episodes (a double) and the job has only
+// some of them. Rows lists the rows; listing one in overrides accepts it.
+const CodeSharedFile = "shared_file"
+
 // SeasonDub is the proposal's question about a dub of a season already in the library. It
 // is absent when no row that is not skipped has an episode with a file.
 type SeasonDub struct {
@@ -57,6 +62,8 @@ type SeasonDubSeason struct {
 	Season   int `json:"season"`
 	Episodes int `json:"episodes"`
 	Existing int `json:"existing"`
+	// New are the episodes without a file: whatever is chosen, they import as usual.
+	New int `json:"new"`
 }
 
 // seasonDubChoice is what the confirmation stored.
@@ -138,13 +145,18 @@ type existing struct {
 	rows     []string
 	seasons  []int
 	episodes map[int]map[int]bool
+	// shared maps the id of a row to the episodes outside the job's rows whose library file is
+	// one of the row's: replacing it would remove their file too (a double episode).
+	shared map[string][]int
 }
 
 func (s *session) existing() existing {
-	x := existing{episodes: map[int]map[int]bool{}}
+	x := existing{episodes: map[int]map[int]bool{}, shared: map[string][]int{}}
 	if !s.show() {
 		return x
 	}
+	claimed := map[int]bool{}
+	fileRows := map[int][]string{} // library file id -> rows that would replace it
 	for _, r := range s.rows {
 		ar, offered, err := decodeRow(r)
 		if err != nil || !offered {
@@ -155,9 +167,13 @@ func (s *session) existing() existing {
 		}
 		has := hasExistingFile(ar, s.idx)
 		for _, id := range ar.EpisodeIDs {
+			claimed[id] = true
 			ep, ok := s.idx[id]
 			if !ok {
 				continue
+			}
+			if ep.FileID != 0 && !slices.Contains(fileRows[ep.FileID], r.ID) {
+				fileRows[ep.FileID] = append(fileRows[ep.FileID], r.ID)
 			}
 			if x.episodes[ep.SeasonNumber] == nil {
 				x.episodes[ep.SeasonNumber] = map[int]bool{}
@@ -172,6 +188,14 @@ func (s *session) existing() existing {
 		}
 	}
 	slices.Sort(x.seasons)
+	for _, ep := range s.eps {
+		if ep.FileID == 0 || claimed[ep.ID] {
+			continue
+		}
+		for _, row := range fileRows[ep.FileID] {
+			x.shared[row] = append(x.shared[row], ep.ID)
+		}
+	}
 	return x
 }
 
@@ -204,6 +228,7 @@ func (s *session) seasonDub() *SeasonDub {
 				c.Existing++
 			}
 		}
+		c.New = c.Episodes - c.Existing
 		v.Seasons = append(v.Seasons, c)
 	}
 	return v
@@ -248,8 +273,22 @@ func (s *session) chooseDub(req string) (string, existing, error) {
 // choice answers: the app's refusal to replace a file it has ("not an upgrade", or that the
 // existing file is as good), as against any other reason, which still needs an override.
 func replaceCovers(reason string) bool {
-	r := strings.ToLower(reason)
-	return strings.Contains(r, "upgrade") || strings.Contains(r, "existing")
+	r := strings.ToLower(strings.TrimSpace(reason))
+	for _, prefix := range upgradeRefusals {
+		if strings.HasPrefix(r, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// upgradeRefusals are the app's refusals to replace a file it has (probes B8-sonarr and
+// B8-radarr), lower case. "Has the same filesize as existing file" and "...does not allow
+// upgrades" are other reasons and are not answered by the choice.
+var upgradeRefusals = []string{
+	"not an upgrade for existing",
+	"not a custom format upgrade for existing",
+	"not a quality revision upgrade",
 }
 
 // seasonsText is the audit text of seasons: "S01, S02".

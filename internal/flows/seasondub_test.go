@@ -108,7 +108,7 @@ func TestSeasonDubCountsTheEpisodesThatExist(t *testing.T) {
 	x := dubEnv(t, nil, 101, 102)
 	j := x.seasonJob(3)
 	sd := x.view(j).SeasonDub
-	if sd == nil || len(sd.Seasons) != 1 || sd.Seasons[0] != (SeasonDubSeason{Season: 1, Episodes: 3, Existing: 2}) {
+	if sd == nil || len(sd.Seasons) != 1 || sd.Seasons[0] != (SeasonDubSeason{Season: 1, Episodes: 3, Existing: 2, New: 1}) {
 		t.Fatalf("question %+v", sd)
 	}
 	rows := x.rows(j)
@@ -227,12 +227,13 @@ func TestSeasonDubReplace(t *testing.T) {
 			t.Errorf("episode %d still has its old file: %d", ep.ID, ep.FileID)
 		}
 	}
-	// Exactly season 1 is unmonitored, through its flag.
-	if flags := x.series.SeasonFlags[showID]; len(flags) != 1 || flags[1] {
-		t.Errorf("season flags %v", flags)
+	// The job covers S01E01-E03 of six: only those episodes are unmonitored, never the others
+	// of the season (the season flag would reach them), and no other season.
+	if len(x.series.SeasonFlags) != 0 {
+		t.Errorf("season flags %v: the season is not covered", x.series.SeasonFlags)
 	}
 	for _, ep := range eps {
-		if want := ep.SeasonNumber != 1; ep.Monitored != want {
+		if want := ep.SeasonNumber != 1 || ep.Number > 3; ep.Monitored != want {
 			t.Errorf("episode %d monitored %v, want %v", ep.ID, ep.Monitored, want)
 		}
 	}
@@ -278,7 +279,10 @@ func TestSeasonDubReplaceUnmonitorsOnlyAfterADub(t *testing.T) {
 // A failed season-flag call is the monitoring step's failure: the app is asked again.
 func TestSeasonDubReplaceRetriesTheSeasonFlag(t *testing.T) {
 	x := dubEnv(t, nil, 101)
-	j := x.dubJob()
+	j := x.seasonJob(6) // the whole season, so its flag is used
+	for _, r := range x.rows(j) {
+		x.edit(j, r.ID, Edit{LanguageIDs: &[]int{spanish.ID}})
+	}
 	c, err := x.confirmDub(j, "replace")
 	if err != nil {
 		t.Fatal(err)
@@ -301,7 +305,7 @@ func TestSeasonDubReplaceRetriesTheSeasonFlag(t *testing.T) {
 // or to change monitoring, and the post-processing steps still run (they hand the subtitles
 // over); the result says so.
 func TestSeasonDubSubtitlesOnly(t *testing.T) {
-	x := dubEnv(t, nil, 101, 102)
+	x := dubEnv(t, nil, 101, 102, 103)
 	step := &recordingStep{name: "subtitles"}
 	x.eng.AddPostStep(step)
 	j := x.dubJob()
@@ -338,12 +342,112 @@ func TestSeasonDubSubtitlesOnly(t *testing.T) {
 	if step.count() != 1 {
 		t.Errorf("the post-processing step ran %d times", step.count())
 	}
-	if only, ok := SubtitlesOnlyRows(mustTarget(t, x, j)); !ok || !slices.Equal(only, []string{rows[0].ID, rows[1].ID}) {
+	if only, ok := SubtitlesOnlyRows(mustTarget(t, x, j)); !ok || !slices.Equal(only, []string{rows[0].ID, rows[1].ID, rows[2].ID}) {
 		t.Errorf("rows for the subtitles %v %v", only, ok)
 	}
 	iv, rv := x.detail(j)
 	if iv.Status != ImportDone || rv.Monitored != nil || rv.SeasonDub == nil || rv.SeasonDub.Policy != PolicySubtitlesOnly {
 		t.Errorf("import %+v result %+v", iv, rv)
+	}
+}
+
+// subtitlesOnly applies to the rows that already have a file; the others import as usual.
+func TestSeasonDubSubtitlesOnlyImportsTheNewEpisodes(t *testing.T) {
+	x := dubEnv(t, nil, 101, 102)
+	j := x.dubJob()
+	rows := x.rows(j)
+	if sd := x.view(j).SeasonDub; sd == nil || sd.Seasons[0] != (SeasonDubSeason{Season: 1, Episodes: 3, Existing: 2, New: 1}) {
+		t.Fatalf("question %+v", sd)
+	}
+	c, err := x.confirmDub(j, "subtitlesOnly")
+	if err != nil || len(c.Rows) != 1 || c.Rows[0] != rows[2].ID {
+		t.Fatalf("confirm %+v, %v", c, err)
+	}
+	if j = x.drive(x.eng, c.Job); j.State != store.Done {
+		t.Fatalf("job %s (%s)", j.State, j.ErrorText)
+	}
+	if len(x.series.Imports) != 1 || len(x.series.Imports[0].Rows) != 1 {
+		t.Fatalf("imports %+v", x.series.Imports)
+	}
+	if got := results(x.rows(j)); !slices.Equal(got, []string{store.ResultSkipped, store.ResultSkipped, store.ResultImported}) {
+		t.Errorf("results %v", got)
+	}
+	eps := x.series.Eps[showID]
+	if eps[0].FileID != 601 || eps[1].FileID != 602 || eps[2].FileID < 9000 {
+		t.Errorf("files %d %d %d", eps[0].FileID, eps[1].FileID, eps[2].FileID)
+	}
+	if len(x.series.SeasonFlags) != 0 {
+		t.Errorf("season flags %v", x.series.SeasonFlags)
+	}
+}
+
+// When the job holds every episode of the season, the season's own flag is set off, and
+// only that season's.
+func TestSeasonDubReplaceUnmonitorsAWholeSeasonThroughItsFlag(t *testing.T) {
+	x := dubEnv(t, nil, 101)
+	j := x.seasonJob(6)
+	for _, r := range x.rows(j) {
+		x.edit(j, r.ID, Edit{LanguageIDs: &[]int{spanish.ID}})
+	}
+	c, err := x.confirmDub(j, "replace")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if j = x.drive(x.eng, c.Job); j.State != store.Done {
+		t.Fatalf("job %s (%s)", j.State, j.ErrorText)
+	}
+	if flags := x.series.SeasonFlags[showID]; len(flags) != 1 || flags[1] {
+		t.Errorf("season flags %v", flags)
+	}
+	for _, ep := range x.series.Eps[showID] {
+		if want := ep.SeasonNumber != 1; ep.Monitored != want {
+			t.Errorf("episode %d monitored %v, want %v", ep.ID, ep.Monitored, want)
+		}
+	}
+}
+
+// A library file that holds an episode outside the job (a double) would be removed with
+// the replaced episode: refused, unless the row is listed in overrides.
+func TestSeasonDubReplaceRefusesASharedFile(t *testing.T) {
+	x := dubEnv(t, nil, 101, 102, 103, 104)
+	x.series.Eps[showID][2].FileID = 700 // S01E03 and S01E04 are one file
+	x.series.Eps[showID][3].FileID = 700
+	j := x.seasonJob(3)
+	rows := x.rows(j)
+	e := wantRefusal(t, func() error { _, err := x.confirmDub(j, "replace"); return err }(), CodeSharedFile)
+	if !slices.Equal(e.Rows, []string{rows[2].ID}) {
+		t.Fatalf("rows %v", e.Rows)
+	}
+	if j = x.jobNow(j); j.State != store.AwaitingConfirmation {
+		t.Fatalf("job %s", j.State)
+	}
+	// With the other episode in the job, nothing is lost.
+	k := dubEnv(t, nil, 101, 102, 103, 104)
+	k.series.Eps[showID][2].FileID = 700
+	k.series.Eps[showID][3].FileID = 700
+	if _, err := k.confirmDub(k.seasonJob(4), "replace"); err != nil {
+		t.Fatalf("both halves in the job: %v", err)
+	}
+	// Accepted explicitly.
+	if _, err := x.confirmDub(j, "replace", rows[2].ID); err != nil {
+		t.Fatalf("override: %v", err)
+	}
+}
+
+// Only the app's refusals to replace a file are answered by the choice.
+func TestReplaceCovers(t *testing.T) {
+	for reason, want := range map[string]bool{
+		"Not an upgrade for existing episode file(s). Existing quality: WEBDL-1080p": true,
+		"Not an upgrade for existing movie file(s)":                                  true,
+		"Not a Custom Format upgrade for existing episode file(s)":                   true,
+		"Not a quality revision upgrade for existing episode file(s)":                true,
+		"Has the same filesize as existing file":                                     false,
+		"Existing file and the Quality profile does not allow upgrades":              false,
+		"Sample": false,
+	} {
+		if got := replaceCovers(reason); got != want {
+			t.Errorf("%q: %v, want %v", reason, got, want)
+		}
 	}
 }
 
@@ -367,7 +471,7 @@ func TestSeasonDubFixedPolicyNeedsNoChoice(t *testing.T) {
 	if err != nil || c.SeasonDub != PolicySubtitlesOnly {
 		t.Fatalf("confirm: %+v, %v", c, err)
 	}
-	if j = x.drive(x.eng, c.Job); j.State != store.Done || len(x.series.Imports) != 0 {
+	if j = x.drive(x.eng, c.Job); j.State != store.Done || len(x.series.Imports) != 1 {
 		t.Fatalf("job %s, %d imports", j.State, len(x.series.Imports))
 	}
 }

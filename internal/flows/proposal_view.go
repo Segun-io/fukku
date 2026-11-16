@@ -314,14 +314,14 @@ func (s *session) views(ctx context.Context) ([]RowView, []Notice, error) {
 
 // skip is whether a row is skipped: the user said so, or it cannot be imported (the app did
 // not offer the file, or an episode already has a file and the season-dub choice does not
-// replace it). With subtitlesOnly nothing is imported.
+// replace it). Rows without a file import as usual under any policy.
 func (s *session) skip(e rowEval) bool {
 	user := e.edit.Skip != nil && *e.edit.Skip
 	switch {
-	case user || !e.offered || s.dub == PolicySubtitlesOnly:
+	case user || !e.offered:
 		return true
 	case s.show() && hasExistingFile(e.ar, s.idx):
-		return s.dub != PolicyReplace
+		return s.dub != PolicyReplace // subtitlesOnly imports nothing over a file
 	}
 	return false
 }

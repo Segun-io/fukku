@@ -280,11 +280,15 @@ func plan(files []store.File, rows []store.Row, target store.Target) []item {
 func uploadsFor(base Upload, row store.Row, target store.Target) ([]Upload, error) {
 	// With the season-dub policy subtitlesOnly (#57) nothing is imported: the subtitles go
 	// to the episodes that already have a file.
-	if only, ok := flows.SubtitlesOnlyRows(target); ok {
-		if row.JobID == "" || !slices.Contains(only, row.ID) {
+	only, policy := flows.SubtitlesOnlyRows(target)
+	switch {
+	case row.JobID == "":
+		return nil, errors.New("its video was not imported")
+	case slices.Contains(only, row.ID):
+	case row.Skip || row.Result != store.ResultImported:
+		if policy {
 			return nil, errors.New("its episode has no file in the library")
 		}
-	} else if row.JobID == "" || row.Skip || row.Result != store.ResultImported {
 		return nil, errors.New("its video was not imported")
 	}
 	if target.App != "sonarr" {
