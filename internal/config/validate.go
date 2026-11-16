@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"time"
 )
 
 // Role is the process a configuration is validated for.
@@ -234,7 +235,16 @@ func validateShared(p *problems, cfg Config) {
 	if mg.PreviewClips < 1 || mg.PreviewClips > 10 {
 		p.add("merge.previewClips", "must be between 1 and 10")
 	}
-	positive(p, "merge.previewClipLength", int64(mg.PreviewClipLength))
+	if mg.PreviewClipLength <= 0 || mg.PreviewClipLength.D() > 2*time.Minute {
+		p.add("merge.previewClipLength", "must be more than 0 and at most 2m")
+	}
+	if mg.PreviewHeight < 144 || mg.PreviewHeight > 2160 || mg.PreviewHeight%2 != 0 {
+		p.add("merge.previewHeight", "must be an even number of pixels from 144 to 2160")
+	}
+	if mg.PreviewVideoBitrate < 100 || mg.PreviewVideoBitrate > 20000 {
+		p.add("merge.previewVideoBitrate", "must be from 100 to 20000 (kbit/s)")
+	}
+	positive(p, "merge.previewTimeout", int64(mg.PreviewTimeout))
 	if mg.LanguageTag == "" {
 		p.add("merge.languageTag", "must be a BCP 47 tag such as es-419")
 	}

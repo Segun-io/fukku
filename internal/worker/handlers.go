@@ -12,11 +12,13 @@ import (
 	"github.com/segun-io/fukku/internal/config"
 	"github.com/segun-io/fukku/internal/extract"
 	"github.com/segun-io/fukku/internal/media"
+	"github.com/segun-io/fukku/internal/preview"
 	"github.com/segun-io/fukku/internal/spool"
 )
 
-// Handlers returns the worker's task handlers: probe and libraryProbe (package media) and
-// extract (package extract), with their settings taken from cfg.
+// Handlers returns the worker's task handlers: probe and libraryProbe (package media),
+// preview (package preview) and extract (package extract), with their settings taken from
+// cfg.
 func Handlers(cfg config.Config) map[string]Handler {
 	probe := media.OptionsFrom(cfg)
 	limits := extract.LimitsFrom(cfg)
@@ -28,6 +30,19 @@ func Handlers(cfg config.Config) map[string]Handler {
 				return nil, err
 			}
 			return media.Run(ctx, job, args, probe)
+		},
+		// The preview clips (#53) read the library file as the library probe does, and the
+		// upload and their output through the job directory.
+		spool.KindPreview: func(ctx context.Context, job *os.Root, raw json.RawMessage) (any, error) {
+			var args preview.Args
+			if err := decodeArgs(raw, &args); err != nil {
+				return nil, err
+			}
+			out, err := preview.Run(ctx, job, libraryRoots, args, preview.OptionsFrom(cfg))
+			if errors.Is(err, preview.ErrBadArgs) {
+				return nil, fmt.Errorf("%w: %w", ErrBadTask, err)
+			}
+			return out, err
 		},
 		// The library probe (#52) does not use the job directory: it reads the library file,
 		// confined to this process's own paths.libraryRoots (media.RunLibrary).

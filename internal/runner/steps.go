@@ -39,6 +39,12 @@ func LibraryProbeID(jobID string, attempt int) string {
 	return jobID + "-" + strconv.Itoa(attempt) + "-l"
 }
 
+// PreviewID is the id of a flow 2 job's sync-check clips (#53): <job>-v. Package flows
+// submits it. One id serves every request of the job: a new offset cancels the task and
+// submits it again, and the output names the request it rendered. So at most one preview
+// of a job runs at a time, and cancelling and discarding the job reach it (taskIDs).
+func PreviewID(jobID string) string { return jobID + "-v" }
+
 // extractScratch is where an extraction unpacks before its rename to the destination:
 // work/extract-<attempt>-x<archive file id>. Each attempt has its own, so a retry that
 // starts while the earlier attempt's extraction is still being cancelled cannot have its
@@ -497,9 +503,9 @@ func (r *Runner) drain(ctx context.Context, job store.Job, files []store.File, f
 
 // taskIDs are the ids of the tasks the runner may have submitted for the job in the
 // attempts from..to: the probe, one extraction per archive and the library probe of flow 2
-// in each.
+// in each, and the preview clips of flow 2, which belong to no attempt.
 func taskIDs(job store.Job, files []store.File, from, to int) []string {
-	var ids []string
+	ids := []string{PreviewID(job.ID)}
 	for a := from; a <= to; a++ {
 		ids = append(ids, probeID(job, a), LibraryProbeID(job.ID, a))
 		for _, f := range files {

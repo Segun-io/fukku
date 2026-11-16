@@ -198,8 +198,11 @@ same settings.
 | Setting | Environment | Default | Description |
 | --- | --- | --- | --- |
 | `merge.enabled` | `FUKKU_MERGE_ENABLED` | `true` | Offer merging a new language into the existing file (flow 2a) |
-| `merge.previewClips` | `FUKKU_MERGE_PREVIEW_CLIPS` | `3` | Sync-check clips (start, middle, end) |
-| `merge.previewClipLength` | `FUKKU_MERGE_PREVIEW_CLIP_LENGTH` | `20s` | Length of each clip |
+| `merge.previewClips` | `FUKKU_MERGE_PREVIEW_CLIPS` | `3` | Sync-check clips (start, middle, end; 1 to 10): the library file's video with the upload's audio, spread evenly from its start to its end (one clip: the middle) |
+| `merge.previewClipLength` | `FUKKU_MERGE_PREVIEW_CLIP_LENGTH` | `20s` | Length of each clip, at most `2m`; a film shorter than one clip gets one clip of its whole length |
+| `merge.previewHeight` | `FUKKU_MERGE_PREVIEW_HEIGHT` | `360` | Height of the clips in pixels (even, 144 to 2160); smaller videos are not scaled up. Higher costs the worker more CPU per clip |
+| `merge.previewVideoBitrate` | `FUKKU_MERGE_PREVIEW_VIDEO_BITRATE` | `800` | Cap of the clips' video bit rate, in kbit/s (100 to 20000); the audio is AAC at 96 kbit/s. A clip that grows past twice what the rates allow, plus 1 MiB, is stopped and refused (`too_large`) |
+| `merge.previewTimeout` | `FUKKU_MERGE_PREVIEW_TIMEOUT` | `5m` | Deadline of rendering one clip (the worker's ffmpeg run, at `worker.nice`); ffmpeg is killed at it and the preview fails with `timeout`. Decoding a large library file (4K HEVC, say) on a small CPU is the slow part |
 | `merge.languageTag` | `FUKKU_MERGE_LANGUAGE_TAG` | `es-419` | Default language tag (BCP 47) of added tracks |
 | `merge.trackName` | `FUKKU_MERGE_TRACK_NAME` | `Español (Latino)` | Default name of added audio tracks |
 | `merge.keepOriginalDefault` | `FUKKU_MERGE_KEEP_ORIGINAL_DEFAULT` | `true` | The original audio stays the default track |

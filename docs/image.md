@@ -25,9 +25,11 @@ checked by its demuxer and decoder names only: no VP8 or VP9 encoder is built.
 Only the encoders (`libx264`, `aac`, `mpeg4`, `pcm_s16le`, `mjpeg`, `png`, `subrip`, `ass`,
 `movtext`, `webvtt`, plus `wrapped_avframe` and `rawvideo` for null and raw output), muxers (`mp4`,
 `mov`, `matroska`, `webm`, `avi`, `mpegts`, `null`, `image2`, `mjpeg`) and protocols (`file`,
-`pipe`, `fd`) are limited. No network, no devices, no ffplay. If a feature (M3 previews and
-merges) needs another encoder, muxer or filter option, widen the `configure` lists in the
-`ffmpeg` stage and add a case to the smoke test.
+`pipe`, `fd`) are limited. No network, no devices, no ffplay. The sync-check clips of flow 2a
+(#53) need nothing more: `libx264` (no B-frames) and `aac` into a fragmented `mp4` written to
+`pipe`, from inputs read through `fd`, with the `scale`, `format`, `aresample`, `adelay` and
+`apad` filters. If a feature (M3 merges) needs another encoder, muxer or filter option, widen
+the `configure` lists in the `ffmpeg` stage and add a case to the smoke test.
 
 ## Maintenance: ffmpeg is no longer patched by Debian
 

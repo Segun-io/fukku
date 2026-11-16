@@ -16,6 +16,7 @@ const Version = 1
 const (
 	KindProbe   = "probe"   // args and output: #4
 	KindExtract = "extract" // args and output: #3
+	KindPreview = "preview" // flow 2a sync-check clips (#53; package preview); names the library file as KindLibraryProbe does
 	// KindLibraryProbe probes a library file for flow 2 (#52; media.LibraryProbeArgs). Its
 	// path is the one exception to job-relative paths: an absolute path that the worker
 	// reads only inside its paths.libraryRoots, read-only.
