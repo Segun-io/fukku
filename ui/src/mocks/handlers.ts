@@ -3,6 +3,7 @@
 
 import { HttpResponse, http } from "msw";
 import type { Job, JobAction, JobState, MatchRequest, Target } from "@/api/types";
+import { adminSettings, adminStatus } from "./admin-fixtures";
 import { jobs as fixtureJobs, jobDetail, session } from "./fixtures";
 import { mappingHandlers, resetMapping } from "./mapping-fixtures";
 import { apps, movieHits, searchMovies, searchSeries, seriesHits } from "./match-fixtures";
@@ -62,6 +63,14 @@ export const handlers = [
 
   http.get("/api/session", () =>
     HttpResponse.json({ ...session, user: { ...session.user, admin } }),
+  ),
+
+  // Admin endpoints (#69): a non-admin gets the answer of a path that does not exist.
+  http.get("/api/admin/status", () =>
+    admin ? HttpResponse.json(adminStatus) : failure(404, "not_found", "No such API endpoint."),
+  ),
+  http.get("/api/admin/settings", () =>
+    admin ? HttpResponse.json(adminSettings) : failure(404, "not_found", "No such API endpoint."),
   ),
 
   // Uploads belong to their owner alone, an admin included (#10).

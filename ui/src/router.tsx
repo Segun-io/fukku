@@ -8,6 +8,7 @@ import {
 } from "@tanstack/react-router";
 import { AppShell } from "@/components/shell/app-shell";
 import { NotFound } from "@/components/shell/states";
+import { AdminPage } from "@/pages/admin";
 import { JobDetailPage } from "@/pages/job-detail";
 import { JobsPage } from "@/pages/jobs";
 import { MappingPage } from "@/pages/mapping";
@@ -37,6 +38,12 @@ const jobRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/jobs/$id",
   component: JobDetailPage,
+});
+
+const adminRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/admin",
+  component: AdminPage,
 });
 
 const matchRoute = createRoute({
@@ -70,6 +77,7 @@ const routeTree = rootRoute.addChildren([
   jobRoute,
   matchRoute,
   mappingRoute,
+  adminRoute,
   ...devRoutes,
 ]);
 

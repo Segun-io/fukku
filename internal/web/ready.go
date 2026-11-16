@@ -2,10 +2,13 @@ package web
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
+	"strings"
 	"sync"
 	"time"
 
@@ -48,7 +51,9 @@ type arrCache struct {
 	mu    sync.Mutex
 	at    time.Time
 	check Check
-	set   bool
+	// version is what the app reported about itself, empty when it did not.
+	version string
+	set     bool
 }
 
 func (r *readiness) arr(name string) *arrCache {
@@ -77,6 +82,13 @@ func (s *Server) readyz(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) checkReadiness(ctx context.Context, withApps bool) Readiness {
+	res, _ := s.checkReadinessApps(ctx, withApps)
+	return res
+}
+
+// checkReadinessApps is checkReadiness that also returns what the apps said about
+// themselves (empty without withApps).
+func (s *Server) checkReadinessApps(ctx context.Context, withApps bool) (Readiness, []appAnswer) {
 	var checks []Check
 	add := func(name string, err error) bool {
 		c := Check{Name: name, OK: err == nil}
@@ -111,16 +123,17 @@ func (s *Server) checkReadiness(ctx context.Context, withApps bool) Readiness {
 			status = statusNotReady
 		}
 	}
+	var answers []appAnswer
 	if withApps {
-		apps := s.checkApps(ctx)
-		for _, c := range apps {
-			if !c.OK && status == statusReady {
+		answers = s.checkApps(ctx)
+		for _, a := range answers {
+			if !a.check.OK && status == statusReady {
 				status = statusDegraded
 			}
+			checks = append(checks, a.check)
 		}
-		checks = append(checks, apps...)
 	}
-	return Readiness{Status: status, Checks: checks}
+	return Readiness{Status: status, Checks: checks}, answers
 }
 
 func (s *Server) heartbeat() error {
@@ -135,13 +148,13 @@ func (s *Server) heartbeat() error {
 }
 
 // checkApps asks the configured apps in parallel, each answer cached for
-// server.readinessCacheTtl.
-func (s *Server) checkApps(ctx context.Context) []Check {
+// server.readinessCacheTtl. Only the configured apps are in the answer.
+func (s *Server) checkApps(ctx context.Context) []appAnswer {
 	apps := []struct {
 		name string
 		cfg  config.Arr
 	}{{"radarr", s.cfg.Radarr}, {"sonarr", s.cfg.Sonarr}}
-	out := make([]Check, len(apps))
+	out := make([]appAnswer, len(apps))
 	enabled := make([]bool, len(apps))
 	var wg sync.WaitGroup
 	for i, a := range apps {
@@ -152,40 +165,46 @@ func (s *Server) checkApps(ctx context.Context) []Check {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			out[i] = s.cachedAppCheck(ctx, a.name, a.cfg)
+			out[i] = s.cachedAppAnswer(ctx, a.name, a.cfg)
 		}()
 	}
 	wg.Wait()
-	var checks []Check
+	var answers []appAnswer
 	for i := range apps {
 		if enabled[i] {
-			checks = append(checks, out[i])
+			answers = append(answers, out[i])
 		}
 	}
-	return checks
+	return answers
 }
 
-func (s *Server) cachedAppCheck(ctx context.Context, name string, a config.Arr) Check {
+// appAnswer is what one app said: the check, and its version when it gave one.
+type appAnswer struct {
+	check   Check
+	version string
+}
+
+func (s *Server) cachedAppAnswer(ctx context.Context, name string, a config.Arr) appAnswer {
 	c := s.ready.arr(name)
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	ttl := s.cfg.Server.ReadinessCacheTTL.D()
 	if c.set && ttl > 0 && s.ready.now().Sub(c.at) < ttl {
-		return c.check
+		return appAnswer{c.check, c.version}
 	}
-	c.check = checkApp(ctx, name, a)
+	c.check, c.version = checkApp(ctx, name, a)
 	c.at = s.ready.now()
 	c.set = true
-	return c.check
+	return appAnswer{c.check, c.version}
 }
 
-// checkApp calls GET <url>/api/v3/system/status with the API key. The answer's body is
-// never read into the result.
-func checkApp(ctx context.Context, name string, a config.Arr) Check {
+// checkApp calls GET <url>/api/v3/system/status with the API key. Of the answer's body only
+// the version string is kept (never in the Check); nothing else is read into the result.
+func checkApp(ctx context.Context, name string, a config.Arr) (Check, string) {
 	timeout := a.RequestTimeout.D()
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	fail := func(detail string) Check { return Check{Name: name, Detail: detail} }
+	fail := func(detail string) (Check, string) { return Check{Name: name, Detail: detail}, "" }
 
 	target, err := url.JoinPath(a.URL, "api/v3/system/status")
 	if err != nil {
@@ -203,9 +222,28 @@ func checkApp(ctx context.Context, name string, a config.Arr) Check {
 		}
 		return fail(name + " is unreachable")
 	}
-	_ = resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return fail(fmt.Sprintf("%s answered HTTP %d", name, resp.StatusCode))
 	}
-	return Check{Name: name, OK: true}
+	var body struct {
+		Version string `json:"version"`
+	}
+	_ = json.NewDecoder(io.LimitReader(resp.Body, 1<<16)).Decode(&body)
+	return Check{Name: name, OK: true}, cleanVersion(body.Version)
+}
+
+// cleanVersion keeps a plausible version string (letters, digits, dot, dash, plus,
+// underscore) and drops anything else, so an app cannot put text of its choosing in the
+// admin page.
+func cleanVersion(v string) string {
+	if len(v) > 40 {
+		return ""
+	}
+	for _, r := range v {
+		if (r < '0' || r > '9') && (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && !strings.ContainsRune(".-+_", r) {
+			return ""
+		}
+	}
+	return v
 }
