@@ -25,6 +25,11 @@ Value formats:
 `fukku check-config` loads and validates a configuration and prints it with secrets
 redacted. A test keeps this table and the code in step.
 
+Administrators see the same effective settings, each marked default or set, on the `/admin`
+page (`GET /api/admin/settings`), next to the server's health (`GET /api/admin/status`).
+The page is read-only: nothing changes a setting at runtime, and secrets are never sent.
+Others get 404 on both endpoints.
+
 ## Process
 
 | Setting | Environment | Default | Description |

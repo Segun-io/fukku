@@ -3,6 +3,7 @@ package config
 import (
 	"bytes"
 	"encoding"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -77,6 +78,24 @@ func Leaves(cfg *Config) []Leaf {
 	var out []Leaf
 	walk(reflect.ValueOf(cfg).Elem(), nil, &out)
 	return out
+}
+
+// Value renders the setting's current value for display. A secret shows as Secret.String
+// does (empty when unset, "[redacted]" otherwise), never its content; a list of path
+// mappings shows as JSON, the form the environment takes.
+func (l Leaf) Value() string {
+	if l.value.Type() == secretType {
+		return l.value.Interface().(Secret).String()
+	}
+	if l.value.Kind() == reflect.Slice && l.value.Type().Elem().Kind() != reflect.String {
+		if l.value.Len() == 0 {
+			return ""
+		}
+		if b, err := json.Marshal(l.value.Interface()); err == nil {
+			return string(b)
+		}
+	}
+	return Format(l.value)
 }
 
 var (

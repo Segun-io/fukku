@@ -17,6 +17,7 @@ func (s *Server) routes(mux *http.ServeMux) {
 	s.matchRoutes(mux)    // #37
 	s.proposalRoutes(mux) // #38
 	s.confirmRoutes(mux)  // #40
+	s.adminRoutes(mux)    // #69
 	mux.Handle(uploadsPath, s.uploadsHandler())
 	mux.HandleFunc("/api/", apiNotFound)
 	mux.Handle("/", s.spa())

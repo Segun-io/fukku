@@ -94,6 +94,32 @@ export type Session = {
   };
 };
 
+// ---- Admin: health and settings (#69) ---------------------------------------------------
+
+export type ReadinessCheck = { name: string; ok: boolean; detail?: string };
+
+export type AdminStatus = {
+  version: string;
+  readiness: { status: "ready" | "degraded" | "not_ready"; checks: ReadinessCheck[] };
+  /** The configured apps and the version each reported; empty when it did not answer. */
+  apps: { name: string; version: string }[];
+  worker: { heartbeatAgeSeconds: number | null; maxAgeSeconds: number };
+  jobs: { total: number; byState: Record<string, number> } | null;
+  disk: { freeBytes: number | null; marginBytes: number; aboveMargin: boolean };
+  checkedAt: string;
+};
+
+export type AdminSetting = {
+  key: string;
+  env: string;
+  secret: boolean;
+  /** For a secret: empty (not set) or "[redacted]". The server never sends its content. */
+  value: string;
+  source: "default" | "set";
+};
+
+export type AdminSettings = { settings: AdminSetting[] };
+
 // ---- Media probe (#4) -----------------------------------------------------------------
 
 export type VideoTrack = {

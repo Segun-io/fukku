@@ -427,6 +427,16 @@ One column of the flow's width. From top to bottom:
 6. The one action: "Start upload" (full width on a phone), later "Discard this upload" as
    an outline button under a hairline. Discarding asks first once bytes were sent.
 
+### Admin (`/admin`)
+
+Linked in the header for administrators only; for anyone else the route is the not-found
+page. Read-only (settings are file-only, plan §11). Two sections under hairlines: **Health**
+(a `Notice` that says ready, degraded or not ready, then the checks as rows, then apps,
+worker, disk space and uploads by state in two columns, with "Check again") and
+**Settings** (grouped by the first part of the key; each row is the key, its value, whether
+it is the default or set, and its environment name; a secret shows "Set, hidden" or "Not
+set", never its value; one checkbox limits the list to what is not the default).
+
 ### Your uploads (`/jobs`)
 
 The full width of the shell. `SelectField` filters, the count, then rows divided by
