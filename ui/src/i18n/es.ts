@@ -1,0 +1,71 @@
+import type en from "./en";
+
+// Spanish. Typed against the English catalogue: a missing or extra key does not compile.
+// Spanish plurals use `one`, `many` (millions) and `other`; `other` covers the rest.
+const es: Record<keyof typeof en, string> = {
+  "shell.skip": "Saltar al contenido",
+  "shell.language": "Idioma",
+  "shell.insecureDev": "La autenticación está desactivada. Úsalo solo para desarrollo.",
+  "nav.upload": "Subir",
+  "nav.jobs": "Trabajos",
+
+  "upload.title": "Subir",
+  "upload.placeholder": "La subida de archivos llegará en una versión posterior.",
+
+  "jobs.title": "Trabajos",
+  "jobs.loading": "Cargando trabajos…",
+  "jobs.empty": "Todavía no hay trabajos.",
+  "jobs.count.one": "{count} trabajo",
+  "jobs.count.other": "{count} trabajos",
+  "jobs.files.one": "{count} archivo",
+  "jobs.files.other": "{count} archivos",
+  "jobs.unnamed": "Trabajo sin nombre",
+
+  "job.title": "Trabajo",
+  "job.loading": "Cargando el trabajo…",
+  "job.back": "Volver a los trabajos",
+  "job.state": "Estado",
+  "job.updated": "Actualizado {date}",
+  "job.size": "Tamaño: {size}",
+  "job.files": "Archivos",
+
+  "state.uploading": "Subiendo",
+  "state.uploaded": "Subido",
+  "state.probing": "Comprobando",
+  "state.probed": "Comprobado",
+  "state.matched": "Identificado",
+  "state.awaiting-confirmation": "Esperando tu confirmación",
+  "state.importing": "Importando",
+  "state.imported": "Importado",
+  "state.post-processing": "Terminando",
+  "state.done": "Listo",
+  "state.failed": "Fallido",
+  "state.stalled": "Detenido",
+  "state.cancelled": "Cancelado",
+
+  "errors.unknown": "Algo salió mal.",
+  "errors.signed_out": "Tu sesión terminó. Vuelve a iniciar sesión.",
+  "errors.network": "No se puede contactar con el servidor. Revisa tu conexión.",
+  "errors.bad_response": "El servidor envió una respuesta que la página no puede leer.",
+  "errors.forbidden": "No tienes permiso para hacer eso.",
+  "errors.origin_mismatch": "La petición vino de otro sitio y fue rechazada.",
+  "errors.not_found": "No encontrado.",
+  "errors.bad_request": "La petición no es válida.",
+  "errors.too_large": "La petición es demasiado grande.",
+  "errors.internal": "El servidor tuvo un problema. Inténtalo más tarde.",
+  "errors.uploads_unfinished": "Algunas subidas todavía no han terminado.",
+  "errors.no_files": "Añade al menos un archivo primero.",
+  "errors.wrong_state": "No es posible en el estado actual del trabajo.",
+  "errors.job_active": "El trabajo sigue en marcha.",
+  "errors.bad_name": "El nombre del archivo no es válido.",
+  "errors.job_not_uploading": "El trabajo ya no acepta subidas.",
+  "errors.duplicate_name": "Ya se añadió un archivo con este nombre.",
+  "errors.file_too_large": "El archivo es más grande de lo que permite el servidor.",
+  "errors.extension_not_allowed": "Este tipo de archivo no se acepta.",
+  "errors.too_many_uploads": "Demasiadas subidas a la vez. Espera a que termine alguna.",
+  "errors.in_flight_limit": "El servidor está recibiendo todo lo que puede. Inténtalo más tarde.",
+  "errors.insufficient_space": "El servidor no tiene suficiente espacio libre.",
+  "errors.storage_unavailable": "El almacenamiento no está disponible ahora. Inténtalo más tarde.",
+};
+
+export default es;

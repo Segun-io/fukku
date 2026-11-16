@@ -77,8 +77,8 @@ ui-deps: $(DEV_DEP)
 	$(IN_DEV) bash -c 'cd ui && if [ ! -f node_modules/.package-lock.json ] || [ package-lock.json -nt node_modules/.package-lock.json ]; then npm ci --no-audit; fi'
 
 .PHONY: ui-check
-ui-check: ui-deps ## lint, type-check and build the UI
-	$(IN_DEV) bash -c 'cd ui && npm run lint && npm run build'
+ui-check: ui-deps ## lint, unit tests, type-check and build the UI
+	$(IN_DEV) bash -c 'cd ui && npm run lint && npm test && npm run build'
 
 .PHONY: secrets
 secrets: $(DEV_DEP) ## scan the working tree (and history, once there is one) for secrets
