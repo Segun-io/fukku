@@ -40,6 +40,15 @@ fukku worker --config fukku.yaml                 # the worker process
 The web process keeps its state in one SQLite file in `server.dataDir` (local disk only);
 how to back it up while Fukku runs is in [docs/backup.md](docs/backup.md).
 
+## Metrics
+
+Set `server.metrics: true` (`FUKKU_SERVER_METRICS=true`) and the web process serves Prometheus
+metrics on `/metrics`: uploads in flight and their bytes, bytes received, jobs by state, worker
+task durations by kind and outcome, imports by app and outcome (submitted, imported, failed), and readiness per check. No
+label carries a user, file name or title. Like `/readyz`, it is open to a loopback address and
+otherwise needs an admin through the reverse proxy, so a scraper on the same host needs no
+credentials; with the setting off the path is a 404. See [docs/settings.md](docs/settings.md).
+
 ## Try it locally
 
 Fukku runs next to a local Radarr, Sonarr, Bazarr and Jellyfin (fake API keys, 127.0.0.1 only)

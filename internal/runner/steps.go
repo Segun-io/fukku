@@ -550,6 +550,7 @@ func (r *Runner) ack(ctx context.Context, id string) error {
 }
 
 func (r *Runner) finished(job store.Job, res spool.Result) {
+	r.metrics.ObserveTask(res)
 	attrs := []any{"job", job.ID, "kind", res.Kind, "task", res.ID, "status", res.Status,
 		"duration", res.Finished.Sub(res.Started)}
 	if res.Error != nil {

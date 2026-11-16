@@ -35,6 +35,7 @@ import (
 	"github.com/segun-io/fukku/internal/config"
 	"github.com/segun-io/fukku/internal/fscheck"
 	"github.com/segun-io/fukku/internal/jobdir"
+	"github.com/segun-io/fukku/internal/metrics"
 	"github.com/segun-io/fukku/internal/store"
 )
 
@@ -66,6 +67,8 @@ type Options struct {
 	// FreeSpace returns the bytes available on the filesystem that holds dir; nil means the
 	// operating system's answer. Tests replace it.
 	FreeSpace func(dir string) (int64, error)
+	// Metrics counts the bytes received; nil: not counted.
+	Metrics *metrics.Set
 }
 
 // Handler serves /api/uploads/. It is safe for concurrent use.
@@ -80,6 +83,7 @@ type Handler struct {
 	st         store.Store
 	now        func() time.Time
 	freeSpace  func(string) (int64, error)
+	metrics    *metrics.Set
 
 	tus    *tusd.UnroutedHandler
 	tusMW  http.Handler
@@ -632,6 +636,7 @@ type progressBody struct {
 func (b *progressBody) Read(p []byte) (int, error) {
 	n, err := b.ReadCloser.Read(p)
 	b.n += int64(n)
+	b.h.metrics.AddBytesReceived(int64(n))
 	if now := b.h.now(); now.Sub(b.last) >= progressEvery {
 		b.last = now
 		b.h.noteProgress(context.Background(), b.id, b.start+b.n)

@@ -51,7 +51,8 @@ var (
 // client sends can make it look like the proxy.
 //
 // Two routes need no user: GET /healthz from anywhere, and GET /readyz from a loopback
-// address (the container's health check). /readyz from anywhere else needs an admin.
+// address (the container's health check). /readyz from anywhere else needs an admin. GET
+// /metrics follows the same rule as /readyz (a scraper on the host, or an admin).
 func Middleware(cfg config.Config, log *slog.Logger) func(http.Handler) http.Handler {
 	var authenticate func(r *http.Request, addr netip.Addr) (User, *refusal)
 	switch a := cfg.Auth; a.Mode {
@@ -72,7 +73,8 @@ func Middleware(cfg config.Config, log *slog.Logger) func(http.Handler) http.Han
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			addr := remoteAddr(r)
-			readyz := isProbe(r, "/readyz")
+			// /readyz and /metrics share one rule: loopback needs no user, anyone else an admin.
+			readyz := isProbe(r, "/readyz") || isProbe(r, "/metrics")
 			if isProbe(r, "/healthz") || (readyz && addr.IsLoopback()) {
 				next.ServeHTTP(w, r)
 				return

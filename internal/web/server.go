@@ -39,7 +39,7 @@ type Server struct {
 func New(cfg config.Config, log *slog.Logger, ui fs.FS, deps Deps) *Server {
 	s := &Server{cfg: cfg, log: log, ui: ui, deps: deps, now: time.Now}
 	if deps.Store != nil {
-		h, err := uploads.New(uploads.Options{Config: cfg, Log: log, Store: deps.Store})
+		h, err := uploads.New(uploads.Options{Config: cfg, Log: log, Store: deps.Store, Metrics: deps.Metrics})
 		if err != nil {
 			log.Error("uploads_unavailable", "error", err)
 		} else {

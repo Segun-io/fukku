@@ -44,7 +44,7 @@ Others get 404 on both endpoints.
 | `server.publicBaseUrl` | `FUKKU_SERVER_PUBLIC_BASE_URL` | (empty) | External URL users open, e.g. `https://fukku.example.com`. Used for the Origin check (only this origin, scheme included, may change state) and links; empty means the request's own `Host` (then the proxy must pass the original `Host` through) |
 | `server.uiLanguages` | `FUKKU_SERVER_UI_LANGUAGES` | `en, es` | UI languages offered; the first is the fallback |
 | `server.logFormat` | `FUKKU_SERVER_LOG_FORMAT` | `logfmt` | `logfmt` or `json` |
-| `server.metrics` | `FUKKU_SERVER_METRICS` | `false` | Serve Prometheus metrics on `/metrics` |
+| `server.metrics` | `FUKKU_SERVER_METRICS` | `false` | Serve Prometheus metrics on `/metrics` (web process; 404 when off). Same access rule as `/readyz`: a loopback address needs no user, anyone else must be an admin through the proxy. Series, with no user, file or title in any label: `fukku_uploads_in_flight`, `fukku_uploads_in_flight_bytes`, `fukku_upload_received_bytes_total`, `fukku_jobs{state}`, `fukku_task_duration_seconds{kind,outcome}` (histogram), `fukku_imports_total{app,outcome}` (outcome `submitted`, `imported` or `failed`), `fukku_ready{check}`. Counters and the histogram restart at 0 with the process |
 | `server.dataDir` | `FUKKU_SERVER_DATA_DIR` | `/var/lib/fukku` | Database (`fukku.db`) and local state. Must be local disk, never network storage (SQLite). The web process refuses to start when it is not writable, when another process has it open (lock file `fukku.lock`), or when it is on a network filesystem. That check is best effort, by filesystem type, on Linux: NFS, SMB/CIFS, AFS, Coda, NCP, Ceph, 9p (also WSL's Windows drives), GPFS and Lustre are refused; FUSE is allowed, since it is mostly local. Backup: [backup.md](backup.md) |
 | `server.jobStuckAfter` | `FUKKU_SERVER_JOB_STUCK_AFTER` | `1h` | A failed or stalled job older than this logs `job_stuck` once a minute. An importing job whose Manual Import command has not ended after this long (the app keeps it queued or started) can be cancelled by an admin; before that nobody can cancel it. The cancellation is audited as `import.abandoned` with the app and the command id, because the app may still finish the import afterwards |
 | `server.readinessCacheTtl` | `FUKKU_SERVER_READINESS_CACHE_TTL` | `15s` | How long `/readyz` reuses the answer of the Radarr and Sonarr checks, so polling does not hit them every time. `0` turns the cache off |
@@ -61,13 +61,14 @@ Fukku accepts a request only when the connection comes from `trustedProxies` and
 user header; everything else gets 403 and is logged as `auth_refused` with the reason and the
 remote address. The proxy must remove these headers from what clients send and set them
 itself. Two paths need no user: `GET /healthz` from anywhere and `GET /readyz` from a loopback
-address (the container's health check); `/readyz` from elsewhere needs an admin. With `none`
+address (the container's health check); `/readyz` from elsewhere needs an admin. `GET /metrics`
+(when `server.metrics` is on) follows the same rule as `/readyz`. With `none`
 every request is the admin user `dev`, and the UI shows a warning banner.
 
 | Setting | Environment | Default | Description |
 | --- | --- | --- | --- |
 | `auth.mode` | `FUKKU_AUTH_MODE` | `proxyHeaders` | `proxyHeaders`: a reverse proxy authenticates users and passes headers. `oidc`: backlog. `none`: development only, refuses to start without `--insecure-dev` |
-| `auth.trustedProxies` | `FUKKU_AUTH_TRUSTED_PROXIES` | (empty) | Addresses or CIDRs the reverse proxy connects from. Required for `proxyHeaders`; requests from anywhere else get 403. Only the connection's own address counts, never `X-Forwarded-For` or similar; an IPv4-mapped IPv6 address matches its IPv4 entry. `GET /readyz` is open to loopback addresses without a user, so if the proxy runs on the same host and connects from loopback, anyone it lets through can read `/readyz` |
+| `auth.trustedProxies` | `FUKKU_AUTH_TRUSTED_PROXIES` | (empty) | Addresses or CIDRs the reverse proxy connects from. Required for `proxyHeaders`; requests from anywhere else get 403. Only the connection's own address counts, never `X-Forwarded-For` or similar; an IPv4-mapped IPv6 address matches its IPv4 entry. `GET /readyz` is open to loopback addresses without a user, so if the proxy runs on the same host and connects from loopback, anyone it lets through can read `/readyz` and `/metrics` |
 | `auth.userHeader` | `FUKKU_AUTH_USER_HEADER` | `Remote-User` | Header with the user name. Requests without a usable one get 403: missing, empty, repeated, longer than 256 bytes, not UTF-8 or with control characters |
 | `auth.emailHeader` | `FUKKU_AUTH_EMAIL_HEADER` | `Remote-Email` | Header with the user's email (optional, shown in the audit log). When sent, the same rules as the user header apply; set it empty to read no such header |
 | `auth.groupsHeader` | `FUKKU_AUTH_GROUPS_HEADER` | `Remote-Groups` | Header with the user's groups (optional). Repeated or with control characters gets 403; set it empty to read no such header |

@@ -20,6 +20,7 @@ import (
 	"github.com/segun-io/fukku/internal/arr"
 	"github.com/segun-io/fukku/internal/fscheck"
 	"github.com/segun-io/fukku/internal/jobdir"
+	"github.com/segun-io/fukku/internal/metrics"
 	"github.com/segun-io/fukku/internal/store"
 )
 
@@ -68,6 +69,7 @@ type Engine struct {
 	st    store.Store
 	locks *JobLocks
 	steps []PostStep
+	m     *metrics.Set // import outcomes; nil: none
 
 	// checkStorage runs the filesystem checks of plan §9 before a confirmation and before
 	// each submission. Tests replace it.
@@ -78,6 +80,10 @@ type Engine struct {
 	running map[string]bool      // jobs whose post-processing goroutine runs
 	wg      sync.WaitGroup
 }
+
+// SetMetrics makes the engine count its imports (submitted, imported, failed) in m. Call it
+// before the runner starts.
+func (e *Engine) SetMetrics(m *metrics.Set) { e.m = m }
 
 // NewEngine builds the import engine on p.
 func NewEngine(p *Proposals) *Engine {
@@ -532,12 +538,14 @@ func (e *Engine) submit(ctx context.Context, job store.Job, w work, got []bool) 
 		}
 		// The app answered and refused: there is no command.
 		e.forget(job.ID)
+		e.m.ObserveImport(w.t.App, metrics.ImportFailed)
 		return e.p.move(ctx, job, &w.t, store.Failed, store.Change{ErrorCode: CodeImportFailed, ErrorText: text})
 	}
 	imp.CommandID = id
 	if err := e.st.PutImport(ctx, imp); err != nil {
 		return err
 	}
+	e.m.ObserveImport(w.t.App, metrics.ImportSubmitted)
 	e.log.Info("import_submitted", "job", job.ID, "app", w.t.App, "command", id, "files", len(send), "mode", mode)
 	return nil
 }
@@ -560,6 +568,7 @@ func (e *Engine) finish(ctx context.Context, job store.Job, w work) error {
 		}
 	}
 	e.forget(job.ID)
+	e.m.ObserveImport(w.t.App, metrics.ImportImported)
 	return e.p.move(ctx, job, &w.t, store.Imported, store.Change{Note: fmt.Sprintf("%d file(s) imported by %s", len(w.plan), w.t.App)})
 }
 
@@ -584,6 +593,7 @@ func (e *Engine) failed(ctx context.Context, job store.Job, w work, got []bool, 
 		return err
 	}
 	e.forget(job.ID)
+	e.m.ObserveImport(w.t.App, metrics.ImportFailed)
 	return e.p.move(ctx, job, &w.t, store.Failed, store.Change{
 		ErrorCode: CodeImportFailed,
 		ErrorText: fmt.Sprintf("%s: %s; not imported: %s", w.t.App, why, strings.Join(missing, ", ")),
@@ -618,6 +628,7 @@ func (e *Engine) markRows(ctx context.Context, job store.Job, plan []planned, go
 // fail fails the job (a refusal, before the app was asked to import).
 func (e *Engine) fail(ctx context.Context, job store.Job, t store.Target, code, text string) error {
 	e.forget(job.ID)
+	e.m.ObserveImport(t.App, metrics.ImportFailed)
 	return e.p.move(ctx, job, &t, store.Failed, store.Change{ErrorCode: code, ErrorText: t.App + ": " + text})
 }
 

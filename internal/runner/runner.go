@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/segun-io/fukku/internal/config"
+	"github.com/segun-io/fukku/internal/metrics"
 	"github.com/segun-io/fukku/internal/spool"
 	"github.com/segun-io/fukku/internal/store"
 	"github.com/segun-io/fukku/internal/worker"
@@ -56,6 +57,8 @@ type Runner struct {
 	// resumes holds, by error code, when a job stalled with that code may go on (ResumeWhen).
 	resumes map[string]resume
 
+	metrics *metrics.Set // task durations; nil: none
+
 	freeSpace func(dir string) (int64, error) // bytes free on dir's filesystem; replaced in tests
 
 	// For logging and pacing only; no decision depends on them.
@@ -77,6 +80,10 @@ func New(cfg config.Config, log *slog.Logger, st store.Store, q spool.Queue, now
 	}
 	return r
 }
+
+// SetMetrics makes the runner record the duration of every task result it uses. Call it
+// before Run.
+func (r *Runner) SetMetrics(m *metrics.Set) { r.metrics = m }
 
 // Handle registers the step for jobs in a state. M2 registers matched, importing,
 // imported and post-processing. Call it before Run.
