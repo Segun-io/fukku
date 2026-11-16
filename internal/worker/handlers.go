@@ -17,8 +17,8 @@ import (
 )
 
 // Handlers returns the worker's task handlers: probe and libraryProbe (package media),
-// preview (package preview) and extract (package extract), with their settings taken from
-// cfg.
+// preview (package preview), extract (package extract) and merge (package merge), with
+// their settings taken from cfg.
 func Handlers(cfg config.Config) map[string]Handler {
 	probe := media.OptionsFrom(cfg)
 	limits := extract.LimitsFrom(cfg)
@@ -44,6 +44,7 @@ func Handlers(cfg config.Config) map[string]Handler {
 			}
 			return out, err
 		},
+		spool.KindMerge: mergeHandler(cfg),
 		// The library probe (#52) does not use the job directory: it reads the library file,
 		// confined to this process's own paths.libraryRoots (media.RunLibrary).
 		spool.KindLibraryProbe: func(ctx context.Context, _ *os.Root, raw json.RawMessage) (any, error) {

@@ -183,6 +183,7 @@ type Merge struct {
 	LanguageTag                 string   `yaml:"languageTag"`
 	TrackName                   string   `yaml:"trackName"`
 	KeepOriginalDefault         bool     `yaml:"keepOriginalDefault"`
+	CoverageTolerance           Duration `yaml:"coverageTolerance"`
 	UnmonitorAfterMerge         bool     `yaml:"unmonitorAfterMerge"`
 	UnmonitorAfterDubOnlyImport bool     `yaml:"unmonitorAfterDubOnlyImport"`
 }

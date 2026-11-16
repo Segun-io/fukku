@@ -286,3 +286,32 @@ func TestParsePrefix(t *testing.T) {
 		}
 	}
 }
+
+// The merge (#54) hands merge.languageTag and merge.trackName to mkvmerge: a tag that is
+// not BCP 47, or a name with control characters, is refused at start-up.
+func TestMergeTagAndName(t *testing.T) {
+	for env, want := range map[string]string{
+		"FUKKU_MERGE_LANGUAGE_TAG=":                          "merge.languageTag",
+		"FUKKU_MERGE_LANGUAGE_TAG=Spanish Latin":             "merge.languageTag",
+		"FUKKU_MERGE_LANGUAGE_TAG=en_US":                     `use "en-US"`, // mkvmerge refuses it
+		"FUKKU_MERGE_LANGUAGE_TAG=iw":                        `use "he"`,    // mkvmerge rewrites these
+		"FUKKU_MERGE_LANGUAGE_TAG=zh-yue":                    `use "yue"`,
+		"FUKKU_MERGE_LANGUAGE_TAG=sgn-BE-FR":                 `use "sfb"`,
+		"FUKKU_MERGE_LANGUAGE_TAG=ES-419":                    `use "es-419"`,
+		"FUKKU_MERGE_LANGUAGE_TAG=sgn-BR":                    "bzs, not sgn-BR", // mkvmerge stores bzs
+		"FUKKU_MERGE_COVERAGE_TOLERANCE=0s":                  "merge.coverageTolerance",
+		"FUKKU_MERGE_COVERAGE_TOLERANCE=2m":                  "merge.coverageTolerance",
+		"FUKKU_MERGE_TRACK_NAME=a\tb":                        "merge.trackName",
+		"FUKKU_MERGE_TRACK_NAME=" + strings.Repeat("n", 257): "merge.trackName",
+	} {
+		err := Validate(mustLoad(t, Options{Environ: []string{env}}), RoleWorker, ValidateOptions{})
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%.40s: %v, want %s", env, err, want)
+		}
+	}
+	for _, env := range []string{"FUKKU_MERGE_LANGUAGE_TAG=pt-BR", "FUKKU_MERGE_LANGUAGE_TAG=es", "FUKKU_MERGE_LANGUAGE_TAG=sr-Latn-RS", "FUKKU_MERGE_LANGUAGE_TAG=yue", "FUKKU_MERGE_LANGUAGE_TAG=bzs", "FUKKU_MERGE_TRACK_NAME=", "FUKKU_MERGE_TRACK_NAME=Português (Brasil)"} {
+		if err := Validate(mustLoad(t, Options{Environ: []string{env}}), RoleWorker, ValidateOptions{}); err != nil {
+			t.Errorf("%s: %v", env, err)
+		}
+	}
+}

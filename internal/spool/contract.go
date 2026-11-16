@@ -23,6 +23,11 @@ const (
 	KindLibraryProbe = "libraryProbe"
 )
 
+// KindMerge merges the chosen tracks of an upload into a copy of a film's library file and
+// verifies it (flow 2a, #54; merge.Args). Its library path is absolute, like
+// KindLibraryProbe's, and read only inside the worker's paths.libraryRoots, read-only.
+const KindMerge = "merge"
+
 // Task is <spool>/tasks/<ID>.json, written by the web process.
 type Task struct {
 	V       int             `json:"v"`
@@ -30,7 +35,7 @@ type Task struct {
 	Kind    string          `json:"kind"`
 	Job     string          `json:"job"` // job id: the task may touch only <intakeRoot>/jobs/<job>/
 	Created time.Time       `json:"created"`
-	Args    json.RawMessage `json:"args"` // per kind; every path in it is job-relative (one exception: KindLibraryProbe)
+	Args    json.RawMessage `json:"args"` // per kind; every path in it is job-relative (exceptions: the library file of KindLibraryProbe, KindPreview and KindMerge)
 }
 
 // Result is <spool>/results/<ID>.json, written by the worker.

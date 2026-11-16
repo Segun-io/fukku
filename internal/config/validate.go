@@ -287,6 +287,7 @@ func validateShared(p *problems, cfg Config) {
 	if w.HeartbeatMaxAge <= w.HeartbeatInterval {
 		p.add("worker.heartbeatMaxAge", "must be longer than worker.heartbeatInterval")
 	}
+	validateMergeTrack(p, cfg.Merge)
 }
 
 func oneOf(p *problems, key, val string, allowed ...string) {

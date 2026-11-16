@@ -113,6 +113,7 @@ func Defaults() Config {
 			LanguageTag:                 "es-419",
 			TrackName:                   "Español (Latino)",
 			KeepOriginalDefault:         true,
+			CoverageTolerance:           Duration(3 * time.Second),
 			UnmonitorAfterMerge:         true,
 			UnmonitorAfterDubOnlyImport: true,
 		},
