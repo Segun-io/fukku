@@ -31,7 +31,8 @@ docker run --rm --network none --read-only --cap-drop ALL --tmpfs /tmp --entrypo
   # What the worker accepts (internal/media/probe.go formatWhitelist, upload.videoExtensions):
   # every demuxer and decoder it can meet must be in this build. Names are as ffprobe lists them.
   demuxers=$(ffprobe -v error -demuxers)
-  for d in matroska,webm mov,mp4 avi mpegts; do
+  # (the first four are the upload list; mpeg, asf, flv and ogg are worker.libraryFormats' defaults)
+  for d in matroska,webm mov,mp4 avi mpegts mpeg asf flv ogg; do
     echo "$demuxers" | grep -Eq " $d[ ,]" || { echo "missing demuxer $d" >&2; exit 1; }
   done
   decoders=$(ffprobe -v error -decoders)

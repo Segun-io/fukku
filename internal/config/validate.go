@@ -376,4 +376,5 @@ var demuxerName = regexp.MustCompile(`^[a-z0-9_+]+$`)
 // networkDemuxers are demuxers that follow references to other files or URLs (playlists,
 // scripts, streaming protocols). The worker also allows only the "fd" protocol, but they
 // have no place in a whitelist of container formats.
-var networkDemuxers = []string{"hls", "applehttp", "dash", "concat", "rtsp", "rtp", "sdp", "mpegtsraw_http", "ffconcat", "smoothstreaming", "rtmp"}
+// Names are ffprobe 7.1's demuxers (`ffprobe -demuxers`).
+var networkDemuxers = []string{"hls", "dash", "concat", "rtsp", "rtp", "sdp", "sap", "imf"}

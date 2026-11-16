@@ -343,30 +343,80 @@ func TestConfirmRefusesFlow2(t *testing.T) {
 }
 
 // A probe of a file whose size is not the tracked file's (Radarr replaced the file under
-// the same name between the match and the probe) is not used: the job fails, and nothing
-// is stored.
-func TestFlow2StaleProbeFailsTheJob(t *testing.T) {
+// the same name between the match and the probe) is not used: the job goes back to probed
+// without its target, so that matching it again asks Radarr again, and then it works.
+func TestFlow2StaleProbeSendsTheJobBackToProbed(t *testing.T) {
 	stale := libProbe(filmMinutes)
 	stale.Size = 4001 // the tracked file has 4000 bytes
 	x := newFlow2Env(t)
 	j := x.matched(x.flow2Job(filmMinutes))
-	x.worker(media.LibraryProbeOutput{Path: x.record(j).Library.Path, OK: true, Media: stale})
+	x.worker(media.LibraryProbeOutput{Path: x.record(j).Library.Path, FileID: 12, TrackedSize: 4000, OK: true, Media: stale})
 	j = x.matched(j)
-	if j.State != store.Failed || j.ErrorCode != CodeLibraryUnreadable || !strings.Contains(j.ErrorText, "changed since the match") {
+	if j.State != store.Probed || j.ErrorCode != "" {
 		t.Fatalf("job %s %s %q", j.State, j.ErrorCode, j.ErrorText)
 	}
-	if x.record(j).Library.Probe != nil {
-		t.Error("the stale probe was stored")
+	if _, err := x.st.Target(x.ctx, j.ID); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("the target (and the stale record) is still there: %v", err)
 	}
 	x.noLeftovers(j)
 
-	// A probe stored for another file (older data) fails the same way.
+	// Radarr tracks the new file now; the user matches the film again.
+	x.movies.Library[0].TMDBID = 604
+	x.movies.Results = []arr.Movie{{TMDBID: 604, Title: "Some Film", Year: 2001}}
+	x.movies.Library[0].HasFile = true
+	nf := libFile()
+	nf.Size = 4001
+	x.movies.Library[0].File = nf
+	cfg := x.cfg
+	cfg.Radarr.URL = "http://radarr.example.com:7878"
+	m := NewMatcher(cfg, x.st, x.movies, x.series, x.p.locks, nil)
+	if _, err := m.Match(x.ctx, "user1", j, MatchRequest{App: AppRadarr, TMDBID: 604}); err != nil {
+		t.Fatal(err)
+	}
+	j = x.matched(x.jobNow(j))
+	if rec := x.record(j); rec.Library.Size != 4001 {
+		t.Fatalf("record %+v", rec.Library)
+	}
+	x.worker(media.LibraryProbeOutput{Path: x.record(j).Library.Path, FileID: 12, TrackedSize: 4001, OK: true, Media: stale})
+	if j = x.matched(j); j.State != store.AwaitingConfirmation {
+		t.Fatalf("after matching again: job %s %s %q", j.State, j.ErrorCode, j.ErrorText)
+	}
+
+	// A probe stored in the record for an older file does the same.
 	x = newFlow2Env(t)
 	j = x.flow2Job(filmMinutes)
 	rec := x.record(j)
 	rec.Library.Probe = stale
 	x.setRecord(j, &rec)
-	if j = x.matched(j); j.State != store.Failed || j.ErrorCode != CodeLibraryUnreadable {
+	if j = x.matched(j); j.State != store.Probed {
 		t.Fatalf("stored: job %s %s", j.State, j.ErrorCode)
+	}
+	if _, err := x.st.Target(x.ctx, j.ID); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("stored: the target is still there: %v", err)
+	}
+}
+
+// The result of a probe asked for an earlier match, for the same path but another tracked
+// file (the film was matched again after Radarr replaced its file), is dropped and the
+// file is probed again; it must not fail or advance the job.
+func TestFlow2ResultOfAnotherTrackedFileIsDropped(t *testing.T) {
+	x := newFlow2Env(t)
+	j := x.matched(x.flow2Job(filmMinutes))
+	rec := x.record(j)
+	x.worker(media.LibraryProbeOutput{Path: rec.Library.Path, FileID: 11, TrackedSize: 3000, OK: true, Media: libProbe(filmMinutes)})
+	if j = x.matched(j); j.State != store.Matched || x.record(j).Library.Probe != nil {
+		t.Fatalf("job %s (%s)", j.State, j.ErrorCode)
+	}
+	if _, ok, _ := x.q.Result(x.ctx, runner.LibraryProbeID(j.ID, 1)); ok {
+		t.Fatal("the result was not acknowledged")
+	}
+	x.matched(j)
+	var args media.LibraryProbeArgs
+	tasks := x.q.Tasks()
+	if len(tasks) != 1 {
+		t.Fatalf("tasks %+v", tasks)
+	}
+	if err := json.Unmarshal(tasks[0].Args, &args); err != nil || args.FileID != 12 || args.TrackedSize != 4000 {
+		t.Fatalf("args %+v %v", args, err)
 	}
 }

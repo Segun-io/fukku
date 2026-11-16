@@ -160,7 +160,7 @@ func TestFlow2ThroughTheAPI(t *testing.T) {
 	}
 	tasks := e.q.Tasks()
 	if len(tasks) != 1 || tasks[0].ID != runner.LibraryProbeID(j.ID, 1) ||
-		string(tasks[0].Args) != `{"path":"/data/media/movies/Has File (2004)/Has File (2004) WEBDL-1080p.mkv"}` {
+		string(tasks[0].Args) != `{"path":"/data/media/movies/Has File (2004)/Has File (2004) WEBDL-1080p.mkv","fileId":21,"trackedSize":4000}` {
 		t.Fatalf("tasks %+v", tasks)
 	}
 	e.q.Complete(tasks[0].ID, media.LibraryProbeOutput{

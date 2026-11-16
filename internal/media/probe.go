@@ -324,11 +324,14 @@ func streamDuration(d string, tags map[string]string) int64 {
 	return 0
 }
 
-// capMs converts milliseconds to int64, at most maxDurationMs: a float beyond the int64
-// range has no defined conversion.
+// capMs converts milliseconds to int64, within -maxDurationMs and maxDurationMs: a float
+// beyond the int64 range has no defined conversion. NaN gives the cap.
 func capMs(ms float64) int64 {
 	if !(ms < maxDurationMs) { // also true for NaN
 		return maxDurationMs
+	}
+	if ms < -maxDurationMs {
+		return -maxDurationMs
 	}
 	return int64(math.Round(ms))
 }

@@ -58,16 +58,23 @@ const RefusalOutsideLibrary = "outside_library"
 // paths.libraryRoots, through an os.Root of that root, read-only.
 type LibraryProbeArgs struct {
 	Path string `json:"path"` // e.g. "/data/media/movies/Film (2001)/Film (2001) WEBDL-1080p.mkv"
+	// FileID and TrackedSize are Radarr's movie-file id and size of the file at the match.
+	// The worker only echoes them, so the web process can drop the result of an earlier
+	// match whose path is the same but whose file is not.
+	FileID      int   `json:"fileId,omitempty"`
+	TrackedSize int64 `json:"trackedSize,omitempty"`
 }
 
 // LibraryProbeOutput is its output. Path echoes the args, so the web process can tell a
 // result for an earlier library file (the user chose another title meanwhile) from one for
 // the file it asked about.
 type LibraryProbeOutput struct {
-	Path    string `json:"path"`
-	OK      bool   `json:"ok"`
-	Refusal string `json:"refusal,omitempty"` // outside_library, unreadable, no_video_stream, no_duration, timeout
-	Media   *Probe `json:"media,omitempty"`   // when OK
+	Path        string `json:"path"`
+	FileID      int    `json:"fileId,omitempty"`      // echoes the args
+	TrackedSize int64  `json:"trackedSize,omitempty"` // echoes the args
+	OK          bool   `json:"ok"`
+	Refusal     string `json:"refusal,omitempty"` // outside_library, unreadable, no_video_stream, no_duration, timeout
+	Media       *Probe `json:"media,omitempty"`   // when OK
 }
 
 // ProbeArgs are the args of a spool task of kind "probe".
