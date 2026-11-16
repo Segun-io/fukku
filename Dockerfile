@@ -33,10 +33,13 @@ RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath \
 
 # ---- ffmpeg and ffprobe ---------------------------------------------------------------
 # Built from the pinned upstream source for the target architecture (under emulation when
-# cross-building) and linked statically, so the runtime stage needs none of Debian's ffmpeg
-# dependency tree. Only what the worker uses is enabled: every demuxer, decoder, parser and
+# cross-building). Its own codecs are built in; only libx264 and libdav1d are shared libraries,
+# installed in the runtime stage from the snapshot (Debian ships no static libdav1d). None of
+# Debian's ffmpeg dependency tree is needed. Only what the worker uses is enabled: every demuxer, decoder, parser and
 # filter (probing and clip cutting accept any input), but encoders and muxers only for preview
-# clips (H.264 and AAC in MP4, Matroska, stills). Widen the lists here if a feature needs more.
+# clips (H.264 and AAC in MP4, Matroska, stills), plus a few more so the smoke test can make a file
+# in every accepted container. AV1 is decoded by libdav1d (ffmpeg's own decoder needs hardware).
+# Widen the lists here if a feature needs more.
 # GPL because of libx264; Fukku is AGPL-3.0-only. See docs/image.md.
 FROM ${GO_IMAGE} AS ffmpeg
 ARG FFMPEG_VERSION
@@ -48,6 +51,7 @@ RUN sed -i \
       /etc/apt/sources.list.d/debian.sources \
  && apt-get -o Acquire::Check-Valid-Until=false update \
  && apt-get install -y --no-install-recommends \
+      libdav1d-dev=1.5.1-1 \
       libx264-dev=2:0.164.3108+git31e19f9-2+b1 \
       nasm=2.16.03-1 \
       xz-utils=5.8.1-1+deb13u2 \
@@ -58,11 +62,11 @@ RUN curl -fsSL -o ffmpeg.tar.xz "https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VER
  && echo "${FFMPEG_SHA256}  ffmpeg.tar.xz" | sha256sum -c - \
  && tar -xf ffmpeg.tar.xz --strip-components=1
 RUN ./configure \
-      --prefix=/out --enable-gpl --enable-libx264 --enable-zlib \
+      --prefix=/out --enable-gpl --enable-libx264 --enable-libdav1d --enable-zlib \
       --disable-autodetect --disable-doc --disable-ffplay --disable-network --disable-debug \
-      --disable-shared --enable-static --pkg-config-flags=--static --extra-ldflags=-static \
-      --disable-encoders --enable-encoder=libx264,aac,mjpeg,png \
-      --disable-muxers --enable-muxer=mp4,mov,matroska,webm,null,image2,mjpeg \
+      --disable-shared --enable-static \
+      --disable-encoders --enable-encoder=libx264,aac,mpeg4,pcm_s16le,wrapped_avframe,rawvideo,mjpeg,png,subrip,ass,movtext,webvtt \
+      --disable-muxers --enable-muxer=mp4,mov,matroska,webm,avi,mpegts,null,image2,mjpeg \
       --disable-protocols --enable-protocol=file,pipe,fd \
       --disable-devices \
  && make -j"$(nproc)" \
@@ -81,6 +85,8 @@ RUN sed -i \
  && apt-get -o Acquire::Check-Valid-Until=false update \
  && apt-get install -y --no-install-recommends \
       ca-certificates=20250419+deb13u1 \
+      libdav1d7=1.5.1-1 \
+      libx264-164=2:0.164.3108+git31e19f9-2+b1 \
       mkvtoolnix=92.0-1+deb13u1 \
       tini=0.19.0-3+b8 \
  && rm -rf /var/lib/apt/lists/* \
