@@ -1,0 +1,77 @@
+#!/usr/bin/env bash
+# Smoke test of the product image, used by CI and `make image-smoke`.
+#   tools/image-smoke.sh <image> [<arch>]     arch is amd64 or arm64; default: the image's own
+# The worker's own sandbox is reproduced (no network, read-only root, no capabilities), so a
+# missing library or a tool that needs the network fails here.
+set -euo pipefail
+
+image=${1:?usage: image-smoke.sh <image> [amd64|arm64]}
+want=${2:-}
+got=$(docker image inspect --format '{{.Architecture}}' "$image")
+if [ -n "$want" ] && [ "$got" != "$want" ]; then
+  echo "image architecture is $got, expected $want" >&2
+  exit 1
+fi
+echo "smoke test: $image ($got)"
+
+user=$(docker image inspect --format '{{.Config.User}}' "$image")
+if [ "$user" != 10001:10001 ]; then
+  echo "image runs as '$user', expected 10001:10001" >&2
+  exit 1
+fi
+
+docker run --rm "$image" version
+
+docker run --rm --network none --read-only --cap-drop ALL --tmpfs /tmp --entrypoint sh "$image" -c '
+  set -e
+  ffprobe -version | head -n 1
+  ffmpeg -version | head -n 1
+  mkvmerge --version
+
+  # What the worker accepts (internal/media/probe.go formatWhitelist, upload.videoExtensions):
+  # every demuxer and decoder it can meet must be in this build. Names are as ffprobe lists them.
+  demuxers=$(ffprobe -v error -demuxers)
+  for d in matroska,webm mov,mp4 avi mpegts; do
+    echo "$demuxers" | grep -Eq " $d[ ,]" || { echo "missing demuxer $d" >&2; exit 1; }
+  done
+  decoders=$(ffprobe -v error -decoders)
+  for d in h264 hevc av1 libdav1d vp8 vp9 mpeg2video mpeg4 vc1 \
+           aac ac3 eac3 dca truehd mp3 opus vorbis flac pcm_s16le pcm_s24le pcm_f32le \
+           subrip ass ssa mov_text webvtt pgssub dvdsub; do
+    echo "$decoders" | grep -q " $d " || { echo "missing decoder $d" >&2; exit 1; }
+  done
+
+  # One short file per accepted container, probed the way the worker probes: the file on
+  # descriptor 3, format and protocol whitelists, no other input.
+  probe() { # file, expected codec names in stream order
+    found=$(ffprobe -v error -print_format json -show_format -show_streams \
+      -format_whitelist matroska,webm,mov,mp4,avi,mpegts -protocol_whitelist fd -fd 3 -i fd: 3<"$1" |
+      grep "\"codec_name\"" | sed "s/.*: \"\(.*\)\".*/\1/" | tr "\n" " ")
+    [ "$found" = "$2" ] || { echo "$1: streams [$found], expected [$2]" >&2; exit 1; }
+    echo "probe ok: $1 ($found)"
+  }
+  printf "1\n00:00:00,000 --> 00:00:01,000\nhello\n" > /tmp/s.srt
+  head -c 57600 /dev/zero > /tmp/v.raw   # three 160x120 yuv420p frames
+  head -c 4000 /dev/zero > /tmp/a.raw
+  video="-f rawvideo -pix_fmt yuv420p -s 160x120 -r 10 -i /tmp/v.raw"
+  audio="-f s16le -ar 8000 -ac 1 -i /tmp/a.raw"
+  enc="ffmpeg -v error -y"
+  $enc $video $audio -i /tmp/s.srt -map 0 -map 1 -map 2 -c:v libx264 -c:a aac -c:s subrip /tmp/t.mkv
+  probe /tmp/t.mkv "h264 aac subrip "
+  $enc $video $audio -i /tmp/s.srt -map 0 -map 1 -map 2 -c:v libx264 -c:a aac -c:s mov_text /tmp/t.mp4
+  probe /tmp/t.mp4 "h264 aac mov_text "
+  $enc $video $audio -c:v libx264 -c:a aac -f mp4 /tmp/t.m4v
+  probe /tmp/t.m4v "h264 aac "
+  $enc $video $audio -c:v libx264 -c:a aac -f mov /tmp/t.mov
+  probe /tmp/t.mov "h264 aac "
+  $enc $video $audio -c:v mpeg4 -c:a pcm_s16le /tmp/t.avi
+  probe /tmp/t.avi "mpeg4 pcm_s16le "
+  $enc $video $audio -c:v libx264 -c:a aac /tmp/t.ts
+  probe /tmp/t.ts "h264 aac "
+  # .webm needs a VP8 or VP9 encoder, left out on purpose: its demuxer is the matroska,webm one
+  # checked above, and the VP8, VP9, Opus and Vorbis decoders are listed.
+
+  # Decode what was written (the preview path): all streams, to null.
+  ffmpeg -v error -i /tmp/t.mkv -f null -
+  echo "tools ok"
+'

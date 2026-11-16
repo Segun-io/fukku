@@ -29,30 +29,20 @@ jobs:
       - run: make check
 
   image:
-    name: image build and SBOM
+    name: image build, smoke test and SBOM (${{ matrix.arch }})
     runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64] # arm64 is built and smoke-tested under QEMU emulation
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
-      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+      - uses: ./.github/actions/build-image
         with:
-          context: .
-          load: true
-          push: false
-          tags: fukku:ci
-          build-args: |
-            VERSION=ci-${{ github.sha }}
-            COMMIT=${{ github.sha }}
-      - name: smoke test
-        run: |
-          docker run --rm fukku:ci version
-          docker run --rm --network none --read-only --cap-drop ALL --entrypoint sh fukku:ci -c 'ffprobe -version >/dev/null && mkvmerge --version'
-      - uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
-        with:
-          image: fukku:ci
-          syft-version: v1.57.1
-          format: spdx-json
-          artifact-name: fukku.spdx.json
+          tag: fukku:ci-${{ matrix.arch }}
+          version: ci-${{ github.sha }}
+          commit: ${{ github.sha }}
+          platform: linux/${{ matrix.arch }}
 
   probes:
     name: behaviour probes (${{ github.event_name == 'pull_request' && 'offline' || 'online' }})
