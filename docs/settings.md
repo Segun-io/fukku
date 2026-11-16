@@ -199,8 +199,11 @@ same settings.
 | Setting | Environment | Default | Description |
 | --- | --- | --- | --- |
 | `merge.enabled` | `FUKKU_MERGE_ENABLED` | `true` | Offer merging a new language into the existing file (flow 2a) |
-| `merge.previewClips` | `FUKKU_MERGE_PREVIEW_CLIPS` | `3` | Sync-check clips (start, middle, end) |
-| `merge.previewClipLength` | `FUKKU_MERGE_PREVIEW_CLIP_LENGTH` | `20s` | Length of each clip |
+| `merge.previewClips` | `FUKKU_MERGE_PREVIEW_CLIPS` | `3` | Sync-check clips (start, middle, end; 1 to 10): the library file's video with the upload's audio, spread evenly from its start to its end (one clip: the middle) |
+| `merge.previewClipLength` | `FUKKU_MERGE_PREVIEW_CLIP_LENGTH` | `20s` | Length of each clip, at most `2m`; a film shorter than one clip gets one clip of its whole length |
+| `merge.previewHeight` | `FUKKU_MERGE_PREVIEW_HEIGHT` | `360` | Height of the clips in pixels (even, 144 to 2160); smaller videos are not scaled up. Higher costs the worker more CPU per clip |
+| `merge.previewVideoBitrate` | `FUKKU_MERGE_PREVIEW_VIDEO_BITRATE` | `800` | Cap of the clips' video bit rate, in kbit/s (100 to 20000); the audio is AAC at 96 kbit/s. A clip that grows past twice what the rates allow, plus 1 MiB, is stopped and refused (`too_large`) |
+| `merge.previewTimeout` | `FUKKU_MERGE_PREVIEW_TIMEOUT` | `5m` | Deadline of rendering one clip (the worker's ffmpeg run, at `worker.nice`); ffmpeg is killed at it and the preview fails with `timeout`. Decoding a large library file (4K HEVC, say) on a small CPU is the slow part |
 | `merge.languageTag` | `FUKKU_MERGE_LANGUAGE_TAG` | `es-419` | Default language tag (BCP 47) of added tracks |
 | `merge.trackName` | `FUKKU_MERGE_TRACK_NAME` | `Español (Latino)` | Default name of added audio tracks |
 | `merge.keepOriginalDefault` | `FUKKU_MERGE_KEEP_ORIGINAL_DEFAULT` | `true` | The original audio stays the default track |
@@ -232,7 +235,7 @@ same settings.
 | `worker.spoolDir` | `FUKKU_WORKER_SPOOL_DIR` | `/spool` | Local directory shared by web and worker for task and result files |
 | `worker.pollInterval` | `FUKKU_WORKER_POLL_INTERVAL` | `1s` | How often the worker looks for new tasks and cancel requests, and the web process for results |
 | `worker.probeTimeout` | `FUKKU_WORKER_PROBE_TIMEOUT` | `1m` | Deadline of one ffprobe run |
-| `worker.libraryFormats` | `FUKKU_WORKER_LIBRARY_FORMATS` | `matroska, webm, mov, mp4, avi, mpegts, mpeg, asf, flv, ogg` | ffprobe demuxers the worker may use to probe a film's library file in flow 2 (it is a file Radarr already imported, so it may be in an older container such as `.mpg`, `.wmv` or `.flv`; uploads always use the narrower fixed list of the `upload.videoExtensions` containers). Names are ffprobe demuxer names (`ffprobe -demuxers`): lower-case letters, digits, `_`, `+`. Playlist and streaming demuxers (`hls`, `dash`, `concat`, `rtsp`, `sdp`, ...) are refused, and the worker opens no network protocol whatever is listed. A library file in a format not listed fails the job with `library_unreadable` |
+| `worker.libraryFormats` | `FUKKU_WORKER_LIBRARY_FORMATS` | `matroska, webm, mov, mp4, avi, mpegts, mpeg, asf, flv, ogg` | Demuxers the worker may use on a film's library file in flow 2: the library probe (ffprobe) and the sync-check clips (ffmpeg, `merge.preview*`) (it is a file Radarr already imported, so it may be in an older container such as `.mpg`, `.wmv` or `.flv`; uploads always use the narrower fixed list of the `upload.videoExtensions` containers). Names are ffprobe demuxer names (`ffprobe -demuxers`): lower-case letters, digits, `_`, `+`. Playlist and streaming demuxers (`hls`, `dash`, `concat`, `rtsp`, `sdp`, ...) are refused, and the worker opens no network protocol whatever is listed. A library file in a format not listed fails the job with `library_unreadable` |
 | `worker.taskTimeout` | `FUKKU_WORKER_TASK_TIMEOUT` | `6h` | Deadline of one task (extraction, merge) |
 | `worker.nice` | `FUKKU_WORKER_NICE` | `10` | CPU priority of the tools the worker runs (0–19) |
 | `worker.heartbeatInterval` | `FUKKU_WORKER_HEARTBEAT_INTERVAL` | `15s` | How often the worker writes its heartbeat |

@@ -177,6 +177,9 @@ type Merge struct {
 	Enabled                     bool     `yaml:"enabled"`
 	PreviewClips                int      `yaml:"previewClips"`
 	PreviewClipLength           Duration `yaml:"previewClipLength"`
+	PreviewHeight               int      `yaml:"previewHeight"`
+	PreviewVideoBitrate         int      `yaml:"previewVideoBitrate"` // kbit/s
+	PreviewTimeout              Duration `yaml:"previewTimeout"`
 	LanguageTag                 string   `yaml:"languageTag"`
 	TrackName                   string   `yaml:"trackName"`
 	KeepOriginalDefault         bool     `yaml:"keepOriginalDefault"`

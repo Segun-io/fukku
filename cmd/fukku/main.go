@@ -183,6 +183,7 @@ func runWeb(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	rn.Handle(store.Importing, deps.Imports.Importing)
 	rn.Handle(store.Imported, deps.Imports.Imported)
 	rn.Handle(store.PostProcessing, deps.Imports.PostProcessing)
+	rn.Handle(store.AwaitingConfirmation, deps.Proposals.Previews) // flow 2a sync-check clips (#53)
 	rn.ResumeWhen(flows.CodeArrUnavailable, "the app answers again", deps.Proposals.AppAnswers)
 	ran := make(chan error, 1)
 	go func() { ran <- rn.Run(ctx) }()

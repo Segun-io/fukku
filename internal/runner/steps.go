@@ -39,6 +39,17 @@ func LibraryProbeID(jobID string, attempt int) string {
 	return jobID + "-" + strconv.Itoa(attempt) + "-l"
 }
 
+// PreviewSlots is how many task ids the sync-check clips of a flow 2 job (#53) take turns
+// on. Each preview request takes the next slot, so a result always names the request it
+// is for, and a slot comes round again only after this many requests. Package flows
+// submits them; they are here so that cancelling and discarding a job reach every slot
+// (taskIDs).
+const PreviewSlots = 16
+
+// PreviewID is the id of a flow 2 job's preview task in a slot (1 to PreviewSlots):
+// <job>-v<slot>. It belongs to no attempt.
+func PreviewID(jobID string, slot int) string { return jobID + "-v" + strconv.Itoa(slot) }
+
 // extractScratch is where an extraction unpacks before its rename to the destination:
 // work/extract-<attempt>-x<archive file id>. Each attempt has its own, so a retry that
 // starts while the earlier attempt's extraction is still being cancelled cannot have its
@@ -497,9 +508,12 @@ func (r *Runner) drain(ctx context.Context, job store.Job, files []store.File, f
 
 // taskIDs are the ids of the tasks the runner may have submitted for the job in the
 // attempts from..to: the probe, one extraction per archive and the library probe of flow 2
-// in each.
+// in each, and the preview clips of flow 2, which belong to no attempt.
 func taskIDs(job store.Job, files []store.File, from, to int) []string {
-	var ids []string
+	ids := make([]string, 0, PreviewSlots)
+	for slot := 1; slot <= PreviewSlots; slot++ {
+		ids = append(ids, PreviewID(job.ID, slot))
+	}
 	for a := from; a <= to; a++ {
 		ids = append(ids, probeID(job, a), LibraryProbeID(job.ID, a))
 		for _, f := range files {
