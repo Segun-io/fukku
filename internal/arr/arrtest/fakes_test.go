@@ -139,3 +139,20 @@ func TestFakeImportCommands(t *testing.T) {
 		t.Errorf("film %+v", got)
 	}
 }
+
+// SetSeasonMonitored records the flag and applies it to that season's episodes only.
+func TestFakeSetSeasonMonitored(t *testing.T) {
+	f := &arrtest.FakeSeries{Eps: map[int][]arr.Episode{5: {
+		{ID: 1, SeasonNumber: 1, Monitored: true}, {ID: 2, SeasonNumber: 1, Monitored: true}, {ID: 3, SeasonNumber: 2, Monitored: true},
+	}}}
+	if err := f.SetSeasonMonitored(ctx, 5, 1, false); err != nil {
+		t.Fatal(err)
+	}
+	eps, _ := f.Episodes(ctx, 5)
+	if eps[0].Monitored || eps[1].Monitored || !eps[2].Monitored {
+		t.Errorf("episodes %+v", eps)
+	}
+	if flags := f.SeasonFlags[5]; len(flags) != 1 || flags[1] {
+		t.Errorf("flags %v", flags)
+	}
+}

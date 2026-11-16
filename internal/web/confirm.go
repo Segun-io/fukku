@@ -12,20 +12,32 @@ import (
 // The confirmation (#40): the user confirms the proposal and the import starts. Rows are
 // named by id; no request carries a path or a title.
 //
-//	POST /api/jobs/{id}/confirm  {"overrides": ["r3"],
+//	POST /api/jobs/{id}/confirm  {"overrides": ["r3"], "seasonDub": "replace",
 //	                              "subtitles": [{"fileId": 12, "language": "es", "forced": false, "hearingImpaired": true}]}
 //	                              → 202 Job (state importing)
 //
 // overrides lists the rows to import despite their rejections or warnings (the language
 // warning of #39 included). subtitles (optional) sets the language (ISO 639-1) and flags of
 // subtitle files of the job for the hand-over; a file not listed keeps what its name says.
-// Audit: import.confirmed, rejection.overridden per overridden row, and language.overridden
-// with the custom formats and scores when the row's language warning was overridden.
+// seasonDub (optional) answers the proposal's seasonDub question (#57) for rows whose
+// episodes already have a file: replace imports over them (the choice answers the app's
+// "not an upgrade" refusal and the existing_file warning of those rows; the season is
+// unmonitored afterwards when only a dub was imported), subtitlesOnly imports nothing and
+// hands the subtitles over. With a fixed seasonDub.policy it must be empty or equal to it.
+// Audit: season.replaced or season.subtitles_only per season, import.confirmed,
+// rejection.overridden per overridden row, and language.overridden with the custom formats
+// and scores when the row's language warning was overridden.
 // Errors besides the common ones:
 //
 //	409 needs_override     rows with rejections or warnings that overrides does not list:
 //	                       {"error": {"code": "needs_override", "message": "…", "rows": ["r3"]}}
 //	409 incomplete_rows    rows without a title or an episode (edit or skip them); "rows" as above
+//	409 season_dub_choice  rows whose episodes already have a file and seasonDub.policy is
+//	                       ask: "rows" lists them; send "seasonDub" with one of the proposal's
+//	                       seasonDub.offers ("replace", "subtitlesOnly"), or skip the rows
+//	409 shared_file        with replace: the library file of these rows also holds episodes
+//	                       outside the job (a double); "rows" as above; list one in overrides
+//	                       to accept losing those episodes' file
 //	409 nothing_to_import  every row is skipped
 //	409 wrong_state        the job is not awaiting confirmation (or the rows changed meanwhile)
 //	409 flow2              the film already has a file (flow 2, #52): the job's "flow2" says
@@ -89,7 +101,7 @@ func (s *Server) confirmError(w http.ResponseWriter, r *http.Request, err error)
 		return
 	}
 	switch e.Code {
-	case flows.CodeNeedsOverride, flows.CodeIncompleteRows:
+	case flows.CodeNeedsOverride, flows.CodeIncompleteRows, flows.CodeSeasonDubChoice, flows.CodeSharedFile:
 		writeJSON(w, http.StatusConflict, rowsErrorBody{rowsError{Code: e.Code, Message: e.Message, Rows: e.Rows}})
 	case flows.CodeNothingToImport:
 		writeError(w, http.StatusConflict, e.Code, e.Message)

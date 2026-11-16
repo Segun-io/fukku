@@ -347,14 +347,17 @@ func (f *FakeMovies) FailPartway(id, n int, message string) {
 // FakeSeries is an in-memory arr.SeriesManager.
 type FakeSeries struct {
 	base
-	Library  []arr.Series
-	Results  []arr.Series // what Lookup returns, whatever the term
-	Eps      map[int][]arr.Episode
-	Files    map[int][]arr.EpisodeFile // by series id: what EpisodeFiles returns
-	Queue    map[int]bool
-	Added    []arr.AddSeries
-	nextID   int
-	nextFile int
+	Library []arr.Series
+	Results []arr.Series // what Lookup returns, whatever the term
+	Eps     map[int][]arr.Episode
+	Files   map[int][]arr.EpisodeFile // by series id: what EpisodeFiles returns
+	Queue   map[int]bool
+	Added   []arr.AddSeries
+	// SeasonFlags records the season flags set through SetSeasonMonitored: series id →
+	// season → monitored. Only the seasons a call named are present.
+	SeasonFlags map[int]map[int]bool
+	nextID      int
+	nextFile    int
 }
 
 // Lookup returns Results, whatever the term. A result whose show is in Library (by TVDBID)
@@ -440,6 +443,29 @@ func (f *FakeSeries) SetEpisodesMonitored(_ context.Context, ids []int, monitore
 					f.Eps[sid][i].Monitored = monitored
 				}
 			}
+		}
+	}
+	return nil
+}
+
+// SetSeasonMonitored records the season's flag and, as the app does, sets it on the
+// season's episodes. No other season changes.
+func (f *FakeSeries) SetSeasonMonitored(_ context.Context, seriesID, season int, monitored bool) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if err := f.fail("SetSeasonMonitored"); err != nil {
+		return err
+	}
+	if f.SeasonFlags == nil {
+		f.SeasonFlags = map[int]map[int]bool{}
+	}
+	if f.SeasonFlags[seriesID] == nil {
+		f.SeasonFlags[seriesID] = map[int]bool{}
+	}
+	f.SeasonFlags[seriesID][season] = monitored
+	for i := range f.Eps[seriesID] {
+		if f.Eps[seriesID][i].SeasonNumber == season {
+			f.Eps[seriesID][i].Monitored = monitored
 		}
 	}
 	return nil

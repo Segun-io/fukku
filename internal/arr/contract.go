@@ -173,4 +173,8 @@ type SeriesManager interface {
 	EpisodeFiles(ctx context.Context, seriesID int) ([]EpisodeFile, error)
 	Busy(ctx context.Context, seriesID int) (bool, error)
 	SetEpisodesMonitored(ctx context.Context, episodeIDs []int, monitored bool) error
+	// SetSeasonMonitored sets one season's own flag through PUT /series/<id> (probe
+	// C3-sonarr: /episode/monitor does not touch it). The app applies the flag to the
+	// season's episodes, and no other season changes.
+	SetSeasonMonitored(ctx context.Context, seriesID, season int, monitored bool) error
 }

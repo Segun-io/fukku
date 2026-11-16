@@ -365,3 +365,37 @@ func TestContextCancelStopsTheStep(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+// With the season-dub policy subtitlesOnly (#57) nothing was imported: the subtitles of the
+// rows that have a file in the library go to the manager, those of any other episode are
+// reported, and nothing is sent for them.
+func TestSubtitlesOnlyGoesToTheEpisodesThatHaveAFile(t *testing.T) {
+	h := newHarness(t)
+	h.target = store.Target{App: "sonarr", TitleID: 9, Options: json.RawMessage(`{"seasonDub":{"policy":"subtitlesOnly","seasons":[1],"rows":["rShow.S01E01.mkv"]}}`)}
+	h.add("Show.S01E01.mkv", store.KindVideo, "v")
+	h.add("Show.S01E02.mkv", store.KindVideo, "v")
+	h.add("Show.S01E01.es.srt", store.KindSubtitle, "x")
+	for i := range h.rows { // skipped, as the confirmation leaves them
+		h.rows[i].Skip, h.rows[i].Result = true, store.ResultSkipped
+	}
+	if _, _, err := h.run(); err != nil {
+		t.Fatalf("the listed row: %v", err)
+	}
+	if got := h.fake.Sent(); len(got) != 2 || got[0].EpisodeID != 501 {
+		t.Fatalf("sent %+v", got)
+	}
+
+	h.add("Show.S01E02.es.srt", store.KindSubtitle, "y")
+	if _, _, err := h.run(); err == nil || !strings.Contains(err.Error(), "Show.S01E02.es.srt") || !strings.Contains(err.Error(), "no file in the library") {
+		t.Fatalf("an episode without a file: %v", err)
+	}
+	if n := len(h.fake.Sent()); n != 2 {
+		t.Errorf("%d uploads, want only the first file's", n)
+	}
+
+	// Without the policy a skipped row is never given subtitles.
+	h.target.Options = nil
+	if _, _, err := h.run(); err == nil || !strings.Contains(err.Error(), "not imported") {
+		t.Fatalf("without the policy: %v", err)
+	}
+}

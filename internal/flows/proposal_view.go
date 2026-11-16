@@ -17,11 +17,14 @@ import (
 // Proposal is a job's proposal. For a film, rows have no seasonNumber or episodes, and
 // Episodes is absent. Episodes, Qualities and Languages are what the pickers offer.
 type Proposal struct {
-	State     string         `json:"state"` // StatePending or StateReady
-	App       string         `json:"app"`
-	Target    *TargetView    `json:"target"`
-	Rows      []RowView      `json:"rows"`
-	Hints     []Notice       `json:"hints"`
+	State  string      `json:"state"` // StatePending or StateReady
+	App    string      `json:"app"`
+	Target *TargetView `json:"target"`
+	Rows   []RowView   `json:"rows"`
+	Hints  []Notice    `json:"hints"`
+	// SeasonDub asks what to do with rows whose episodes already have a file (#57); absent
+	// when there are none.
+	SeasonDub *SeasonDub     `json:"seasonDub,omitempty"`
 	Episodes  *[]EpisodeView `json:"episodes,omitempty"`
 	Qualities []Ref          `json:"qualities"`
 	Languages []Ref          `json:"languages"`
@@ -121,6 +124,7 @@ func (p *Proposals) View(ctx context.Context, job store.Job) (Proposal, error) {
 	if out.Rows, out.Hints, err = s.views(ctx); err != nil {
 		return Proposal{}, err
 	}
+	out.SeasonDub = s.seasonDub()
 	for _, q := range s.quals {
 		out.Qualities = append(out.Qualities, Ref(q))
 	}
@@ -161,6 +165,9 @@ type session struct {
 	idx   map[int]arr.Episode
 	quals []arr.Quality
 	langs []arr.Language
+	// dub is what the confirmation chose for the rows that have a file (PolicyReplace or
+	// PolicySubtitlesOnly); "" while the proposal is only viewed or edited.
+	dub string
 }
 
 // open loads the job's rows and files, and from the app the series' episodes (for a show)
@@ -305,11 +312,18 @@ func (s *session) views(ctx context.Context) ([]RowView, []Notice, error) {
 	return views, hints, nil
 }
 
-// skip is whether a row is skipped: the user said so, or it cannot be imported in M2
-// (the app did not offer the file, or an episode already has a file).
+// skip is whether a row is skipped: the user said so, or it cannot be imported (the app did
+// not offer the file, or an episode already has a file and the season-dub choice does not
+// replace it). Rows without a file import as usual under any policy.
 func (s *session) skip(e rowEval) bool {
 	user := e.edit.Skip != nil && *e.edit.Skip
-	return user || !e.offered || (s.show() && hasExistingFile(e.ar, s.idx))
+	switch {
+	case user || !e.offered:
+		return true
+	case s.show() && hasExistingFile(e.ar, s.idx):
+		return s.dub != PolicyReplace // subtitlesOnly imports nothing over a file
+	}
+	return false
 }
 
 func (s *session) view(e rowEval) RowView {

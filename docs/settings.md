@@ -220,8 +220,8 @@ same settings.
 
 | Setting | Environment | Default | Description |
 | --- | --- | --- | --- |
-| `seasonDub.policy` | `FUKKU_SEASON_DUB_POLICY` | `ask` | A dub of a season already in the library: `merge`, `version`, `replace`, `subtitlesOnly` or `ask` |
-| `seasonDub.order` | `FUKKU_SEASON_DUB_ORDER` | `merge, version, replace, subtitlesOnly` | Order of the options offered by `ask` |
+| `seasonDub.policy` | `FUKKU_SEASON_DUB_POLICY` | `ask` | A dub of a season already in the library: `merge`, `version`, `replace`, `subtitlesOnly` or `ask`. A fixed policy skips the question; one that does not apply to the job (or is not available yet: `merge`, `version`) leaves the rows that already have a file skipped |
+| `seasonDub.order` | `FUKKU_SEASON_DUB_ORDER` | `merge, version, replace, subtitlesOnly` | Order of the options offered by `ask`. Only those that apply are shown: `replace` always; `subtitlesOnly` when the job has subtitle files and `subtitles.provider` and `subtitles.handOverUploads` allow the hand-over |
 
 ## worker
 

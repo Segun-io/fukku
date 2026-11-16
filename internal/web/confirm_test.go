@@ -53,6 +53,12 @@ func (c *webClock) advance(d time.Duration) {
 // sentinel file that must exist (paths.sentinels).
 func newConfirmEnv(t *testing.T) *confirmEnv {
 	t.Helper()
+	return newConfirmEnvWith(t, nil)
+}
+
+// newConfirmEnvWith is newConfirmEnv with the settings changed by mutate.
+func newConfirmEnvWith(t *testing.T, mutate func(*config.Config)) *confirmEnv {
+	t.Helper()
 	root := t.TempDir()
 	sentinel := filepath.Join(root, ".sentinel")
 	if err := os.WriteFile(sentinel, nil, 0o644); err != nil {
@@ -65,6 +71,9 @@ func newConfirmEnv(t *testing.T) *confirmEnv {
 	cfg.Paths.IntakeRoot = "/data/intake"
 	cfg.Paths.Sentinels = []string{sentinel}
 	cfg.Sonarr.URL = "http://sonarr.example.com:8989"
+	if mutate != nil {
+		mutate(&cfg)
+	}
 	clock := &webClock{t: time.Now()}
 	st := storetest.NewFake(clock.now)
 	series := &arrtest.FakeSeries{}
