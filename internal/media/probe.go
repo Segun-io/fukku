@@ -1,0 +1,316 @@
+package media
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"math"
+	"os"
+	"os/exec"
+	"path"
+	"strconv"
+	"strings"
+	"syscall"
+	"time"
+
+	"github.com/segun-io/fukku/internal/config"
+)
+
+// Refusal codes of ProbedFile.Refusal.
+const (
+	RefusalExtension     = "extension"
+	RefusalNoVideoStream = "no_video_stream"
+	RefusalNoDuration    = "no_duration"
+	RefusalNotText       = "not_text"
+	RefusalUnreadable    = "unreadable"
+	RefusalTimeout       = "timeout"
+)
+
+const (
+	maxSubtitleSize = 16 << 20 // 16 MiB
+	maxProbeOutput  = 4 << 20  // ffprobe JSON cap; a hostile file must not fill memory
+	killWait        = 2 * time.Second
+
+	// Demuxers of the accepted containers only: a playlist or concat script renamed to .mkv
+	// is then not parsed as one, and cannot make ffprobe read other files or URLs.
+	formatWhitelist = "matroska,webm,mov,mp4,avi,mpegts"
+	// Only the inherited descriptor may be opened: no other file, no URL.
+	protocolWhitelist = "fd"
+)
+
+// Options configure Run.
+type Options struct {
+	Timeout     time.Duration // worker.probeTimeout, per file
+	Nice        int           // worker.nice
+	VideoExt    []string      // upload.videoExtensions
+	SubtitleExt []string      // upload.subtitleExtensions
+	FFprobe     string        // binary; empty means "ffprobe" (tests pass a fake)
+}
+
+// OptionsFrom takes the probe options from the configuration.
+func OptionsFrom(cfg config.Config) Options {
+	return Options{
+		Timeout:     time.Duration(cfg.Worker.ProbeTimeout),
+		Nice:        cfg.Worker.Nice,
+		VideoExt:    cfg.Upload.VideoExtensions,
+		SubtitleExt: cfg.Upload.SubtitleExtensions,
+	}
+}
+
+// Run checks and probes each path. An error means the task could not run; a refused file
+// is a normal entry with OK false.
+func Run(ctx context.Context, job *os.Root, args ProbeArgs, opt Options) (ProbeOutput, error) {
+	out := ProbeOutput{Files: make([]ProbedFile, 0, len(args.Paths))}
+	for _, p := range args.Paths {
+		if err := ctx.Err(); err != nil {
+			return ProbeOutput{}, err
+		}
+		pf := ProbedFile{Path: p}
+		ext := strings.ToLower(path.Ext(p))
+		switch {
+		case hasExt(opt.VideoExt, ext):
+			pf.Kind = "video"
+		case hasExt(opt.SubtitleExt, ext):
+			pf.Kind = "subtitle"
+		default:
+			pf.Refusal = RefusalExtension
+			out.Files = append(out.Files, pf)
+			continue
+		}
+		var err error
+		if pf.Kind == "video" {
+			err = probeVideo(ctx, job, &pf, opt)
+		} else {
+			checkSubtitle(job, &pf)
+		}
+		if err != nil {
+			return ProbeOutput{}, err
+		}
+		out.Files = append(out.Files, pf)
+	}
+	return out, nil
+}
+
+func hasExt(list []string, ext string) bool {
+	for _, e := range list {
+		if strings.EqualFold(e, ext) {
+			return true
+		}
+	}
+	return false
+}
+
+// openRegular opens p through the root and requires a regular file. On failure it returns
+// nil and the caller refuses the file as unreadable.
+func openRegular(job *os.Root, p string) (*os.File, int64) {
+	// O_NONBLOCK: opening a FIFO must not wait for a writer. It is cleared again below.
+	f, err := job.OpenFile(p, os.O_RDONLY|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		return nil, 0
+	}
+	st, err := f.Stat()
+	if err != nil || !st.Mode().IsRegular() {
+		_ = f.Close()
+		return nil, 0
+	}
+	if err := syscall.SetNonblock(int(f.Fd()), false); err != nil {
+		_ = f.Close()
+		return nil, 0
+	}
+	return f, st.Size()
+}
+
+func checkSubtitle(job *os.Root, pf *ProbedFile) {
+	f, size := openRegular(job, pf.Path)
+	if f == nil {
+		pf.Refusal = RefusalUnreadable
+		return
+	}
+	defer func() { _ = f.Close() }()
+	if size > maxSubtitleSize {
+		pf.Refusal = RefusalNotText
+		return
+	}
+	buf := make([]byte, 64<<10)
+	var total int64
+	for {
+		n, err := f.Read(buf)
+		total += int64(n)
+		if bytes.IndexByte(buf[:n], 0) >= 0 || total > maxSubtitleSize {
+			pf.Refusal = RefusalNotText
+			return
+		}
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			pf.Refusal = RefusalUnreadable
+			return
+		}
+	}
+	pf.OK = true
+}
+
+type limitedBuffer struct {
+	buf bytes.Buffer
+	max int
+}
+
+var errOutputTooLarge = errors.New("ffprobe output too large")
+
+func (l *limitedBuffer) Write(p []byte) (int, error) {
+	if l.buf.Len()+len(p) > l.max {
+		return 0, errOutputTooLarge
+	}
+	return l.buf.Write(p)
+}
+
+func probeVideo(ctx context.Context, job *os.Root, pf *ProbedFile, opt Options) error {
+	f, size := openRegular(job, pf.Path)
+	if f == nil {
+		pf.Refusal = RefusalUnreadable
+		return nil
+	}
+	defer func() { _ = f.Close() }()
+
+	bin, err := lookBinary(opt.FFprobe, "ffprobe")
+	if err != nil {
+		return err // a broken install is an error, never a refusal of the upload
+	}
+	probeArgs := []string{"-v", "error", "-print_format", "json", "-show_format", "-show_streams",
+		"-format_whitelist", formatWhitelist, "-protocol_whitelist", protocolWhitelist, "-fd", "3", "-i", "fd:"}
+	name := bin
+	if opt.Nice > 0 {
+		probeArgs = append([]string{"-n", strconv.Itoa(opt.Nice), bin}, probeArgs...)
+		if name, err = lookBinary("", "nice"); err != nil {
+			return err
+		}
+	}
+
+	fctx, cancel := context.WithTimeout(ctx, opt.Timeout)
+	defer cancel()
+	cmd := exec.CommandContext(fctx, name, probeArgs...) //nolint:gosec // the binary is configuration, the arguments are fixed
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
+	cmd.WaitDelay = killWait
+	cmd.ExtraFiles = []*os.File{f}
+	cmd.Env = []string{"PATH=" + os.Getenv("PATH")}
+	stdout := &limitedBuffer{max: maxProbeOutput}
+	cmd.Stdout = stdout
+	err = cmd.Run()
+	// Whatever happened, nothing of the process group may outlive the call.
+	if cmd.Process != nil {
+		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+	}
+	if perr := ctx.Err(); perr != nil {
+		return perr
+	}
+	if errors.Is(fctx.Err(), context.DeadlineExceeded) {
+		pf.Refusal = RefusalTimeout
+		return nil
+	}
+	if err != nil {
+		var ee *exec.ExitError
+		if errors.As(err, &ee) && (ee.ExitCode() == 126 || ee.ExitCode() == 127) {
+			// nice or the shell could not run ffprobe: not a verdict on the file
+			return fmt.Errorf("ffprobe could not be run (exit %d)", ee.ExitCode())
+		}
+		if ee != nil || errors.Is(err, errOutputTooLarge) {
+			pf.Refusal = RefusalNoVideoStream
+			return nil
+		}
+		return err // ffprobe could not be started: the task cannot run
+	}
+
+	var raw rawProbe
+	if err := json.Unmarshal(stdout.buf.Bytes(), &raw); err != nil {
+		pf.Refusal = RefusalNoVideoStream
+		return nil
+	}
+	m := raw.toProbe(size)
+	switch {
+	case len(m.Video) == 0:
+		pf.Refusal = RefusalNoVideoStream
+	case m.DurationMs <= 0:
+		pf.Refusal = RefusalNoDuration
+	default:
+		pf.OK = true
+		pf.Media = &m
+	}
+	return nil
+}
+
+type rawProbe struct {
+	Format struct {
+		FormatName string `json:"format_name"`
+		Duration   string `json:"duration"`
+		BitRate    string `json:"bit_rate"`
+	} `json:"format"`
+	Streams []struct {
+		Index        int               `json:"index"`
+		CodecType    string            `json:"codec_type"`
+		CodecName    string            `json:"codec_name"`
+		Width        int               `json:"width"`
+		Height       int               `json:"height"`
+		Channels     int               `json:"channels"`
+		AvgFrameRate string            `json:"avg_frame_rate"`
+		RFrameRate   string            `json:"r_frame_rate"`
+		Tags         map[string]string `json:"tags"`
+		Disposition  map[string]int    `json:"disposition"`
+	} `json:"streams"`
+}
+
+func (r rawProbe) toProbe(size int64) Probe {
+	m := Probe{
+		Container: r.Format.FormatName,
+		Size:      size,
+		Video:     []VideoTrack{},
+		Audio:     []AudioTrack{},
+		Subtitles: []SubtitleTrack{},
+	}
+	if d, err := strconv.ParseFloat(r.Format.Duration, 64); err == nil && d > 0 && !math.IsInf(d, 0) {
+		m.DurationMs = int64(math.Round(d * 1000))
+	}
+	m.BitRate, _ = strconv.ParseInt(r.Format.BitRate, 10, 64)
+	for _, s := range r.Streams {
+		lang, title := s.Tags["language"], s.Tags["title"]
+		def := s.Disposition["default"] == 1
+		switch s.CodecType {
+		case "video":
+			if s.Disposition["attached_pic"] == 1 {
+				continue // cover art, not a video stream
+			}
+			m.Video = append(m.Video, VideoTrack{Index: s.Index, Codec: s.CodecName, Width: s.Width,
+				Height: s.Height, FrameRate: frameRate(s.AvgFrameRate, s.RFrameRate), Default: def})
+		case "audio":
+			m.Audio = append(m.Audio, AudioTrack{Index: s.Index, Codec: s.CodecName, Language: lang,
+				Title: title, Channels: s.Channels, Default: def})
+		case "subtitle":
+			m.Subtitles = append(m.Subtitles, SubtitleTrack{Index: s.Index, Codec: s.CodecName, Language: lang,
+				Title: title, Default: def, Forced: s.Disposition["forced"] == 1,
+				HearingImpaired: s.Disposition["hearing_impaired"] == 1})
+		}
+	}
+	return m
+}
+
+func frameRate(vals ...string) string {
+	for _, v := range vals {
+		if v != "" && !strings.HasPrefix(v, "0/") {
+			return v
+		}
+	}
+	return ""
+}
+
+// lookBinary resolves name (or def when empty) to a path, so a missing tool is an error up
+// front rather than an exit status that looks like a verdict on the file.
+func lookBinary(name, def string) (string, error) {
+	if name == "" {
+		name = def
+	}
+	return exec.LookPath(name)
+}
