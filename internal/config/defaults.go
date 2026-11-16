@@ -52,9 +52,10 @@ func Defaults() Config {
 			MaxFileSize:     ByteSize(2 << 20),
 		},
 		MediaServer: MediaServer{
-			Provider:       "none",
-			RefreshMethod:  "libraryRefresh",
-			RequestTimeout: Duration(30 * time.Second),
+			Provider:        "none",
+			RefreshMethod:   "libraryRefresh",
+			RefreshFallback: true,
+			RequestTimeout:  Duration(30 * time.Second),
 			// pathUpdate shows an item only after the server's LibraryMonitorDelay (60 s by
 			// default), so the wait must outlast it.
 			ItemWait:         Duration(2 * time.Minute),

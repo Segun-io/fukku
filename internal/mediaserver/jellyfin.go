@@ -74,7 +74,7 @@ func (j *Jellyfin) Refresh(ctx context.Context, paths []string) error {
 	case MethodNone:
 		return nil
 	case MethodLibraryScan:
-		return j.do(ctx, http.MethodPost, "/Library/Refresh", nil, nil, nil)
+		return j.Scan(ctx)
 	case MethodPathUpdate:
 		ups := make([]map[string]string, 0, len(paths))
 		for _, p := range paths {
@@ -89,6 +89,11 @@ func (j *Jellyfin) Refresh(ctx context.Context, paths []string) error {
 	default:
 		return fmt.Errorf("jellyfin: unknown refresh method %q", j.method)
 	}
+}
+
+// Scan starts a scan of every library (POST /Library/Refresh), whatever the refresh method.
+func (j *Jellyfin) Scan(ctx context.Context) error {
+	return j.do(ctx, http.MethodPost, "/Library/Refresh", nil, nil, nil)
 }
 
 // refreshLibraries refreshes each library item (Movies, Shows) that holds one of the paths.

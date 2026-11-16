@@ -27,6 +27,8 @@ type MediaServer interface {
 	Version(ctx context.Context) (string, error)
 	// Refresh tells the server that paths (as the server sees them) changed.
 	Refresh(ctx context.Context, paths []string) error
+	// Scan starts a scan of every library (the fallback of mediaServer.refreshFallback).
+	Scan(ctx context.Context) error
 	// Find returns the server's item id for a path, or "" while it does not know it yet.
 	Find(ctx context.Context, path string) (itemID string, err error)
 }
