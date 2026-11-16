@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -114,5 +115,9 @@ func TestCombined(t *testing.T) {
 	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("healthz %d", resp.StatusCode)
+	}
+	// The job runner runs next to the HTTP server, on the same store and spool.
+	if !strings.Contains(logs.String(), "msg=runner_started") {
+		t.Errorf("the job runner did not start; log:\n%s", logs)
 	}
 }

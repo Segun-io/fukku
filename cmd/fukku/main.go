@@ -26,6 +26,7 @@ import (
 
 	"github.com/segun-io/fukku/internal/config"
 	"github.com/segun-io/fukku/internal/retention"
+	"github.com/segun-io/fukku/internal/runner"
 	"github.com/segun-io/fukku/internal/spool"
 	"github.com/segun-io/fukku/internal/store"
 	"github.com/segun-io/fukku/internal/version"
@@ -119,9 +120,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 	case "web":
 		err = runWeb(ctx, cfg, log)
 	case "worker":
-		err = worker.New(cfg, log, handlers()).Run(ctx)
+		err = worker.New(cfg, log, worker.Handlers(cfg)).Run(ctx)
 	case "combined":
-		err = runCombined(ctx, cfg, log, handlers())
+		err = runCombined(ctx, cfg, log, worker.Handlers(cfg))
 	}
 	if err != nil {
 		log.Error("exit", "error", err)
@@ -129,9 +130,6 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 	return 0
 }
-
-// handlers are the worker's task handlers, by kind. The job runner (#29) registers them.
-func handlers() map[string]worker.Handler { return map[string]worker.Handler{} }
 
 // runWeb runs the web process with its dependencies.
 func runWeb(ctx context.Context, cfg config.Config, log *slog.Logger) error {
@@ -151,10 +149,14 @@ func runWeb(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 		defer close(swept)
 		_ = retention.New(cfg, st, q, log, nil).Run(ctx)
 	}()
+	// The job runner (#29) drives jobs next to the HTTP server and stops with it, before
+	// the store closes.
+	ran := make(chan error, 1)
+	go func() { ran <- runner.New(cfg, log, st, q, time.Now).Run(ctx) }()
 	err = web.New(cfg, log, ui.FS(), web.Deps{Queue: q, Store: st}).Run(ctx)
 	cancel()
 	<-swept
-	return errors.Join(err, st.Close())
+	return errors.Join(err, <-ran, st.Close())
 }
 
 // runCombined runs the same web process and worker as split mode, in one process.

@@ -106,9 +106,10 @@ func LimitsFrom(cfg config.Config) Limits {
 // Run unpacks args.Archive into args.Dest. An error means the task could not run (I/O,
 // cancelled); a refused archive is a normal Output with Refused set.
 //
-// Run is safe to repeat: it first removes <Dest> and <Dest>.partial, unpacks into
-// <Dest>.partial and renames that to <Dest> at the end. A refused, cancelled or failed
-// run removes <Dest>.partial, so it leaves nothing.
+// Run is safe to repeat: it first removes <Dest> and its scratch directory (Args.Scratch,
+// by default <Dest>.partial), unpacks into the scratch directory and renames that to
+// <Dest> at the end. A refused, cancelled or failed run removes its scratch directory, so
+// it leaves nothing.
 func Run(ctx context.Context, job *os.Root, args Args, lim Limits) (Output, error) {
 	x := newExtractor(job, args, lim)
 	return x.run(ctx)
@@ -147,7 +148,7 @@ type extractor struct {
 
 func newExtractor(job *os.Root, args Args, lim Limits) *extractor {
 	return &extractor{
-		job: job, args: args, lim: lim, partial: args.Dest + partialSuffix,
+		job: job, args: args, lim: lim, partial: scratchOf(args),
 		freeSpace: freeSpace, checkEvery: freeSpaceCheckInterval,
 		fold: cases.Fold(), buf: make([]byte, copyBufferSize),
 		seen: map[string]seenPath{},
@@ -599,12 +600,24 @@ func isFormatError(err error) bool {
 		errors.As(err, &corrupt)
 }
 
-func checkArgs(a Args) error {
-	if !localPath(a.Archive) || !localPath(a.Dest) {
-		return fmt.Errorf("%w: archive and dest must be clean job-relative paths, got %q and %q", ErrBadArgs, a.Archive, a.Dest)
+// scratchOf is the directory a run unpacks into: Args.Scratch, or <Dest>.partial.
+func scratchOf(a Args) string {
+	if a.Scratch != "" {
+		return a.Scratch
 	}
-	if within(a.Archive, a.Dest) || within(a.Archive, a.Dest+partialSuffix) || within(a.Dest, a.Archive) {
-		return fmt.Errorf("%w: dest %q and archive %q overlap", ErrBadArgs, a.Dest, a.Archive)
+	return a.Dest + partialSuffix
+}
+
+func checkArgs(a Args) error {
+	scratch := scratchOf(a)
+	if !localPath(a.Archive) || !localPath(a.Dest) || !localPath(scratch) {
+		return fmt.Errorf("%w: archive, dest and scratch must be clean job-relative paths, got %q, %q and %q", ErrBadArgs, a.Archive, a.Dest, a.Scratch)
+	}
+	if within(a.Archive, a.Dest) || within(a.Archive, scratch) || within(a.Dest, a.Archive) || within(scratch, a.Archive) {
+		return fmt.Errorf("%w: dest %q or scratch %q overlaps archive %q", ErrBadArgs, a.Dest, scratch, a.Archive)
+	}
+	if within(scratch, a.Dest) || within(a.Dest, scratch) {
+		return fmt.Errorf("%w: dest %q and scratch %q overlap", ErrBadArgs, a.Dest, scratch)
 	}
 	return nil
 }

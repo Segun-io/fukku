@@ -19,7 +19,6 @@ import (
 	"log/slog"
 	"os"
 	"path"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -27,6 +26,7 @@ import (
 	"github.com/segun-io/fukku/internal/config"
 	"github.com/segun-io/fukku/internal/fscheck"
 	"github.com/segun-io/fukku/internal/jobdir"
+	"github.com/segun-io/fukku/internal/runner"
 	"github.com/segun-io/fukku/internal/spool"
 	"github.com/segun-io/fukku/internal/store"
 )
@@ -209,9 +209,8 @@ func (s *Sweeper) deleteFinishedJobs(ctx context.Context, root *os.Root, now tim
 }
 
 // dropTasks cancels and then acknowledges every task id the job's runner may have used, so
-// no late result outlives the job. The ids follow the runner's naming (#29):
-// <job>-<attempt>-p for the probe and <job>-<attempt>-x<file id> for each archive. Both calls
-// are harmless for ids that never existed.
+// no late result outlives the job. The ids are the runner's (#29), so runner.Discard knows
+// them; it is harmless for ids that never existed.
 func (s *Sweeper) dropTasks(ctx context.Context, j store.Job) error {
 	if s.queue == nil {
 		return nil
@@ -220,24 +219,7 @@ func (s *Sweeper) dropTasks(ctx context.Context, j store.Job) error {
 	if err != nil {
 		return err
 	}
-	for attempt := 1; attempt <= max(j.Attempt, 1); attempt++ {
-		prefix := j.ID + "-" + strconv.Itoa(attempt) + "-"
-		ids := []string{prefix + "p"}
-		for _, f := range files {
-			if f.Kind == store.KindArchive {
-				ids = append(ids, prefix+"x"+strconv.FormatInt(f.ID, 10))
-			}
-		}
-		for _, id := range ids {
-			if err := s.queue.Cancel(ctx, id); err != nil {
-				return err
-			}
-			if err := s.queue.Ack(ctx, id); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
+	return runner.Discard(ctx, s.queue, j, files)
 }
 
 // sweepIncoming deletes regular files in .incoming/ that belong to no upload row and are

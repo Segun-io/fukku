@@ -5,6 +5,11 @@ package extract
 type Args struct {
 	Archive string `json:"archive"` // job-relative, e.g. "archives/Season 01.zip"
 	Dest    string `json:"dest"`    // job-relative directory to create, e.g. "files/Season 01"
+	// Scratch is the job-relative directory the archive is unpacked into before it is
+	// renamed to Dest, e.g. "work/extract-2-x7"; empty means "<Dest>.partial". A submitter
+	// that may run the same archive twice at once (a retry while the earlier attempt is
+	// still being cancelled) gives each run its own, so that neither removes the other's.
+	Scratch string `json:"scratch,omitempty"`
 }
 
 // Output is its output.

@@ -339,6 +339,14 @@ func TestBadArgs(t *testing.T) {
 		{Archive: "files/out.partial/a.zip", Dest: "files/out"},
 		{Archive: "../a.zip", Dest: "files/out"},
 		{Archive: "", Dest: "files/out"},
+		{Archive: archive, Dest: "files/out", Scratch: "../work"},
+		{Archive: archive, Dest: "files/out", Scratch: "work/"},
+		{Archive: archive, Dest: "files/out", Scratch: "archives"},        // removing it would delete the archive
+		{Archive: archive, Dest: "files/out", Scratch: "files/out"},       // the same as dest
+		{Archive: archive, Dest: "files/out", Scratch: "files/out/x"},     // inside dest
+		{Archive: archive, Dest: "files/out", Scratch: "files"},           // dest inside it
+		{Archive: "work/s/a.zip", Dest: "files/out", Scratch: "work/s"},   // the archive inside it
+		{Archive: archive, Dest: "files/out", Scratch: archive + "/more"}, // inside the archive
 	} {
 		if _, err := Run(context.Background(), sb.root, a, testLimits()); !errors.Is(err, ErrBadArgs) {
 			t.Errorf("Run(%+v) error %v, want ErrBadArgs", a, err)
@@ -433,6 +441,43 @@ func TestRepeatable(t *testing.T) {
 		t.Errorf("over a finished dest: %+v, %v; want %+v, %v", again, treeOf(t, dest), first, firstTree)
 	}
 	sb.checkSandbox(t, before, "files/Season 01")
+}
+
+// TestScratch: with Args.Scratch the run unpacks there, not into <Dest>.partial, so a
+// second run with another scratch directory leaves the first one's alone.
+func TestScratch(t *testing.T) {
+	sb := newSandbox(t)
+	archive := sb.put(t, seasonArchive(t))
+	dest := filepath.Join(sb.job, "files", "Season 01")
+	// Another run's half-written scratch directories, which must survive.
+	for _, d := range []string{"work/extract-1-x1", "files/Season 01.partial"} {
+		if err := os.MkdirAll(filepath.Join(sb.job, filepath.FromSlash(d)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(sb.job, filepath.FromSlash(d), "half.mkv"), []byte("half"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// A leftover of this run's own scratch directory is replaced.
+	own := filepath.Join(sb.job, "work", "extract-2-x1")
+	if err := os.MkdirAll(own, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	out, err := Run(context.Background(), sb.root, Args{Archive: archive, Dest: "files/Season 01", Scratch: "work/extract-2-x1"}, testLimits())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out.Files) != 3 || len(treeOf(t, dest)) != 3 {
+		t.Fatalf("output %+v, on disk %v", out, treeOf(t, dest))
+	}
+	if _, err := os.Stat(own); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("scratch directory left behind: %v", err)
+	}
+	for _, d := range []string{"work/extract-1-x1/half.mkv", "files/Season 01.partial/half.mkv"} {
+		if _, err := os.Stat(filepath.Join(sb.job, filepath.FromSlash(d))); err != nil {
+			t.Errorf("another run's %s is gone: %v", d, err)
+		}
+	}
 }
 
 func TestCancelled(t *testing.T) {
