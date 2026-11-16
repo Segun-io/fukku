@@ -12,6 +12,7 @@ import (
 func (s *Server) routes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /healthz", s.healthz)
 	mux.HandleFunc("GET /api/session", s.session)
+	s.jobRoutes(mux) // #11
 	mux.HandleFunc("/api/", apiNotFound)
 	mux.Handle("/", s.spa())
 }

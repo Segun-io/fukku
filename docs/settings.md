@@ -73,6 +73,7 @@ same settings.
 | Setting | Environment | Default | Description |
 | --- | --- | --- | --- |
 | `radarr.url` | `FUKKU_RADARR_URL` | (empty) | Base URL, e.g. `http://radarr:7878` |
+| `radarr.publicUrl` | `FUKKU_RADARR_PUBLIC_URL` | (empty) | Address of Radarr that a browser can open, e.g. `https://radarr.example.com`; `radarr.url` is for the server and may not open in a browser. A finished job links to its Manual Import page (`/wanted/missing`). Empty means no link, only the folder to copy |
 | `radarr.apiKey` | `FUKKU_RADARR_API_KEY` | (empty) | API key (secret) |
 | `radarr.qualityProfile` | `FUKKU_RADARR_QUALITY_PROFILE` | (empty) | Quality profile name for added films; empty means the user picks |
 | `radarr.rootFolder` | `FUKKU_RADARR_ROOT_FOLDER` | (empty) | Root folder for added films, as Radarr sees it; empty means the first one |
@@ -81,6 +82,7 @@ same settings.
 | `radarr.importMode` | `FUKKU_RADARR_IMPORT_MODE` | `move` | `move` or `copy` for Manual Import |
 | `radarr.requestTimeout` | `FUKKU_RADARR_REQUEST_TIMEOUT` | `30s` | Timeout of one API request |
 | `sonarr.url` | `FUKKU_SONARR_URL` | (empty) | Base URL, e.g. `http://sonarr:8989` |
+| `sonarr.publicUrl` | `FUKKU_SONARR_PUBLIC_URL` | (empty) | Address of Sonarr that a browser can open, e.g. `https://sonarr.example.com`; `sonarr.url` is for the server and may not open in a browser. A finished job links to its Manual Import page (`/wanted/missing`). Empty means no link, only the folder to copy |
 | `sonarr.apiKey` | `FUKKU_SONARR_API_KEY` | (empty) | API key (secret) |
 | `sonarr.qualityProfile` | `FUKKU_SONARR_QUALITY_PROFILE` | (empty) | Quality profile name for added shows; empty means the user picks |
 | `sonarr.rootFolder` | `FUKKU_SONARR_ROOT_FOLDER` | (empty) | Root folder for added shows, as Sonarr sees it; empty means the first one |

@@ -53,6 +53,7 @@ type Auth struct {
 // Arr configures one Radarr or Sonarr instance. It is enabled when URL is set.
 type Arr struct {
 	URL                string   `yaml:"url"`
+	PublicURL          string   `yaml:"publicUrl"`
 	APIKey             Secret   `yaml:"apiKey"`
 	QualityProfile     string   `yaml:"qualityProfile"`
 	RootFolder         string   `yaml:"rootFolder"`

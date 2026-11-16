@@ -129,6 +129,9 @@ func validateArr(p *problems, name string, a Arr) {
 	if a.URL != "" {
 		service(p, name, a.URL, a.APIKey)
 	}
+	if a.PublicURL != "" {
+		httpURL(p, name+".publicUrl", a.PublicURL)
+	}
 	oneOf(p, name+".importMode", a.ImportMode, "move", "copy")
 	positive(p, name+".requestTimeout", int64(a.RequestTimeout))
 }
