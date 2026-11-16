@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -578,16 +579,18 @@ func TestIntegrationCancelMidTask(t *testing.T) {
 	if entries, _ := os.ReadDir(inc); len(entries) != 0 {
 		t.Errorf("upload data %v", entries)
 	}
-	// The worker writes the result of the cancelled task; the sweep acknowledges it.
+	// The worker stops the task and writes its result. Which comes first, that result or
+	// the cleanup's look for it, is a race, and both orders are correct: a result that is
+	// already there when the job is cleaned up is acknowledged then (task_discarded), a later
+	// one by the next sweep. So wait for the worker to be done with the task (it logs
+	// task_finished only after the result is written), then let the sweep run, and check
+	// that the result is gone either way.
+	id := extractID(j, 1, s.files(j.ID)["archives/a.zip"].ID)
+	finished := regexp.MustCompile(`msg=task_finished .*task=` + id + ` .*code=cancelled`)
 	deadline := time.Now().Add(30 * time.Second)
-	for {
-		if _, ok, err := s.q.Result(s.ctx, extractID(j, 1, s.files(j.ID)["archives/a.zip"].ID)); err != nil {
-			t.Fatal(err)
-		} else if ok {
-			break
-		}
+	for !finished.MatchString(s.logs.String()) {
 		if time.Now().After(deadline) {
-			t.Fatal("no result for the cancelled task")
+			t.Fatal("the worker did not finish the cancelled task")
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
