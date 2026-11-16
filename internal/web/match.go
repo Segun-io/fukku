@@ -15,7 +15,8 @@ import (
 // job is about. Titles are found on the server by id; no request carries a path or a title.
 //
 // Errors besides the common ones: 404 app_not_configured and title_not_found, 409
-// wrong_state, already_in_library, title_in_use and title_busy, 502 arr_unavailable.
+// wrong_state, title_in_use and title_busy, 502 arr_unavailable. A film that already has a
+// file is matched as flow 2 (#52): JobDetail then shows "flow2".
 
 func (s *Server) matchRoutes(mux *http.ServeMux) {
 	if s.deps.Store == nil {
@@ -49,7 +50,7 @@ func (s *Server) matchError(w http.ResponseWriter, r *http.Request, err error) {
 		status = http.StatusBadRequest
 	case flows.CodeAppNotConfigured, flows.CodeTitleNotFound, flows.CodeNotFound:
 		status = http.StatusNotFound
-	case flows.CodeWrongState, flows.CodeAlreadyInLibrary, flows.CodeTitleInUse, flows.CodeTitleBusy:
+	case flows.CodeWrongState, flows.CodeTitleInUse, flows.CodeTitleBusy, flows.CodeFlow2:
 		status = http.StatusConflict
 	case flows.CodeArrUnavailable:
 		// The cause is for the log only: it may name the app's address.

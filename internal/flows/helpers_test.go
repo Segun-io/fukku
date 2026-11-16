@@ -248,8 +248,6 @@ func byName(p Proposal, name string) RowView {
 	panic("no row " + name)
 }
 
-func ptr[T any](v T) *T { return &v }
-
 // errRefused is how the arr client reports an app it cannot reach.
 var errRefused = fmt.Errorf("sonarr: GET /manualimport: %w: connection refused", arr.ErrUnreachable)
 

@@ -138,7 +138,7 @@ same settings.
 | Setting | Environment | Default | Description |
 | --- | --- | --- | --- |
 | `paths.intakeRoot` | `FUKKU_PATHS_INTAKE_ROOT` | `/data/intake` | Where uploads (`.incoming/`) and jobs (`jobs/`) live. Must be on the library filesystem when `importMode=move` |
-| `paths.libraryRoots` | `FUKKU_PATHS_LIBRARY_ROOTS` | (empty) | Library root folders as Fukku sees them; used for the same-filesystem check and for second versions |
+| `paths.libraryRoots` | `FUKKU_PATHS_LIBRARY_ROOTS` | (empty) | Library root folders as Fukku sees them; used for the same-filesystem check, for second versions, and by the worker to read a film's library file in flow 2 (the runtime comparison): the worker reads a library file only when its path, as `paths.mappings.radarr` maps Radarr's, is a clean path inside one of these roots, and only through a read-only handle confined to that root (no `..`, no link out of it). With none set, a flow 2 job fails with `library_unreadable` |
 | `paths.mappings.radarr` | `FUKKU_PATHS_MAPPINGS_RADARR` | (empty) | How Radarr sees Fukku's paths; empty means the same paths |
 | `paths.mappings.sonarr` | `FUKKU_PATHS_MAPPINGS_SONARR` | (empty) | How Sonarr sees Fukku's paths |
 | `paths.mappings.subtitles` | `FUKKU_PATHS_MAPPINGS_SUBTITLES` | (empty) | How the subtitle manager sees Fukku's paths |
@@ -182,8 +182,8 @@ same settings.
 
 | Setting | Environment | Default | Description |
 | --- | --- | --- | --- |
-| `match.runtimeTolerance` | `FUKKU_MATCH_RUNTIME_TOLERANCE` | `500ms` | Durations within this are the same cut (merge is offered) |
-| `match.palRatio` | `FUKKU_MATCH_PAL_RATIO` | `1.0427` | Duration ratio of a PAL speed-up (25 / 23.976) |
+| `match.runtimeTolerance` | `FUKKU_MATCH_RUNTIME_TOLERANCE` | `500ms` | Flow 2: an upload whose duration is within this of the library file's (inclusive) is the same cut, and a merge is offered. Both durations are the worker's ffprobe of the video stream (of the container when a file does not give one), never the app's rounded runtime |
+| `match.palRatio` | `FUKKU_MATCH_PAL_RATIO` | `1.0427` | Flow 2: duration ratio (longer over shorter) of a PAL speed-up (25 / 23.976); such an upload is offered as a second version, and anything that is neither the same cut nor a PAL speed-up as a different cut |
 | `match.palTolerance` | `FUKKU_MATCH_PAL_TOLERANCE` | `0.002` | Tolerance around the PAL ratio |
 | `match.defaultSource` | `FUKKU_MATCH_DEFAULT_SOURCE` | `WEBDL` | Source assumed when the file name has none: `WEBDL`, `WEBRIP`, `BLURAY`, `HDTV` or `DVD` |
 | `match.doubleEpisodeRatio` | `FUKKU_MATCH_DOUBLE_EPISODE_RATIO` | `2` | A file this many times the expected runtime is hinted as a double episode |

@@ -38,6 +38,8 @@ func TestHandlers(t *testing.T) {
 		{spool.KindExtract, `[]`},
 		{spool.KindExtract, `{"archive":"../x.zip","dest":"files/x"}`},              // extract.ErrBadArgs
 		{spool.KindExtract, `{"archive":"archives/x.zip","dest":"archives/x.zip"}`}, // dest contains the archive
+		{spool.KindLibraryProbe, `{"path":1}`},
+		{spool.KindLibraryProbe, `{"path":"/x","paths":[]}`},
 	} {
 		_, err := h[tc.kind](t.Context(), root, json.RawMessage(tc.args))
 		if !errors.Is(err, ErrBadTask) {
@@ -62,5 +64,41 @@ func TestHandlers(t *testing.T) {
 	}
 	if eo, ok := out.(extract.Output); !ok || eo.Refused != extract.RefusedNotAZip {
 		t.Errorf("extract output %+v", out)
+	}
+}
+
+// The library probe reads only inside the worker's own paths.libraryRoots, whatever the
+// task says, and never through the job directory.
+func TestLibraryProbeHandler(t *testing.T) {
+	lib, job := t.TempDir(), t.TempDir()
+	if err := os.WriteFile(filepath.Join(job, "film.mkv"), []byte("not a film"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(lib, "film.mkv"), []byte("not a film either"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	root, err := os.OpenRoot(job)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = root.Close() }()
+	cfg := config.Defaults()
+	cfg.Paths.LibraryRoots = []string{lib}
+	h := Handlers(cfg)[spool.KindLibraryProbe]
+	for _, p := range []string{filepath.Join(job, "film.mkv"), "film.mkv", lib + "/../" + filepath.Base(job) + "/film.mkv"} {
+		args, _ := json.Marshal(media.LibraryProbeArgs{Path: p})
+		out, err := h(t.Context(), root, args)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if lo, ok := out.(media.LibraryProbeOutput); !ok || lo.OK || lo.Refusal != media.RefusalOutsideLibrary || lo.Path != p {
+			t.Errorf("%s: %+v", p, out)
+		}
+	}
+	// A library roots setting changed after Handlers does not widen what it reads.
+	cfg.Paths.LibraryRoots[0] = job
+	args, _ := json.Marshal(media.LibraryProbeArgs{Path: filepath.Join(job, "film.mkv")})
+	if out, _ := h(t.Context(), root, args); out.(media.LibraryProbeOutput).Refusal != media.RefusalOutsideLibrary {
+		t.Errorf("roots changed afterwards: %+v", out)
 	}
 }

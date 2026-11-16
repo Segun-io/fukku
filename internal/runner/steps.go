@@ -30,6 +30,15 @@ func probeID(job store.Job, attempt int) string {
 	return job.ID + "-" + strconv.Itoa(attempt) + "-p"
 }
 
+// LibraryProbeID is the id of a flow 2 job's library probe (#52) in an attempt:
+// <job>-<attempt>-l. The matched step of package flows submits it; it is here so that
+// cancelling and discarding a job reach it too (taskIDs). One id serves every match of the
+// attempt: the result names the file it probed, and a result for another file is dropped
+// and the task submitted again.
+func LibraryProbeID(jobID string, attempt int) string {
+	return jobID + "-" + strconv.Itoa(attempt) + "-l"
+}
+
 // extractScratch is where an extraction unpacks before its rename to the destination:
 // work/extract-<attempt>-x<archive file id>. Each attempt has its own, so a retry that
 // starts while the earlier attempt's extraction is still being cancelled cannot have its
@@ -487,11 +496,12 @@ func (r *Runner) drain(ctx context.Context, job store.Job, files []store.File, f
 }
 
 // taskIDs are the ids of the tasks the runner may have submitted for the job in the
-// attempts from..to: the probe and one extraction per archive in each.
+// attempts from..to: the probe, one extraction per archive and the library probe of flow 2
+// in each.
 func taskIDs(job store.Job, files []store.File, from, to int) []string {
 	var ids []string
 	for a := from; a <= to; a++ {
-		ids = append(ids, probeID(job, a))
+		ids = append(ids, probeID(job, a), LibraryProbeID(job.ID, a))
 		for _, f := range files {
 			if f.Kind == store.KindArchive {
 				ids = append(ids, extractID(job, a, f.ID))

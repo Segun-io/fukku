@@ -51,7 +51,7 @@ services:
     volumes:
       - ./fukku.yaml:/config/fukku.yaml:ro
       - fukku-spool:/spool
-      - /path/to/data:/data:ro             # reads the library (merge source) ...
+      - /path/to/data:/data:ro             # reads the library (flow 2: comparison, merge source), only under paths.libraryRoots ...
       - /path/to/data/intake:/data/intake  # ... and writes only into the intake root
     healthcheck:
       test: ["CMD", "fukku", "healthcheck", "--worker"]

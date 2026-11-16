@@ -129,6 +129,9 @@ type jobDetailJSON struct {
 	// the files are imported.
 	Import *flows.ImportView `json:"import"`
 	Result *flows.ResultView `json:"result"`
+	// Flow 2 (#52): the film already has a file; the comparison and what can be done.
+	// null for every other job.
+	Flow2 *flows.Flow2View `json:"flow2"`
 }
 
 func ptr[T comparable](v T) *T {
@@ -537,6 +540,7 @@ func (s *Server) getJob(w http.ResponseWriter, r *http.Request) {
 	}
 	if t, err := s.deps.Store.Target(r.Context(), j.ID); err == nil {
 		d.Target = targetView(t)
+		d.Flow2 = flows.ViewFlow2(s.cfg, t, files)
 	} else if !errors.Is(err, store.ErrNotFound) {
 		s.internalError(w, r, err)
 		return

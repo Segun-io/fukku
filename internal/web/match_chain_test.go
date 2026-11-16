@@ -411,9 +411,8 @@ func TestMatchRefusals(t *testing.T) {
 	e := newMatchEnv(t, nil)
 	radarr := func(id int) string { return `{"app":"radarr","tmdbId":` + itoa(id) + `}` }
 
-	// 3: the film already has a file (flow 2, M3).
+	// 3: a film that already has a file is flow 2, not a refusal (TestMatchFilmWithFileIsFlow2).
 	j := e.job("user1", store.Probed)
-	e.refused("user1", "POST", "/api/jobs/"+j.ID+"/match", radarr(605), 409, "already_in_library")
 
 	// 4: another active job holds the title; so does a failed one (it can be retried).
 	other := e.job("user2", store.Matched)

@@ -56,7 +56,7 @@ func (s *Set) ObserveTask(res spool.Result) {
 		return
 	}
 	kind := res.Kind
-	if kind != spool.KindProbe && kind != spool.KindExtract {
+	if kind != spool.KindProbe && kind != spool.KindExtract && kind != spool.KindLibraryProbe {
 		kind = "other"
 	}
 	outcome := "ok"

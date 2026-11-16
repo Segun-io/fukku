@@ -16,6 +16,10 @@ const Version = 1
 const (
 	KindProbe   = "probe"   // args and output: #4
 	KindExtract = "extract" // args and output: #3
+	// KindLibraryProbe probes a library file for flow 2 (#52; media.LibraryProbeArgs). Its
+	// path is the one exception to job-relative paths: an absolute path that the worker
+	// reads only inside its paths.libraryRoots, read-only.
+	KindLibraryProbe = "libraryProbe"
 )
 
 // Task is <spool>/tasks/<ID>.json, written by the web process.
@@ -25,7 +29,7 @@ type Task struct {
 	Kind    string          `json:"kind"`
 	Job     string          `json:"job"` // job id: the task may touch only <intakeRoot>/jobs/<job>/
 	Created time.Time       `json:"created"`
-	Args    json.RawMessage `json:"args"` // per kind; every path in it is job-relative
+	Args    json.RawMessage `json:"args"` // per kind; every path in it is job-relative (one exception: KindLibraryProbe)
 }
 
 // Result is <spool>/results/<ID>.json, written by the worker.
