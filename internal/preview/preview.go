@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -57,8 +58,9 @@ type Options struct {
 	Nice      int           // worker.nice
 	Height    int           // merge.previewHeight; smaller videos are not scaled up
 	VideoKbps int           // merge.previewVideoBitrate
-	// LibraryFormats are the demuxers ffmpeg may use on the library file; empty means the
-	// upload's (media.FormatWhitelist).
+	// LibraryFormats are the demuxers ffmpeg may use on the library file
+	// (worker.libraryFormats, as for the library probe); empty means the upload's
+	// (media.FormatWhitelist). The upload always gets the upload's.
 	LibraryFormats []string
 	FFmpeg         string // binary; empty means "ffmpeg" (tests pass a fake)
 }
@@ -66,10 +68,11 @@ type Options struct {
 // OptionsFrom takes the options from the configuration.
 func OptionsFrom(cfg config.Config) Options {
 	return Options{
-		Timeout:   cfg.Merge.PreviewTimeout.D(),
-		Nice:      cfg.Worker.Nice,
-		Height:    cfg.Merge.PreviewHeight,
-		VideoKbps: cfg.Merge.PreviewVideoBitrate,
+		Timeout:        cfg.Merge.PreviewTimeout.D(),
+		Nice:           cfg.Worker.Nice,
+		Height:         cfg.Merge.PreviewHeight,
+		VideoKbps:      cfg.Merge.PreviewVideoBitrate,
+		LibraryFormats: slices.Clone(cfg.Worker.LibraryFormats),
 	}
 }
 
@@ -242,11 +245,7 @@ func render(ctx context.Context, job *os.Root, lib, up *os.File, a Args, c Clip,
 	cmd.Stdout = sink
 	stderr := &tail{max: tailMax}
 	cmd.Stderr = stderr
-	err = cmd.Run()
-	// Whatever happened, nothing of the process group may outlive the call.
-	if cmd.Process != nil {
-		kill()
-	}
+	err = run(cmd, kill)
 	if perr := ctx.Err(); perr != nil {
 		return 0, "", "", perr
 	}

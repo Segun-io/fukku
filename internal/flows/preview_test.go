@@ -64,7 +64,7 @@ func (x *flow2Env) previewStep(j store.Job) {
 func (x *flow2Env) previewTask(j store.Job) (spool.Task, preview.Args) {
 	x.t.Helper()
 	tasks := x.q.Tasks()
-	if len(tasks) != 1 || tasks[0].Kind != spool.KindPreview || tasks[0].ID != runner.PreviewID(j.ID) || tasks[0].Job != j.ID {
+	if len(tasks) != 1 || tasks[0].Kind != spool.KindPreview || tasks[0].ID != x.previewID(j) || tasks[0].Job != j.ID {
 		x.t.Fatalf("tasks %+v, want the preview task", tasks)
 	}
 	var a preview.Args
@@ -118,13 +118,13 @@ func TestPreviewRequestAndResult(t *testing.T) {
 	}
 
 	// The worker renders the clips; the step stores them and acknowledges the result.
-	x.q.Complete(runner.PreviewID(j.ID), rendered(a))
+	x.q.Complete(x.previewID(j), rendered(a))
 	x.previewStep(j)
 	got, _ := x.previewRecord(j)
 	if got.State != PreviewReady || len(got.Clips) != 3 || got.Clips[2].Size != 1002 || got.Clips[1].StartMs != pv.Planned[1].StartMs {
 		t.Fatalf("record %+v", got)
 	}
-	if _, ok, _ := x.q.Result(x.ctx, runner.PreviewID(j.ID)); ok {
+	if _, ok, _ := x.q.Result(x.ctx, runner.PreviewID(j.ID, 1)); ok {
 		t.Error("the result was not acknowledged")
 	}
 	x.previewStep(j)
@@ -158,63 +158,127 @@ func TestPreviewRequestAndResult(t *testing.T) {
 
 // Results of an earlier request are dropped and the current one submitted again; a task
 // error of the current request fails it, and a new request tries again.
+// previewID is the task id of the job's current request.
+func (x *flow2Env) previewID(j store.Job) string {
+	x.t.Helper()
+	pv, ok := x.previewRecord(j)
+	if !ok {
+		x.t.Fatal("no preview record")
+	}
+	return runner.PreviewID(j.ID, previewSlot(pv.Seq))
+}
+
+// Each request has its own task id, so every result, task errors included, is the
+// request's of its slot. Results of an earlier request are dropped; a cancelled task or
+// one that names another request is submitted again.
 func TestPreviewEarlierResults(t *testing.T) {
 	x := newFlow2Env(t)
 	j := x.readyFlow2Job()
-	id := runner.PreviewID(j.ID)
 	first, _, _ := x.p.RequestPreview(x.ctx, "user1", j, offset(0))
+	firstID := x.previewID(j)
 	second, _, _ := x.p.RequestPreview(x.ctx, "user1", j, offset(-800))
-	_, a := x.previewTask(j)
-	if a.Request != second.Request {
+	id := x.previewID(j)
+	if id == firstID || first.Seq != 1 || second.Seq != 2 {
+		t.Fatalf("ids %s %s, seq %d %d", firstID, id, first.Seq, second.Seq)
+	}
+	// The first request's waiting task is gone; its slot is watched for a late result.
+	if _, a := x.previewTask(j); a.Request != second.Request {
 		t.Fatalf("the waiting task is %s, want the second request", a.Request)
 	}
+	if pv, _ := x.previewRecord(j); len(pv.Earlier) != 1 || pv.Earlier[0].Slot != 1 {
+		t.Fatalf("earlier %+v", pv.Earlier)
+	}
+	// It was running after all: its result (a task error) comes late, and is dropped.
+	if err := x.q.Submit(x.ctx, spool.Task{ID: firstID, Kind: spool.KindPreview, Job: j.ID}); err != nil {
+		t.Fatal(err)
+	}
+	x.q.Fail(firstID, spool.CodeInternal, "boom")
+	x.previewStep(j)
+	pv, _ := x.previewRecord(j)
+	if _, ok, _ := x.q.Result(x.ctx, firstID); ok || len(pv.Earlier) != 0 || pv.State != PreviewPending {
+		t.Fatalf("after the first request's late result: %+v (result left: %t)", pv, ok)
+	}
 
-	// The first request's task ended late (it was running when the second came).
-	stale := a
-	stale.Request = first.Request
-	for _, finish := range []func(){
-		func() { x.q.Complete(id, rendered(stale)) },
-		func() { x.q.Fail(id, spool.CodeCancelled, "cancelled") },
-		func() {
-			x.q.Now = func() time.Time { return second.RequestedAt.Add(-time.Second) }
-			defer func() { x.q.Now = nil }()
-			x.q.Fail(id, spool.CodeInternal, "boom")
-		},
+	// The second request's task is cancelled (the job's end, or a re-submission after a
+	// crash), or a result names another request: it is submitted again.
+	for _, finish := range []func(a preview.Args){
+		func(preview.Args) { x.q.Fail(id, spool.CodeCancelled, "cancelled") },
+		func(a preview.Args) { a.Request = first.Request; x.q.Complete(id, rendered(a)) },
 	} {
-		finish()
+		_, a := x.previewTask(j)
+		finish(a)
 		x.previewStep(j)
 		if pv, _ := x.previewRecord(j); pv.State != PreviewPending || pv.Request != second.Request {
-			t.Fatalf("record %+v after an earlier request's result", pv)
+			t.Fatalf("record %+v", pv)
 		}
+		x.previewStep(j)
 		if _, a = x.previewTask(j); a.Request != second.Request {
 			t.Fatalf("resubmitted %s", a.Request)
 		}
 	}
 
-	// The current request's task fails.
+	// Its own task error fails it.
 	x.q.Fail(id, spool.CodeTimeout, "ran past worker.taskTimeout")
 	x.previewStep(j)
-	pv, _ := x.previewRecord(j)
+	pv, _ = x.previewRecord(j)
 	if pv.State != PreviewFailed || pv.ErrorCode != runner.CodeTaskTimeout || !strings.Contains(pv.ErrorText, "taskTimeout") {
 		t.Fatalf("record %+v", pv)
 	}
 	if tasks := x.q.Tasks(); len(tasks) != 0 {
 		t.Errorf("a failed preview submitted %+v", tasks)
 	}
-	// The same offset again tries again.
+	// The same offset again tries again, in the next slot.
 	again, created, err := x.p.RequestPreview(x.ctx, "user1", j, offset(-800))
-	if err != nil || !created || again.Request == second.Request {
+	if err != nil || !created || again.Request == second.Request || x.previewID(j) == id {
 		t.Fatalf("retry: %+v %t %v", again, created, err)
 	}
-	_, a = x.previewTask(j)
-	out := preview.Output{Request: a.Request, Refusal: preview.RefusalRenderFailed, Detail: "clip 1: Invalid data found when processing input"}
-	x.q.Complete(id, out)
+	task, a := x.previewTask(j)
+	x.q.Complete(task.ID, preview.Output{Request: a.Request, Refusal: preview.RefusalRenderFailed, Detail: "clip 1: Invalid data found when processing input"})
 	x.previewStep(j)
 	if pv, _ = x.previewRecord(j); pv.State != PreviewFailed || pv.ErrorCode != preview.RefusalRenderFailed || !strings.Contains(pv.ErrorText, "Invalid data") {
 		t.Errorf("refused: %+v", pv)
 	}
-	if _, ok, _ := x.q.Result(x.ctx, id); ok {
+	if _, ok, _ := x.q.Result(x.ctx, task.ID); ok {
 		t.Error("result left")
+	}
+}
+
+// The slots come round again after runner.PreviewSlots requests; a slot is cleared before
+// it is used, and an earlier slot without a result is forgotten after previewGrace.
+func TestPreviewSlots(t *testing.T) {
+	x := newFlow2Env(t)
+	j := x.readyFlow2Job()
+	for n := 1; n <= runner.PreviewSlots; n++ {
+		if _, _, err := x.p.RequestPreview(x.ctx, "user1", j, offset(int64(n))); err != nil {
+			t.Fatal(err)
+		}
+	}
+	pv, _ := x.previewRecord(j)
+	if pv.Seq != runner.PreviewSlots || x.previewID(j) != runner.PreviewID(j.ID, runner.PreviewSlots) || len(pv.Earlier) != runner.PreviewSlots-1 {
+		t.Fatalf("record seq %d, earlier %d", pv.Seq, len(pv.Earlier))
+	}
+	// Slot 1 holds a result nobody claimed.
+	if err := x.q.Submit(x.ctx, spool.Task{ID: runner.PreviewID(j.ID, 1), Kind: spool.KindPreview, Job: j.ID}); err != nil {
+		t.Fatal(err)
+	}
+	x.q.Complete(runner.PreviewID(j.ID, 1), preview.Output{Request: "0000000000000001", OK: true})
+	next, _, err := x.p.RequestPreview(x.ctx, "user1", j, offset(100))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task, a := x.previewTask(j); task.ID != runner.PreviewID(j.ID, 1) || a.Request != next.Request {
+		t.Fatalf("task %s for %s", task.ID, a.Request)
+	}
+	pv, _ = x.previewRecord(j)
+	for _, e := range pv.Earlier {
+		if e.Slot == 1 {
+			t.Errorf("slot 1 is both current and earlier: %+v", pv.Earlier)
+		}
+	}
+	x.p.now = func() time.Time { return time.Now().Add(previewGrace + time.Minute) }
+	x.previewStep(j)
+	if pv, _ = x.previewRecord(j); len(pv.Earlier) != 0 || !pv.Submitted {
+		t.Errorf("after the grace: %+v", pv)
 	}
 }
 
@@ -298,25 +362,15 @@ func TestPreviewRefusals(t *testing.T) {
 }
 
 // The step leaves jobs that are not flow 2 alone, and drops a result nobody waits for.
+
+// The step leaves jobs that are not flow 2, or have no preview, alone.
 func TestPreviewStepOtherJobs(t *testing.T) {
 	x := newFlow2Env(t)
 	flow1 := x.job(AppRadarr, filmID, vid("Film.mkv", filmMinutes))
 	x.previewStep(flow1)
 	j := x.readyFlow2Job()
-	pv, _, _ := x.p.RequestPreview(x.ctx, "user1", j, offset(0))
-	_, a := x.previewTask(j)
-	// The user matches the job again: the record goes with the old options.
-	tg, _ := x.st.Target(x.ctx, j.ID)
-	tg.Options, _ = withOption(tg.Options, "preview", nil)
-	if err := x.st.SetTarget(x.ctx, j.ID, tg); err != nil {
-		t.Fatal(err)
-	}
-	x.q.Complete(runner.PreviewID(j.ID), rendered(a))
 	x.previewStep(j)
-	if _, ok, _ := x.q.Result(x.ctx, runner.PreviewID(j.ID)); ok {
-		t.Error("an orphaned result was kept")
-	}
-	if _, ok := x.previewRecord(j); ok || pv.Request == "" {
+	if _, ok := x.previewRecord(j); ok {
 		t.Error("the step made a record")
 	}
 	if tasks := x.q.Tasks(); len(tasks) != 0 {

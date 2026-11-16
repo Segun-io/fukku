@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/segun-io/fukku/internal/config"
 	"github.com/segun-io/fukku/internal/media"
 	"github.com/segun-io/fukku/internal/preview"
 	"github.com/segun-io/fukku/test/fixtures"
@@ -42,7 +43,10 @@ func TestPlan(t *testing.T) {
 		{"two clips: start and end", 60_000, 2, 20 * time.Second, []preview.Clip{{0, 20_000}, {40_000, 20_000}}},
 		{"a film shorter than a clip", 12_000, 3, 20 * time.Second, []preview.Clip{{0, 12_000}}},
 		{"a film as long as a clip", 20_000, 3, 20 * time.Second, []preview.Clip{{0, 20_000}}},
-		{"barely longer: no clip twice", 20_001, 3, 20 * time.Second, []preview.Clip{{0, 20_000}, {1, 20_000}}},
+		{"barely longer: one clip", 20_001, 3, 20 * time.Second, []preview.Clip{{0, 20_000}}},
+		{"21 s: one clip, not three almost the same", 21_000, 3, 20 * time.Second, []preview.Clip{{500, 20_000}}},
+		{"30 s: two clips, half a clip apart", 30_000, 3, 20 * time.Second, []preview.Clip{{0, 20_000}, {10_000, 20_000}}},
+		{"40 s: three clips, half a clip apart", 40_000, 3, 20 * time.Second, []preview.Clip{{0, 20_000}, {10_000, 20_000}, {20_000, 20_000}}},
 		{"no duration", 0, 3, 20 * time.Second, nil},
 		{"no clips", 60_000, 0, 20 * time.Second, nil},
 	} {
@@ -385,5 +389,43 @@ func TestRunLimits(t *testing.T) {
 	o.FFmpeg = filepath.Join(t.TempDir(), "no-such-ffmpeg")
 	if _, err := preview.Run(context.Background(), f.job, []string{f.lib}, f.args("6666666666666666", 0, preview.Clip{LengthMs: 1000}), o); err == nil {
 		t.Error("a missing ffmpeg is not an error")
+	}
+}
+
+// The library file is read with worker.libraryFormats, as the library probe reads it: a
+// film Radarr imported in an older container (.flv here) previews; with the upload's
+// narrower list it would not.
+func TestRunLibraryFormats(t *testing.T) {
+	needTools(t)
+	ctx := context.Background()
+	lib, jobDir := t.TempDir(), t.TempDir()
+	film := filepath.Join(lib, "Film (2001).flv")
+	if err := fixtures.Generate(ctx, film, fixtures.Video{Duration: 3 * time.Second, Audio: []fixtures.Audio{{Language: "eng"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(jobDir, "files"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := fixtures.ShiftAudio(ctx, film, filepath.Join(jobDir, "files", "Film.es.mkv"), 0); err != nil {
+		t.Fatal(err)
+	}
+	job, err := os.OpenRoot(jobDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = job.Close() }()
+	args := preview.Args{Request: "7777777777777777", Library: film, Upload: "files/Film.es.mkv", AudioIndex: 1, Clips: []preview.Clip{{LengthMs: 1000}}}
+
+	o := preview.OptionsFrom(config.Defaults())
+	if !slices.Contains(o.LibraryFormats, "flv") {
+		t.Fatalf("worker.libraryFormats not taken: %v", o.LibraryFormats)
+	}
+	o.Timeout = time.Minute
+	if out, err := preview.Run(ctx, job, []string{lib}, args, o); err != nil || !out.OK {
+		t.Errorf("flv library file: %+v %v", out, err)
+	}
+	o.LibraryFormats = nil
+	if out, err := preview.Run(ctx, job, []string{lib}, args, o); err != nil || out.Refusal != preview.RefusalRenderFailed {
+		t.Errorf("flv with the upload's formats: %+v %v", out, err)
 	}
 }

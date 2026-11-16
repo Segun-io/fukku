@@ -33,18 +33,22 @@ import (
 // 2 (CodeNotFlow2), not awaiting confirmation (wrong_state), or whose upload cannot be
 // merged (CodeMergeNotOffered: the finding is not a match, or merge.enabled is off).
 //
-// The task. One spool id serves every request of the job (runner.PreviewID). A request
-// cancels the task (a waiting one is removed, a running one stopped) and acknowledges the
-// result it left; then the step below submits it again with the new request's args. So
-// at most one preview of a job runs at a time, whatever the user sends.
+// The tasks. Each request takes the next of the job's runner.PreviewSlots task ids
+// (Preview.Seq), so a result always belongs to the request of its slot, task errors
+// included. The earlier request's slot is listed in Preview.Earlier: its task is cancelled
+// (a waiting one is removed, a running one stopped) and its result acknowledged when it
+// comes; a slot without a result is forgotten after previewGrace (a waiting task that
+// Cancel removed leaves none), and any later result is acknowledged when the slot comes
+// round again, or when the job is discarded (runner.Discard covers every slot).
 //
-// The step (Previews, run for every job awaiting confirmation) is safe to repeat. A result
-// is the request's when its output echoes the request id; a result without output (a task
-// error) is the request's unless it was cancelled or started before the request was made.
-// The request's result is stored in the record (ready with the clips, or failed with a
-// code), then acknowledged. Any other result is acknowledged and dropped. While the
-// request is pending and there is no result, the task is submitted (Submit does nothing
-// while it is waiting or running).
+// The step (advancePreview) runs under the job's lock, from the request and from the
+// runner's pass over jobs awaiting confirmation (Previews), and is safe to repeat. For a
+// pending request it first clears its slot (cancel, acknowledge what an earlier occupant
+// left), submits the task, and records that it did (Preview.Submitted); a crash between
+// the two submits it again. Then the slot's result is the request's: it is stored in the
+// record (ready with the clips, or failed with a code) and then acknowledged. A cancelled
+// result (only the job's end or a re-submission cancels a current task) or one that names
+// another request is acknowledged and the task submitted again.
 
 // Refusal codes of a preview request.
 const (
@@ -59,6 +63,10 @@ const (
 	PreviewReady   = "ready"
 	PreviewFailed  = "failed" // ErrorCode says why; a new request tries again
 )
+
+// previewGrace is how long an earlier request's slot is watched for the result of its
+// cancelled task. A running task stops within seconds of the cancel.
+const previewGrace = 10 * time.Minute
 
 // Preview is the job's last preview request (Target.Options["preview"]).
 type Preview struct {
@@ -77,7 +85,23 @@ type Preview struct {
 	Clips       []preview.ClipFile `json:"clips,omitempty"`
 	RequestedBy string             `json:"requestedBy"`
 	RequestedAt time.Time          `json:"requestedAt"`
+
+	// Seq counts the job's requests (1 for the first); the request's task is in slot
+	// previewSlot(Seq).
+	Seq int `json:"seq"`
+	// Submitted: the request's task has been submitted (it may have ended since).
+	Submitted bool `json:"submitted,omitempty"`
+	// Earlier are the slots of earlier requests whose cancelled task may still leave a result.
+	Earlier []EarlierPreview `json:"earlier,omitempty"`
 }
+
+// EarlierPreview is the slot of an earlier request, cancelled at Since.
+type EarlierPreview struct {
+	Slot  int       `json:"slot"`
+	Since time.Time `json:"since"`
+}
+
+func previewSlot(seq int) int { return (max(seq, 1)-1)%runner.PreviewSlots + 1 }
 
 // PreviewOf returns the job's preview request; ok is false when there is none.
 func PreviewOf(t store.Target) (Preview, bool) {
@@ -102,7 +126,8 @@ type PreviewRequest struct {
 
 // RequestPreview makes req the job's preview request and starts the clips. Asking again
 // for the offset and track of a request that is pending or ready changes nothing; created
-// is then false. The caller audits a created request.
+// is then false. The caller audits a created request. With created true and an error, the
+// request is stored and the runner's next pass submits it.
 func (p *Proposals) RequestPreview(ctx context.Context, user string, job store.Job, req PreviewRequest) (pv Preview, created bool, err error) {
 	if p.queue == nil {
 		return Preview{}, false, errors.New("preview: the proposal flow has no spool queue")
@@ -114,72 +139,82 @@ func (p *Proposals) RequestPreview(ctx context.Context, user string, job store.J
 	if offset < -preview.MaxOffsetMs || offset > preview.MaxOffsetMs {
 		return Preview{}, false, refuse(CodeBadRequest, "offsetMs must be from %d to %d.", -preview.MaxOffsetMs, preview.MaxOffsetMs)
 	}
-	t, pv, created, err := p.storeRequest(ctx, user, job.ID, offset, req.AudioTrack)
+	pv, created, err = p.storeRequest(ctx, user, job.ID, offset, req.AudioTrack)
 	if err != nil || !created {
 		return pv, false, err
 	}
 	p.log.Info("preview_requested", "job", job.ID, "request", pv.Request, "offsetMs", pv.OffsetMs, "audioTrack", pv.AudioTrack, "clips", len(pv.Planned))
-	// The earlier request's task stops; its result, if any, is dropped by the step.
-	if err := p.queue.Cancel(ctx, runner.PreviewID(job.ID)); err != nil {
-		return pv, true, err
-	}
-	return pv, true, p.advancePreview(ctx, job, t)
+	return pv, true, p.advancePreview(ctx, job.ID)
 }
 
 // storeRequest checks the request and stores it as the job's preview record, under the
-// job's lock. It returns the target as stored.
-func (p *Proposals) storeRequest(ctx context.Context, user, jobID string, offset int64, track *int) (store.Target, Preview, bool, error) {
+// job's lock.
+func (p *Proposals) storeRequest(ctx context.Context, user, jobID string, offset int64, track *int) (Preview, bool, error) {
 	defer p.Lock(jobID)()
 	job, err := p.st.Job(ctx, jobID)
 	if err != nil {
-		return store.Target{}, Preview{}, false, err
+		return Preview{}, false, err
 	}
 	t, err := p.st.Target(ctx, jobID)
 	if errors.Is(err, store.ErrNotFound) {
-		return store.Target{}, Preview{}, false, notFlow2()
+		return Preview{}, false, notFlow2()
 	}
 	if err != nil {
-		return store.Target{}, Preview{}, false, err
+		return Preview{}, false, err
 	}
 	rec, ok := Flow2Of(t)
 	if !ok {
-		return store.Target{}, Preview{}, false, notFlow2()
+		return Preview{}, false, notFlow2()
 	}
 	if job.State != store.AwaitingConfirmation || rec.Library.Probe == nil {
-		return store.Target{}, Preview{}, false, wrongState()
+		return Preview{}, false, wrongState()
 	}
 	files, err := p.st.Files(ctx, jobID)
 	if err != nil {
-		return store.Target{}, Preview{}, false, err
+		return Preview{}, false, err
 	}
 	v := ViewFlow2(p.cfg, t, files)
 	if v == nil || !slices.Contains(v.Offers, OfferMerge) {
-		return store.Target{}, Preview{}, false, refuse(CodeMergeNotOffered, "The upload cannot be merged into the library file, so there is nothing to check.")
+		return Preview{}, false, refuse(CodeMergeNotOffered, "The upload cannot be merged into the library file, so there is nothing to check.")
 	}
 	f, up, _ := Flow2Upload(files)
 	audio, err := audioTrack(up, track)
 	if err != nil {
-		return store.Target{}, Preview{}, false, err
+		return Preview{}, false, err
 	}
-	if old, ok := PreviewOf(t); ok && old.OffsetMs == offset && old.AudioTrack == audio &&
+	old, hadOld := PreviewOf(t)
+	if hadOld && old.OffsetMs == offset && old.AudioTrack == audio &&
 		old.UploadFileID == f.ID && (old.State == PreviewPending || old.State == PreviewReady) {
-		return t, old, false, nil
+		return old, false, nil
 	}
 	planned := preview.Plan(CutDuration(*rec.Library.Probe), p.cfg.Merge.PreviewClips, p.cfg.Merge.PreviewClipLength.D())
 	if len(planned) == 0 {
-		return store.Target{}, Preview{}, false, refuse(CodeMergeNotOffered, "The library file has no duration to take clips from.")
+		return Preview{}, false, refuse(CodeMergeNotOffered, "The library file has no duration to take clips from.")
 	}
+	now := p.now().UTC()
 	pv := Preview{
 		Request: newRequestID(), OffsetMs: offset, AudioTrack: audio, UploadFileID: f.ID,
-		Planned: planned, State: PreviewPending, RequestedBy: user, RequestedAt: p.now().UTC(),
+		Planned: planned, State: PreviewPending, RequestedBy: user, RequestedAt: now,
+		Seq: old.Seq + 1,
+	}
+	// The earlier request's task stops (the step cancels its slot). Its own slot is cleared
+	// before the new task goes into it, so it is not watched twice.
+	slot := previewSlot(pv.Seq)
+	for _, e := range old.Earlier {
+		if e.Slot != slot {
+			pv.Earlier = append(pv.Earlier, e)
+		}
+	}
+	if hadOld && old.State == PreviewPending && previewSlot(old.Seq) != slot {
+		pv.Earlier = append(pv.Earlier, EarlierPreview{Slot: previewSlot(old.Seq), Since: now})
 	}
 	if t.Options, err = withOption(t.Options, "preview", pv); err != nil {
-		return store.Target{}, Preview{}, false, err
+		return Preview{}, false, err
 	}
 	if err := p.st.SetTarget(ctx, jobID, t); err != nil {
-		return store.Target{}, Preview{}, false, err
+		return Preview{}, false, err
 	}
-	return t, pv, true, nil
+	return pv, true, nil
 }
 
 func notFlow2() error {
@@ -221,7 +256,13 @@ func (p *Proposals) Previews(ctx context.Context, job store.Job) error {
 	if p.queue == nil {
 		return nil
 	}
-	t, err := p.st.Target(ctx, job.ID)
+	return p.advancePreview(ctx, job.ID)
+}
+
+// advancePreview is one pass of the step for a job, under its lock.
+func (p *Proposals) advancePreview(ctx context.Context, jobID string) error {
+	defer p.Lock(jobID)()
+	t, err := p.st.Target(ctx, jobID)
 	if errors.Is(err, store.ErrNotFound) {
 		return nil
 	}
@@ -231,49 +272,95 @@ func (p *Proposals) Previews(ctx context.Context, job store.Job) error {
 	if _, ok := Flow2Of(t); !ok {
 		return nil
 	}
-	return p.advancePreview(ctx, job, t)
+	pv, ok := PreviewOf(t)
+	if !ok {
+		return nil
+	}
+	save := func() error {
+		var err error
+		if t.Options, err = withOption(t.Options, "preview", pv); err != nil {
+			return err
+		}
+		return p.st.SetTarget(ctx, jobID, t)
+	}
+
+	// Earlier requests: their tasks stop, and what they leave is dropped.
+	earlier := len(pv.Earlier)
+	var keep []EarlierPreview
+	for _, e := range pv.Earlier {
+		done, err := p.clearSlot(ctx, jobID, e.Slot)
+		if err != nil {
+			return err
+		}
+		if !done && p.now().Sub(e.Since) < previewGrace {
+			keep = append(keep, e)
+		}
+	}
+	pv.Earlier = keep
+	if pv.State != PreviewPending {
+		if len(keep) != earlier {
+			return save()
+		}
+		return nil
+	}
+
+	id := runner.PreviewID(jobID, previewSlot(pv.Seq))
+	if !pv.Submitted {
+		// The slot's earlier occupant (PreviewSlots requests ago) goes first.
+		if _, err := p.clearSlot(ctx, jobID, previewSlot(pv.Seq)); err != nil {
+			return err
+		}
+		args, failed := p.previewArgs(ctx, jobID, t, pv)
+		if failed != nil {
+			pv.State, pv.ErrorCode, pv.ErrorText = failed.State, failed.ErrorCode, failed.ErrorText
+			p.logPreview(jobID, pv.Request, pv)
+			return save()
+		}
+		data, err := json.Marshal(args)
+		if err != nil {
+			return err
+		}
+		if err := p.queue.Submit(ctx, spool.Task{ID: id, Kind: spool.KindPreview, Job: jobID, Args: data}); err != nil {
+			return err
+		}
+		pv.Submitted = true
+		return save()
+	}
+	res, got, err := p.queue.Result(ctx, id)
+	if err != nil || !got {
+		if err == nil && len(keep) != earlier {
+			return save()
+		}
+		return err
+	}
+	outcome, again := previewOutcome(res, pv)
+	if again {
+		p.log.Info("task_discarded", "job", jobID, "kind", res.Kind, "task", id, "status", res.Status, "note", "submitted again")
+		pv.Submitted = false
+	} else {
+		pv.State, pv.ErrorCode, pv.ErrorText, pv.Clips = outcome.State, outcome.ErrorCode, outcome.ErrorText, outcome.Clips
+		p.logPreview(jobID, pv.Request, pv)
+	}
+	if err := save(); err != nil {
+		return err
+	}
+	return p.queue.Ack(ctx, id)
 }
 
-// advancePreview is one pass of the step for a flow 2 job with target t.
-func (p *Proposals) advancePreview(ctx context.Context, job store.Job, t store.Target) error {
-	id := runner.PreviewID(job.ID)
-	pv, has := PreviewOf(t)
-	pending := has && pv.State == PreviewPending
+// clearSlot cancels the task in a slot and acknowledges its result. done reports that the
+// slot is empty for good: it had a result. (Without one, its task was waiting, and Cancel
+// removed it, or is running and ends soon; Queue cannot tell which.)
+func (p *Proposals) clearSlot(ctx context.Context, jobID string, slot int) (done bool, err error) {
+	id := runner.PreviewID(jobID, slot)
+	if err := p.queue.Cancel(ctx, id); err != nil {
+		return false, err
+	}
 	res, got, err := p.queue.Result(ctx, id)
-	if err != nil {
-		return err
+	if err != nil || !got {
+		return false, err
 	}
-	if got {
-		if pending {
-			if outcome, mine := previewOutcome(res, pv); mine {
-				if err := p.finishPreview(ctx, job.ID, pv.Request, outcome); err != nil {
-					return err
-				}
-				p.logPreview(job.ID, pv.Request, outcome)
-				return p.queue.Ack(ctx, id)
-			}
-		}
-		p.log.Info("task_discarded", "job", job.ID, "kind", res.Kind, "task", id, "status", res.Status, "note", "a preview of an earlier request")
-		if err := p.queue.Ack(ctx, id); err != nil {
-			return err
-		}
-	}
-	if !pending {
-		return nil
-	}
-	args, failed := p.previewArgs(ctx, job, t, pv)
-	if failed != nil {
-		if err := p.finishPreview(ctx, job.ID, pv.Request, *failed); err != nil {
-			return err
-		}
-		p.logPreview(job.ID, pv.Request, *failed)
-		return nil
-	}
-	data, err := json.Marshal(args)
-	if err != nil {
-		return err
-	}
-	return p.queue.Submit(ctx, spool.Task{ID: id, Kind: spool.KindPreview, Job: job.ID, Args: data})
+	p.log.Info("task_discarded", "job", jobID, "kind", res.Kind, "task", id, "status", res.Status, "note", "a preview of an earlier request")
+	return true, p.queue.Ack(ctx, id)
 }
 
 func (p *Proposals) logPreview(jobID, request string, o Preview) {
@@ -286,7 +373,7 @@ func (p *Proposals) logPreview(jobID, request string, o Preview) {
 
 // previewArgs builds the task's args from the record and the job as it is now. failed is
 // the outcome when the files are no longer there to render from.
-func (p *Proposals) previewArgs(ctx context.Context, job store.Job, t store.Target, pv Preview) (preview.Args, *Preview) {
+func (p *Proposals) previewArgs(ctx context.Context, jobID string, t store.Target, pv Preview) (preview.Args, *Preview) {
 	fail := func(code, text string) (preview.Args, *Preview) {
 		return preview.Args{}, &Preview{State: PreviewFailed, ErrorCode: code, ErrorText: text}
 	}
@@ -294,7 +381,7 @@ func (p *Proposals) previewArgs(ctx context.Context, job store.Job, t store.Targ
 	if _, _, in := media.LibraryPath(p.cfg.Paths.LibraryRoots, rec.Library.Path); !in {
 		return fail(preview.RefusalOutsideLibrary, fmt.Sprintf("the library file %q is not under paths.libraryRoots %q", rec.Library.Path, p.cfg.Paths.LibraryRoots))
 	}
-	files, err := p.st.Files(ctx, job.ID)
+	files, err := p.st.Files(ctx, jobID)
 	if err != nil {
 		return fail(runner.CodeTaskFailed, "the job's files: "+err.Error())
 	}
@@ -308,37 +395,32 @@ func (p *Proposals) previewArgs(ctx context.Context, job store.Job, t store.Targ
 	}, nil
 }
 
-// previewOutcome reads a result of the preview task: what the record becomes, and whether
-// the result is the request pv's at all (see the top of this file).
-func previewOutcome(res spool.Result, pv Preview) (Preview, bool) {
+// previewOutcome reads the result in the request's slot: what the record becomes, or
+// again when the task is to be submitted once more (it was cancelled, or it rendered
+// another request: an occupant of the slot from PreviewSlots requests ago).
+func previewOutcome(res spool.Result, pv Preview) (outcome Preview, again bool) {
 	failed := func(code, text string) (Preview, bool) {
-		return Preview{State: PreviewFailed, ErrorCode: code, ErrorText: text}, true
+		return Preview{State: PreviewFailed, ErrorCode: code, ErrorText: text}, false
 	}
 	if res.Status != spool.StatusOK {
 		code, text := runner.CodeTaskFailed, "no error given"
 		if res.Error != nil {
 			if res.Error.Code == spool.CodeCancelled {
-				return Preview{}, false // only a newer request (or the job's end) cancels it
+				return Preview{}, true
 			}
 			if res.Error.Code == spool.CodeTimeout {
 				code = runner.CodeTaskTimeout
 			}
 			text = res.Error.Code + ": " + res.Error.Message
 		}
-		if res.Started.Before(pv.RequestedAt) {
-			return Preview{}, false // it ran before this request was made
-		}
 		return failed(code, res.Kind+" task "+res.ID+": "+text)
 	}
 	var out preview.Output
 	if err := json.Unmarshal(res.Output, &out); err != nil {
-		if res.Started.Before(pv.RequestedAt) {
-			return Preview{}, false
-		}
 		return failed(runner.CodeTaskFailed, res.Kind+" task "+res.ID+": unreadable output: "+err.Error())
 	}
 	if out.Request != pv.Request {
-		return Preview{}, false
+		return Preview{}, true
 	}
 	if !out.OK {
 		code := out.Refusal
@@ -355,28 +437,5 @@ func previewOutcome(res spool.Result, pv Preview) (Preview, bool) {
 			return failed(runner.CodeTaskFailed, fmt.Sprintf("clip %d of the output is malformed", i+1))
 		}
 	}
-	return Preview{State: PreviewReady, Clips: out.Clips}, true
-}
-
-// finishPreview stores the outcome of request in the job's preview record, under the
-// job's lock, while that request is still the job's and pending. Otherwise it changes
-// nothing: the user asked again meanwhile, or the job was matched to another title.
-func (p *Proposals) finishPreview(ctx context.Context, jobID, request string, outcome Preview) error {
-	defer p.Lock(jobID)()
-	t, err := p.st.Target(ctx, jobID)
-	if errors.Is(err, store.ErrNotFound) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	pv, ok := PreviewOf(t)
-	if !ok || pv.Request != request || pv.State != PreviewPending {
-		return nil
-	}
-	pv.State, pv.ErrorCode, pv.ErrorText, pv.Clips = outcome.State, outcome.ErrorCode, outcome.ErrorText, outcome.Clips
-	if t.Options, err = withOption(t.Options, "preview", pv); err != nil {
-		return err
-	}
-	return p.st.SetTarget(ctx, jobID, t)
+	return Preview{State: PreviewReady, Clips: out.Clips}, false
 }

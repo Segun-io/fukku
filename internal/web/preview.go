@@ -1,7 +1,10 @@
 package web
 
 import (
+	"bytes"
 	"errors"
+	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"strconv"
@@ -19,7 +22,8 @@ import (
 // no request carries a path. The clips are files the worker wrote; this process streams
 // them as they are and never parses them.
 //
-//	POST /api/jobs/{id}/preview     {"offsetMs": -800, "audioTrack": 1}
+//	POST /api/jobs/{id}/preview     {"offsetMs": -800, "audioTrack": 1}  (both optional; an
+//	                                empty body is {})
 //	                                → 202 Preview (state pending); 200 when the same offset
 //	                                  and track are already pending or ready
 //	GET  /api/jobs/{id}/preview     → 200 Preview
@@ -116,9 +120,23 @@ func (s *Server) requestPreview(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	var req flows.PreviewRequest
-	if !decodeJSON(w, r, &req) {
+	// Both fields are optional, so an empty body is {}.
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			writeError(w, http.StatusRequestEntityTooLarge, "too_large", fmt.Sprintf("The request body is larger than %d bytes.", tooLarge.Limit))
+			return
+		}
+		writeError(w, http.StatusBadRequest, "bad_request", "The request body could not be read.")
 		return
+	}
+	var req flows.PreviewRequest
+	if len(bytes.TrimSpace(body)) > 0 {
+		r.Body = io.NopCloser(bytes.NewReader(body))
+		if !decodeJSON(w, r, &req) {
+			return
+		}
 	}
 	pv, created, err := s.deps.Proposals.RequestPreview(r.Context(), u.Name, j, req)
 	if err != nil && !created {

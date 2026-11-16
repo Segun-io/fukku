@@ -44,8 +44,8 @@ func (e *flow2Env) readyJob() store.Job {
 	}
 	e.step(j)
 	e.q.Complete(e.q.Tasks()[0].ID, media.LibraryProbeOutput{
-		Path: "/data/media/movies/Has File (2004)/Has File (2004) WEBDL-1080p.mkv", OK: true,
-		Media: &media.Probe{DurationMs: 5_400_000, Video: []media.VideoTrack{{DurationMs: 5_400_000}}},
+		Path: "/data/media/movies/Has File (2004)/Has File (2004) WEBDL-1080p.mkv", OK: true, FileID: 21, TrackedSize: 4000,
+		Media: &media.Probe{DurationMs: 5_400_000, Size: 4000, Video: []media.VideoTrack{{DurationMs: 5_400_000}}},
 	})
 	if j = e.step(j); j.State != store.AwaitingConfirmation {
 		e.t.Fatalf("job %s (%s)", j.State, j.ErrorText)
@@ -106,7 +106,7 @@ func TestPreviewThroughTheAPI(t *testing.T) {
 
 	// The worker renders the clips.
 	tasks := e.q.Tasks()
-	if len(tasks) != 1 || tasks[0].ID != runner.PreviewID(j.ID) {
+	if len(tasks) != 1 || tasks[0].ID != runner.PreviewID(j.ID, 1) {
 		t.Fatalf("tasks %+v", tasks)
 	}
 	var a preview.Args
@@ -264,5 +264,15 @@ func TestPreviewMergeNotOffered(t *testing.T) {
 	j := e.readyJob()
 	if code, body := e.call("POST", "/api/jobs/"+j.ID+"/preview", `{}`); code != http.StatusConflict || !strings.Contains(body, "merge_not_offered") {
 		t.Errorf("merge disabled: %d %s", code, body)
+	}
+}
+
+// Both fields are optional: an empty body asks for offset 0 and the default track.
+func TestPreviewEmptyBody(t *testing.T) {
+	e := newFlow2Env(t, nil)
+	j := e.readyJob()
+	code, body := e.call("POST", "/api/jobs/"+j.ID+"/preview", "")
+	if v := decodePreview(t, body); code != http.StatusAccepted || v.State != "pending" || *v.OffsetMs != 0 || *v.AudioTrack != 1 {
+		t.Errorf("empty body: %d %s", code, body)
 	}
 }
