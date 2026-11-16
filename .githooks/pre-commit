@@ -1,0 +1,3 @@
+#!/bin/sh
+# Refuse commits that contain secrets. Installed by `make hooks`.
+exec make --no-print-directory secrets-staged

@@ -1,0 +1,41 @@
+version: "2"
+
+run:
+  # Lint the behaviour probes too (they are behind a build tag).
+  build-tags: [probes]
+
+linters:
+  default: standard
+  enable:
+    - bodyclose
+    - errorlint
+    - gosec
+    - misspell
+    - noctx
+    - nolintlint
+    - unconvert
+    - usestdlibvars
+  settings:
+    errcheck:
+      exclude-functions:
+        - fmt.Fprint
+        - fmt.Fprintf
+        - fmt.Fprintln
+    gosec:
+      excludes:
+        - G104 # unhandled errors are errcheck's job
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters: [gosec]
+      # Probes and fixture generators run fixed tools on paths they create themselves.
+      - path: ^test/
+        linters: [gosec]
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes: [github.com/segun-io/fukku]

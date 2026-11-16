@@ -1,0 +1,78 @@
+# Reference two-container layout (plan §9). Copy this file and fukku.example.yaml, then
+# replace every /path/to/... and the image tag. Secrets go in ./secrets/, one file each.
+#
+# The web process holds the API keys and talks to Radarr, Sonarr, the subtitle manager and
+# the media server. The worker opens untrusted uploads and has no network and no secrets.
+# They share only the spool volume (task and result files) and the intake root.
+
+name: fukku
+
+x-hardening: &hardening
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  tmpfs: ["/tmp:size=64m"]
+  restart: unless-stopped
+  # Run as the user that owns the media files, the same one Radarr and Sonarr run as.
+  user: "1000:1000"
+
+services:
+  web:
+    <<: *hardening
+    # Pin by digest once images are published: ghcr.io/segun-io/fukku:<version>@sha256:<digest>
+    image: ghcr.io/segun-io/fukku:0.0.0
+    command: ["web"]
+    environment:
+      FUKKU_CONFIG: /config/fukku.yaml
+      FUKKU_RADARR_API_KEY_FILE: /run/secrets/radarr_api_key
+      FUKKU_SONARR_API_KEY_FILE: /run/secrets/sonarr_api_key
+      FUKKU_SUBTITLES_API_KEY_FILE: /run/secrets/bazarr_api_key
+      FUKKU_MEDIA_SERVER_API_KEY_FILE: /run/secrets/jellyfin_api_key
+    secrets: [radarr_api_key, sonarr_api_key, bazarr_api_key, jellyfin_api_key]
+    volumes:
+      - ./fukku.yaml:/config/fukku.yaml:ro
+      - fukku-data:/var/lib/fukku          # SQLite database: local disk, never network storage
+      - fukku-spool:/spool
+      # The filesystem that holds downloads, the library and the intake root. Mount it at
+      # the same path Radarr and Sonarr use, or set paths.mappings.* in fukku.yaml.
+      - /path/to/data:/data
+    # Reach Radarr, Sonarr, Bazarr and Jellyfin, and be reachable by the reverse proxy only.
+    networks: [media]
+    expose: ["8080"]
+
+  worker:
+    <<: *hardening
+    image: ghcr.io/segun-io/fukku:0.0.0
+    command: ["worker"]
+    network_mode: none                    # no network at all
+    environment:
+      FUKKU_CONFIG: /config/fukku.yaml    # no API keys here: the worker refuses to start with any
+    volumes:
+      - ./fukku.yaml:/config/fukku.yaml:ro
+      - fukku-spool:/spool
+      - /path/to/data:/data:ro             # reads the library (merge source) ...
+      - /path/to/data/intake:/data/intake  # ... and writes only into the intake root
+    healthcheck:
+      test: ["CMD", "fukku", "healthcheck", "--worker"]
+      interval: 30s
+      timeout: 5s
+    pids_limit: 256
+    cpus: 2
+
+volumes:
+  fukku-data:
+  fukku-spool:
+
+networks:
+  media:
+    external: true    # the network Radarr, Sonarr, Bazarr, Jellyfin and the proxy are on
+
+secrets:
+  radarr_api_key:
+    file: ./secrets/radarr_api_key
+  sonarr_api_key:
+    file: ./secrets/sonarr_api_key
+  bazarr_api_key:
+    file: ./secrets/bazarr_api_key
+  jellyfin_api_key:
+    file: ./secrets/jellyfin_api_key

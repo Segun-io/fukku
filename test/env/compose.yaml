@@ -1,0 +1,93 @@
+# Local integration environment (plan §14). Start it with `make env-up`; nothing here talks
+# to any real instance. API keys are fixed fake values, valid only inside this environment.
+#
+# Everything shares one bind-mounted "library filesystem" at /data (test/env/.run/data):
+#   /data/media/movies   Radarr root folder, Jellyfin "Movies" library
+#   /data/media/tv       Sonarr root folder, Jellyfin "Shows" library
+#   /data/intake         where probes put files for Manual Import
+# so moves are renames and imports can be hardlinks, as in a real deployment.
+#
+# Versions are pinned by tag and digest. When you bump one, run `make probes-online` and
+# update docs/compatibility.md.
+
+name: fukku-test
+
+x-servarr: &servarr
+  restart: unless-stopped
+  environment: &servarr-env
+    PUID: ${PUID:-1000}
+    PGID: ${PGID:-1000}
+    TZ: Etc/UTC
+
+services:
+  radarr:
+    <<: *servarr
+    image: linuxserver/radarr:6.4.4.10685-ls327@sha256:7a20f20de63706eee2ff6e4ac1f989a70c961f456aa47ccb6c78f2bb7657d9ae
+    environment:
+      <<: *servarr-env
+      RADARR__AUTH__APIKEY: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      RADARR__AUTH__METHOD: External
+      RADARR__AUTH__REQUIRED: DisabledForLocalAddresses
+      RADARR__LOG__ANALYTICSENABLED: "False"
+    volumes:
+      - ./.run/radarr:/config
+      - ./.run/data:/data
+    ports: ["127.0.0.1:17878:7878"]
+
+  sonarr:
+    <<: *servarr
+    image: linuxserver/sonarr:4.0.20.3014-ls5@sha256:c7d1df25e428da6c9ace05daea0d34e59522978a3843ea1944812f855af4086c
+    environment:
+      <<: *servarr-env
+      SONARR__AUTH__APIKEY: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      SONARR__AUTH__METHOD: External
+      SONARR__AUTH__REQUIRED: DisabledForLocalAddresses
+      SONARR__LOG__ANALYTICSENABLED: "False"
+    volumes:
+      - ./.run/sonarr:/config
+      - ./.run/data:/data
+    ports: ["127.0.0.1:18989:8989"]
+
+  bazarr:
+    <<: *servarr
+    image: linuxserver/bazarr:v1.6.2-ls372@sha256:832820dec70bce9e912c6eee7a95baf6551e03dbc63325a7208daaa455423752
+    # API key and the Radarr/Sonarr connections are seeded into config.yaml by up.sh.
+    volumes:
+      - ./.run/bazarr:/config
+      - ./.run/data:/data
+    ports: ["127.0.0.1:16767:6767"]
+
+  jellyfin:
+    image: jellyfin/jellyfin:12.4.20261026-211555@sha256:fea863d0cd9ec445985d9c75fc6ed64e38a1d2766cf0c250a33d553f4fc1b771
+    restart: unless-stopped
+    user: ${PUID:-1000}:${PGID:-1000}
+    # The API key is inserted by the seeder (Jellyfin has no setting for a fixed key).
+    volumes:
+      - ./.run/jellyfin/config:/config
+      - ./.run/jellyfin/cache:/cache
+      - ./.run/data:/data
+    ports: ["127.0.0.1:18096:8096"]
+
+  # Runs the seeder and the probes inside the dev image, on this network, with the same
+  # /data view as the apps. Not started by `up`; used through `run`.
+  tools:
+    image: ${DEV_IMAGE:-fukku-dev:local}
+    profiles: [tools]
+    user: ${PUID:-1000}:${PGID:-1000}
+    working_dir: /src
+    environment:
+      FUKKU_TEST_RADARR_URL: http://radarr:7878
+      FUKKU_TEST_RADARR_KEY: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      FUKKU_TEST_SONARR_URL: http://sonarr:8989
+      FUKKU_TEST_SONARR_KEY: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      FUKKU_TEST_BAZARR_URL: http://bazarr:6767
+      FUKKU_TEST_BAZARR_KEY: "cccccccccccccccccccccccccccccccc"
+      FUKKU_TEST_JELLYFIN_URL: http://jellyfin:8096
+      FUKKU_TEST_JELLYFIN_KEY: "dddddddddddddddddddddddddddddddd"
+      FUKKU_TEST_JELLYFIN_DB: /jellyfin-config/data/jellyfin.db
+      FUKKU_TEST_DATA: /data
+      FUKKU_TEST_RESULTS: /src/test/env/.run/results
+    volumes:
+      - ../..:/src
+      - ./.run/data:/data
+      - ./.run/jellyfin/config:/jellyfin-config

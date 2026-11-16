@@ -1,0 +1,15 @@
+# gitleaks configuration: the default rules, minus paths that are generated or downloaded.
+title = "fukku"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "generated, downloaded or local-only paths"
+paths = [
+  '''(^|/)node_modules/''',
+  '''^\.cache/''',
+  '''^ui/dist/''',
+  '''^bin/''',
+  '''^test/env/\.run/''',
+]

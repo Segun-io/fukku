@@ -1,0 +1,189 @@
+// Command fukku is the Fukku server. One binary, several roles:
+//
+//	fukku web           the web process (UI, API, uploads); holds the API keys
+//	fukku worker        the worker process (parses uploads); no network, no secrets
+//	fukku combined      both in one process (mode=combined; weaker isolation)
+//	fukku check-config  load, validate and print the configuration with secrets redacted
+//	fukku healthcheck   container health check (web: /healthz, worker: heartbeat age)
+//	fukku version
+package main
+
+import (
+	"context"
+	"errors"
+	"flag"
+	"fmt"
+	"io"
+	"log/slog"
+	"net"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
+	"go.yaml.in/yaml/v3"
+
+	"github.com/segun-io/fukku/internal/config"
+	"github.com/segun-io/fukku/internal/version"
+	"github.com/segun-io/fukku/internal/web"
+	"github.com/segun-io/fukku/internal/worker"
+	"github.com/segun-io/fukku/ui"
+)
+
+const usage = `usage: fukku <command> [flags]
+
+commands:
+  web            run the web process
+  worker         run the worker process
+  combined       run web and worker in one process (mode=combined)
+  check-config   validate the configuration and print it, secrets redacted
+  healthcheck    exit 0 if this container is healthy
+  version        print the version
+
+Configuration: --config <file> or FUKKU_CONFIG, plus FUKKU_* environment variables
+(docs/settings.md).
+`
+
+func main() {
+	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
+}
+
+func run(args []string, stdout, stderr io.Writer) int {
+	if len(args) == 0 {
+		fmt.Fprint(stderr, usage)
+		return 2
+	}
+	cmd, rest := args[0], args[1:]
+	fset := flag.NewFlagSet("fukku "+cmd, flag.ContinueOnError)
+	fset.SetOutput(stderr)
+	configFile := fset.String("config", os.Getenv("FUKKU_CONFIG"), "YAML configuration file")
+	insecureDev := fset.Bool("insecure-dev", false, "allow auth.mode=none (development only)")
+	role := fset.String("role", "web", "check-config: role to validate for (web, worker, combined)")
+	checkWorker := fset.Bool("worker", false, "healthcheck: check the worker heartbeat instead of /healthz")
+
+	switch cmd {
+	case "version", "--version", "-v":
+		fmt.Fprintf(stdout, "fukku %s (%s)\n", version.Version, version.Commit)
+		return 0
+	case "help", "--help", "-h":
+		fmt.Fprint(stdout, usage)
+		return 0
+	case "web", "worker", "combined", "check-config", "healthcheck":
+	default:
+		fmt.Fprintf(stderr, "unknown command %q\n\n%s", cmd, usage)
+		return 2
+	}
+	if err := fset.Parse(rest); err != nil {
+		return 2
+	}
+
+	cfg, err := config.Load(config.Options{File: *configFile})
+	if err != nil {
+		fmt.Fprintf(stderr, "configuration: %v\n", err)
+		return 1
+	}
+
+	r := config.Role(cmd)
+	switch cmd {
+	case "check-config":
+		r = config.Role(*role)
+	case "healthcheck":
+		if *checkWorker {
+			return healthcheckWorker(cfg, stderr)
+		}
+		return healthcheckWeb(cfg, stderr)
+	}
+	if err := config.Validate(cfg, r, config.ValidateOptions{InsecureDev: *insecureDev}); err != nil {
+		fmt.Fprintf(stderr, "configuration is invalid:\n%v\n", err)
+		return 1
+	}
+	if cmd == "check-config" {
+		out, err := yaml.Marshal(cfg)
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		fmt.Fprintf(stdout, "# valid for role %s; secrets redacted\n%s", r, out)
+		return 0
+	}
+
+	log := newLogger(cfg.Server.LogFormat, stderr)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	switch cmd {
+	case "web":
+		err = web.New(cfg, log, ui.FS()).Run(ctx)
+	case "worker":
+		err = worker.New(cfg.Worker, log).Run(ctx)
+	case "combined":
+		err = runCombined(ctx, cfg, log)
+	}
+	if err != nil {
+		log.Error("exit", "error", err)
+		return 1
+	}
+	return 0
+}
+
+func runCombined(ctx context.Context, cfg config.Config, log *slog.Logger) error {
+	log.Warn("combined_mode", "note", "the worker shares the web process's network and secrets; use split mode where you can")
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	errc := make(chan error, 2)
+	go func() { errc <- web.New(cfg, log, ui.FS()).Run(ctx) }()
+	go func() { errc <- worker.New(cfg.Worker, log).Run(ctx) }()
+	first := <-errc
+	cancel()
+	return errors.Join(first, <-errc)
+}
+
+func newLogger(format string, w io.Writer) *slog.Logger {
+	if format == "json" {
+		return slog.New(slog.NewJSONHandler(w, nil))
+	}
+	return slog.New(slog.NewTextHandler(w, nil))
+}
+
+func healthcheckWeb(cfg config.Config, stderr io.Writer) int {
+	host, port, err := net.SplitHostPort(cfg.Server.ListenAddress)
+	if err != nil {
+		fmt.Fprintf(stderr, "server.listenAddress: %v\n", err)
+		return 1
+	}
+	if host == "" || host == "0.0.0.0" || host == "::" {
+		host = "127.0.0.1"
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+net.JoinHostPort(host, port)+"/healthz", nil)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		fmt.Fprintf(stderr, "healthz returned %d\n", resp.StatusCode)
+		return 1
+	}
+	return 0
+}
+
+func healthcheckWorker(cfg config.Config, stderr io.Writer) int {
+	age, err := worker.HeartbeatAge(cfg.Worker.SpoolDir, time.Now())
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	if age > cfg.Worker.HeartbeatMaxAge.D() {
+		fmt.Fprintf(stderr, "worker heartbeat is %s old (limit %s)\n", age.Round(time.Second), cfg.Worker.HeartbeatMaxAge)
+		return 1
+	}
+	return 0
+}

@@ -1,0 +1,7 @@
+.git
+.cache
+**/node_modules
+ui/dist
+bin
+test/env/.run
+*.test

@@ -1,0 +1,77 @@
+# Checks on every push and pull request; behaviour probes against the pinned apps.
+# Actions are pinned by commit SHA; tools come from the pinned dev image (tools/dev).
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "17 4 * * 1" # weekly: online probes catch upstream changes
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: format, lint, test, UI, secrets
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # gitleaks scans the history
+      - run: make check
+
+  image:
+    name: image build and SBOM
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          load: true
+          push: false
+          tags: fukku:ci
+          build-args: |
+            VERSION=ci-${{ github.sha }}
+            COMMIT=${{ github.sha }}
+      - name: smoke test
+        run: |
+          docker run --rm fukku:ci version
+          docker run --rm --network none --read-only --cap-drop ALL --entrypoint sh fukku:ci -c 'ffprobe -version >/dev/null && mkvmerge --version'
+      - uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
+        with:
+          image: fukku:ci
+          syft-version: v1.57.1
+          format: spdx-json
+          artifact-name: fukku.spdx.json
+
+  probes:
+    name: behaviour probes (${{ github.event_name == 'pull_request' && 'offline' || 'online' }})
+    runs-on: ubuntu-24.04
+    needs: check
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: make dev-image env-up
+      # Pull requests run the probes that need no internet; pushes, the schedule and manual
+      # runs also run those that add titles through the *arr metadata services.
+      - run: make ${{ github.event_name == 'pull_request' && 'probes' || 'probes-online' }}
+      - if: always()
+        run: make compat || true
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: probe-results
+          path: |
+            test/env/.run/results/
+            docs/compatibility.md
+      - if: always()
+        run: make env-down

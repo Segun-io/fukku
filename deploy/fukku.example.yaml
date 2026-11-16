@@ -1,0 +1,49 @@
+# Example configuration. Every setting and its default: docs/settings.md.
+# Keep API keys out of this file: the worker reads it too and refuses to start with secrets.
+
+server:
+  publicBaseUrl: https://fukku.example.com
+  uiLanguages: [en, es]
+
+auth:
+  mode: proxyHeaders
+  # The address the reverse proxy connects from (documentation range: replace it).
+  trustedProxies: [192.0.2.10]
+  userHeader: Remote-User
+  emailHeader: Remote-Email
+  groupsHeader: Remote-Groups
+  allUsersAreAdmins: false
+  adminGroup: media-admins
+
+radarr:
+  url: http://radarr:7878
+  qualityProfile: HD-1080p
+  rootFolder: /data/media/movies
+
+sonarr:
+  url: http://sonarr:8989
+  qualityProfile: HD-1080p
+  rootFolder: /data/media/tv
+
+subtitles:
+  provider: bazarr
+  url: http://bazarr:6767
+
+mediaServer:
+  provider: jellyfin
+  url: http://jellyfin:8096
+  titleLinkTemplate: https://media.example.com/web/#/details?id={itemId}
+
+paths:
+  intakeRoot: /data/intake
+  libraryRoots: [/data/media/movies, /data/media/tv]
+  # A file that exists only when the network share is mounted.
+  sentinels: [/data/.mounted]
+  # Uncomment when an app sees the data under a different path:
+  # mappings:
+  #   mediaServer:
+  #     - {from: /data/media, to: /media}
+
+merge:
+  languageTag: es-419
+  trackName: Español (Latino)
