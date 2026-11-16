@@ -8,3 +8,6 @@ ui/dist/*
 coverage.out
 .hallmark/
 .claude/
+test/e2e/test-results/
+test/e2e/playwright-report/
+test/e2e/container-logs.txt

@@ -218,6 +218,41 @@ services:
       - "127.0.0.1:18080:8080"
       - "127.0.0.1:18081:8081"
 
+  # The Playwright runner (test/e2e, `make e2e`; never started by dev-up). The browsers are in
+  # the pinned image, nothing is downloaded at test time; the tests come from ../e2e with its
+  # node_modules installed beforehand in the dev image. It is on the fukku network only, so it
+  # reaches the proxy and nothing else. Its tests restart fukku-web and fukku-worker, so this
+  # service (and only this one, in this test profile) gets the container runtime's socket:
+  # whoever can run these tests can already control every container on the host.
+  # Keep the image tag equal to the @playwright/test version in test/e2e/package.json
+  # (run.sh checks it); bump the tag and the digest together.
+  e2e:
+    profiles: [fukku]
+    image: mcr.microsoft.com/playwright:v1.65.1-noble@sha256:1507cbfc550a63a6b7396791ca4f00df17beb56342d2447b3f106c306f525579
+    init: true
+    shm_size: 1gb
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    user: ${PUID:-1000}:${PGID:-1000}
+    # Read access to the socket: its group id, set by test/e2e/run.sh.
+    group_add: ["${FUKKU_E2E_DOCKER_GID:-0}"]
+    working_dir: /e2e
+    environment:
+      HOME: /tmp
+      CI: ${CI:-}
+      FUKKU_E2E_FORWARD_TO: fukku-proxy
+      FUKKU_E2E_COMPOSE_PROJECT: fukku-test
+    volumes:
+      - ../e2e:/e2e
+      - ${FUKKU_E2E_DOCKER_SOCK:-/var/run/docker.sock}:/var/run/docker.sock
+    # Sparse upload files (files.sparse): holes cost no memory.
+    tmpfs:
+      - /tmp:size=256m
+      - /files:size=1g,uid=${PUID:-1000},gid=${PGID:-1000}
+    networks:
+      fukku: {}
+
 # A private network with a fixed subnet, so auth.trustedProxies can name the proxy's one
 # address. If the range is taken on your host, set FUKKU_DEV_SUBNET (a /24) before dev-up.
 networks:

@@ -1,0 +1,18 @@
+{
+  "name": "fukku-e2e",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "license": "AGPL-3.0-only",
+  "scripts": {
+    "test": "playwright test",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome check ."
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.6.8",
+    "@playwright/test": "1.65.1",
+    "@types/node": "26.6.6",
+    "typescript": "7.0.2"
+  }
+}

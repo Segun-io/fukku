@@ -59,6 +59,9 @@ default, `user2` a second ordinary user, `admin1` is in the admin group. Their a
 another /24 before `make dev-up`. The full contract of the stack, including the proxy's control
 API for tests, is in [test/env/compose.yaml](test/env/compose.yaml).
 
+Browser tests (Playwright, in a pinned image) run against this stack with `make e2e`; see
+[test/e2e/README.md](test/e2e/README.md).
+
 ## Development
 
 The host needs Docker (with Compose), make and git. Every other tool is pinned in the

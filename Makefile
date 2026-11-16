@@ -53,7 +53,7 @@ ci-lint: ## lint the GitHub Actions workflows (actionlint, pinned)
 	  docker run --rm -v $(CURDIR):/repo -w /repo $(ACTIONLINT) -color=false && echo "actionlint: ok"; fi
 
 .PHONY: _check
-_check: fmt-check lint test ui-check secrets
+_check: fmt-check lint test ui-check e2e-check secrets
 	@echo "check: all passed"
 
 .PHONY: fmt
@@ -91,6 +91,21 @@ secrets-staged: $(DEV_DEP)
 .PHONY: hooks
 hooks: ## install the git pre-commit hook (gitleaks on staged changes)
 	git config core.hooksPath .githooks
+
+## ---- end-to-end tests (plan §14.6) -------------------------------------------------
+
+.PHONY: e2e-deps
+e2e-deps: $(DEV_DEP) ## install the Playwright project's dependencies (no scripts, no browser download)
+	$(IN_DEV) bash -c 'cd test/e2e && if [ ! -f node_modules/.package-lock.json ] || [ package-lock.json -nt node_modules/.package-lock.json ]; then npm ci --no-audit; fi'
+
+.PHONY: e2e-check
+e2e-check: e2e-deps ## lint and type-check the Playwright project
+	$(IN_DEV) bash -c 'cd test/e2e && npm run lint && npm run typecheck'
+
+.PHONY: e2e
+e2e: ## Playwright through the UI against the dev stack; make e2e ARGS='smoke.spec.ts -g home'
+	$(MAKE) --no-print-directory image env-up dev-up e2e-deps
+	test/e2e/run.sh $(ARGS)
 
 ## ---- build ------------------------------------------------------------------------
 
