@@ -3,12 +3,13 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 )
 
 // The second versions (contract_versions.go). Writes go through the one write connection.
 
-const versionCols = `id, job_id, app, title_id, title, year, path, label, status, detail,
+const versionCols = `id, job_id, app, title_id, tmdb_id, title, year, path, label, status, detail,
 	primary_file_id, primary_path, primary_item_id, item_id, created_at, checked_at, grouped_at, primary_changed_at`
 
 func scanVersion(sc interface{ Scan(...any) error }) (Version, error) {
@@ -17,7 +18,7 @@ func scanVersion(sc interface{ Scan(...any) error }) (Version, error) {
 		created                   int64
 		checked, grouped, changed sql.NullInt64
 	)
-	err := sc.Scan(&v.ID, &v.JobID, &v.App, &v.TitleID, &v.Title, &v.Year, &v.Path, &v.Label, &v.Status, &v.Detail,
+	err := sc.Scan(&v.ID, &v.JobID, &v.App, &v.TitleID, &v.TMDBID, &v.Title, &v.Year, &v.Path, &v.Label, &v.Status, &v.Detail,
 		&v.PrimaryFileID, &v.PrimaryPath, &v.PrimaryItemID, &v.ItemID, &created, &checked, &grouped, &changed)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Version{}, ErrNotFound
@@ -30,9 +31,14 @@ func scanVersion(sc interface{ Scan(...any) error }) (Version, error) {
 	return v, nil
 }
 
-func (s *sqliteStore) PutVersion(ctx context.Context, v Version) (Version, error) {
+func (s *sqliteStore) PutVersion(ctx context.Context, v Version, audit ...AuditEntry) (Version, error) {
 	if v.Path == "" {
 		return Version{}, errors.New("store: a version needs a path")
+	}
+	for _, e := range audit {
+		if e.Action == "" {
+			return Version{}, errors.New("store: an audit entry needs an action")
+		}
 	}
 	tx, err := s.w.BeginTx(ctx, nil)
 	if err != nil {
@@ -44,10 +50,10 @@ func (s *sqliteStore) PutVersion(ctx context.Context, v Version) (Version, error
 		if v.CreatedAt.IsZero() {
 			v.CreatedAt = s.clock()
 		}
-		res, err := tx.ExecContext(ctx, `INSERT INTO versions (job_id, app, title_id, title, year, path, label, status, detail,
+		res, err := tx.ExecContext(ctx, `INSERT INTO versions (job_id, app, title_id, tmdb_id, title, year, path, label, status, detail,
 			primary_file_id, primary_path, primary_item_id, item_id, created_at, checked_at, grouped_at, primary_changed_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			v.JobID, v.App, v.TitleID, v.Title, v.Year, v.Path, v.Label, v.Status, v.Detail,
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			v.JobID, v.App, v.TitleID, v.TMDBID, v.Title, v.Year, v.Path, v.Label, v.Status, v.Detail,
 			v.PrimaryFileID, v.PrimaryPath, v.PrimaryItemID, v.ItemID, v.CreatedAt.UnixNano(), nanos(v.CheckedAt), nanos(v.GroupedAt), nanos(v.PrimaryChangedAt))
 		if isUnique(err) {
 			return Version{}, ErrExists
@@ -64,10 +70,10 @@ func (s *sqliteStore) PutVersion(ctx context.Context, v Version) (Version, error
 			return Version{}, err
 		}
 		v.CreatedAt = old.CreatedAt
-		_, err = tx.ExecContext(ctx, `UPDATE versions SET job_id = ?, app = ?, title_id = ?, title = ?, year = ?, path = ?, label = ?,
+		_, err = tx.ExecContext(ctx, `UPDATE versions SET job_id = ?, app = ?, title_id = ?, tmdb_id = ?, title = ?, year = ?, path = ?, label = ?,
 			status = ?, detail = ?, primary_file_id = ?, primary_path = ?, primary_item_id = ?, item_id = ?,
 			checked_at = ?, grouped_at = ?, primary_changed_at = ? WHERE id = ?`,
-			v.JobID, v.App, v.TitleID, v.Title, v.Year, v.Path, v.Label, v.Status, v.Detail,
+			v.JobID, v.App, v.TitleID, v.TMDBID, v.Title, v.Year, v.Path, v.Label, v.Status, v.Detail,
 			v.PrimaryFileID, v.PrimaryPath, v.PrimaryItemID, v.ItemID, nanos(v.CheckedAt), nanos(v.GroupedAt), nanos(v.PrimaryChangedAt), v.ID)
 		if isUnique(err) {
 			return Version{}, ErrExists
@@ -76,10 +82,50 @@ func (s *sqliteStore) PutVersion(ctx context.Context, v Version) (Version, error
 			return Version{}, err
 		}
 	}
+	entries := make([]AuditEntry, 0, len(audit))
+	for _, e := range audit {
+		if e.JobID == "" {
+			e.JobID = v.JobID
+		}
+		e.Actor = actorOr(e.Actor)
+		if e.At = normTime(e.At); e.At.IsZero() {
+			e.At = s.clock()
+		}
+		var detail any
+		if len(e.Detail) > 0 {
+			b, err := json.Marshal(e.Detail)
+			if err != nil {
+				return Version{}, err
+			}
+			detail = string(b)
+		}
+		if _, err := tx.ExecContext(ctx,
+			"INSERT INTO audit (at, actor, email, action, job_id, detail) VALUES (?, ?, ?, ?, ?, ?)",
+			nanos(e.At), e.Actor, e.Email, e.Action, e.JobID, detail); err != nil {
+			return Version{}, err
+		}
+		entries = append(entries, e)
+	}
 	if err := tx.Commit(); err != nil {
 		return Version{}, err
 	}
+	for _, e := range entries {
+		s.log.InfoContext(ctx, "audit", auditAttrs(e)...)
+	}
 	return v, nil
+}
+
+func (s *sqliteStore) DeleteVersion(ctx context.Context, id int64) error {
+	res, err := s.w.ExecContext(ctx, "DELETE FROM versions WHERE id = ?", id)
+	if err != nil {
+		return err
+	}
+	if n, err := res.RowsAffected(); err != nil {
+		return err
+	} else if n == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 func (s *sqliteStore) VersionByPath(ctx context.Context, path string) (Version, error) {

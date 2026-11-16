@@ -55,6 +55,20 @@ func TestM3VersionGrouping(t *testing.T) {
 	p.must(err, "parse with the extension")
 	p.observe("Radarr's parse of '%s - <label>': %v; with '.mkv' added the language label reads as %s", name, verdicts, withExt.Quality.Name)
 	p.evidence("verdicts", verdicts)
+	// A film whose own title reads as a quality: the label is judged against the folder's
+	// name alone, which reads the same.
+	camFolder, err := rc.Parse(p.ctx, "Cam (2018)")
+	p.must(err, "parse a quality-word title")
+	camLabel, err := rc.Parse(p.ctx, "Cam (2018) - Español")
+	p.must(err, "parse a quality-word title with a label")
+	unparsed, err := rc.Parse(p.ctx, "Zzz")
+	p.must(err, "parse a name Radarr cannot read")
+	p.observe("'Cam (2018)' reads as %s, 'Cam (2018) - Español' as %s; 'Zzz' parses: %v",
+		camFolder.Quality.Name, camLabel.Quality.Name, unparsed.OK)
+	if camFolder.Quality != camLabel.Quality || unparsed.OK {
+		ok = false
+		p.observe("DIFFERS: the folder baseline or the unparsed case")
+	}
 
 	// The files: the film in Radarr's root folder, the version in a versions folder outside
 	// it, which is added to the Movies library for the length of the probe.
@@ -86,7 +100,7 @@ func TestM3VersionGrouping(t *testing.T) {
 		ItemWait: config.Duration(time.Minute), ItemPollInterval: config.Duration(500 * time.Millisecond)}
 	st := storetest.NewFake(nil)
 	movies := &arrtest.FakeMovies{Library: []arr.Movie{{ID: 1, Title: term, Year: 2003, File: &arr.MovieFile{ID: 1, Path: film}}}}
-	k := mediaserver.NewKeeper(cfg, nil, st, movies, mediaserver.NewJellyfin(cfg.MediaServer))
+	k := mediaserver.NewKeeper(cfg, nil, st, movies, mediaserver.NewJellyfin(cfg.MediaServer), nil)
 	_, err = st.PutVersion(p.ctx, store.Version{JobID: "probe", App: "radarr", TitleID: 1, Title: term, Year: 2003, Path: version, Status: store.VersionLinked})
 	p.must(err, "record")
 

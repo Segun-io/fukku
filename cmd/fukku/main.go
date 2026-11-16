@@ -178,7 +178,7 @@ func runWeb(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	deps.Imports.AddPostStep(ms)
 	// Second versions of films (#56): their grouping in the media server, first by the job's
 	// own step, then by the keeper after each import and every versions.regroupInterval.
-	keeper := mediaserver.NewKeeper(cfg, log, st, deps.Radarr, ms.Server)
+	keeper := mediaserver.NewKeeper(cfg, log, st, deps.Radarr, ms.Server, deps.Locks)
 	deps.Imports.AddVersionStep(&mediaserver.VersionStep{Keeper: keeper, Store: st, Config: cfg})
 	deps.Imports.OnDone(keeper.Nudge)
 	// The job runner (#29) drives jobs next to the HTTP server and stops with it, before
@@ -196,9 +196,9 @@ func runWeb(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	kept := make(chan struct{})
 	go func() {
 		defer close(kept)
-		if cfg.Versions.Enabled || cfg.Versions.Root != "" {
-			_ = keeper.Run(ctx)
-		}
+		// Whatever versions.enabled says: versions placed before it was turned off keep their
+		// grouping. With no record, a pass is one query.
+		_ = keeper.Run(ctx)
 	}()
 	err = web.New(cfg, log, ui.FS(), deps).Run(ctx)
 	cancel()

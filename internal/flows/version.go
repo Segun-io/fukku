@@ -45,30 +45,36 @@ import (
 // The confirmation (POST /api/jobs/{id}/confirm with {"flow2": "version", "version":
 // {"label": "Español"}}):
 //
-//   - The job must be flow 2, its library file probed, and "version" among the offers
-//     (versions.enabled, and a media server that can group versions); else
+//   - The job must be a Radarr flow 2 job, its library file probed, and "version" among the
+//     offers (versions.enabled, and a media server that can group versions); else
 //     version_unavailable.
 //   - The label: the request's, or the one versions.labelTemplate proposes from the upload's
 //     new audio language. It must be one path element without the characters Windows and
-//     Samba refuse, at most 64 bytes, contain none of versions.forbiddenLabelTokens as a
-//     word, and not end in one of the words Jellyfin takes for an extra (B4); with
+//     Samba refuse and without invisible format characters (Unicode Cf), at most 64 bytes,
+//     contain none of versions.forbiddenLabelTokens as a word, and not end in one of the
+//     words Jellyfin takes for an extra (B4); the file name at most 255 bytes. With
 //     versions.requireNotUpgradeVerdict, Radarr's parse of "<film folder> - <label>" must
-//     read no quality and no proper or repack. Else version_label.
+//     read nothing that ranks a release beyond what it reads in "<film folder>" alone, and
+//     a name it cannot parse at all is refused (no verdict). Else version_label.
 //   - Radarr's tracked file must still be the one of the match (movie.movieFile's id and
 //     size). If it changed, the job goes back to probed, as a stale library probe does
 //     (rescan), and the confirmation is refused with library_changed.
-//   - versions.root must be a folder on the intake root's filesystem, writable, outside
-//     every Radarr root folder (as paths.mappings.radarr maps them) and every
-//     paths.libraryRoots entry (version_unavailable or storage_unavailable), and the
-//     version's name must be free (version_exists).
+//   - versions.root must be a folder on the same mount as the intake root (a trial link),
+//     writable, outside every Radarr root folder (as paths.mappings.radarr maps them,
+//     symbolic links resolved) and every paths.libraryRoots entry (version_unavailable or
+//     storage_unavailable), and the version's name must be free on disk and unused by any
+//     earlier version record (version_exists).
 //   - Then one transaction: the choice into the target's options ("version"), the audit
 //     entry version.confirmed, and the move to importing.
 //
-// The importing step places the file (placeVersion): Radarr's tracked file is checked
-// again before anything is written (stale: back to probed), the record is stored
-// (store.Version, status placing), then the job's file is hard-linked into place with
-// linkat(2), which never replaces a file; then version.linked, and the job moves to
-// imported. A repeat after a crash finds the link (same inode) and goes on. The imported
+// The importing step places the file (placeVersion), under the version's lock
+// (VersionLock, shared with the keeper): a record of the name from another job fails it
+// (version_exists); Radarr's tracked file is checked again before anything is written
+// (stale: back to probed); the record is stored (store.Version, status placing), then the
+// job's file is hard-linked into place with linkat(2), which never replaces a file (a
+// failed link removes the record again); then the record becomes linked together with
+// version.linked, in one write, and the job moves to imported. A repeat after a crash finds
+// the link (same inode) and the record still placing, and goes on. The imported
 // step leaves Radarr's monitoring alone. Post-processing runs the version steps
 // (AddVersionStep: the media server's grouping) instead of the import's (the subtitle
 // manager knows only Radarr's file, so the job's subtitles are not handed over).
@@ -121,10 +127,18 @@ const (
 	LabelForbidden = "label_forbidden" // a word of versions.forbiddenLabelTokens (Token)
 	LabelExtra     = "label_extra"     // ends in a word Jellyfin takes for an extra (B4)
 	LabelQuality   = "label_quality"   // Radarr reads a quality or a revision in the name (Token)
+	LabelUnchecked = "label_unchecked" // Radarr cannot parse the name at all, so it cannot be checked
 )
 
-// maxLabelBytes is the longest label.
-const maxLabelBytes = 64
+// maxLabelBytes is the longest label; maxNameBytes the longest file name (most filesystems').
+const (
+	maxLabelBytes = 64
+	maxNameBytes  = 255
+)
+
+func nameTooLong() *LabelProblem {
+	return &LabelProblem{Reason: LabelTooLong, Message: fmt.Sprintf("The version's file name would be longer than %d bytes: choose a shorter label.", maxNameBytes)}
+}
 
 // jellyfinExtras are the words that make Jellyfin take a file for an extra when the name
 // ends in one of them (probe B4: "- Español-trailer", "- Español-other").
@@ -184,7 +198,12 @@ type versionChoice struct {
 	Path          string `json:"path"`
 	LibraryFileID int    `json:"libraryFileId"`
 	LibrarySize   int64  `json:"librarySize"`
+	TMDBID        int    `json:"tmdbId,omitempty"`
 }
+
+// VersionLock is the key of a version's lock in the shared JobLocks: the placement and the
+// version keeper (package mediaserver) take it around their reads and writes of the record.
+func VersionLock(path string) string { return "version:" + path }
 
 // versionOf returns the version choice of a confirmed flow 2 job; ok is false for any other.
 func versionOf(t store.Target) (versionChoice, bool) {
@@ -294,6 +313,11 @@ func checkLabel(label string, cfg config.Versions) (string, *LabelProblem) {
 	if strings.ContainsAny(clean, `<>:"|?*`) || strings.HasPrefix(clean, ".") || strings.HasSuffix(clean, ".") {
 		return "", &LabelProblem{Reason: LabelInvalid, Message: `The label must not contain < > : " | ? *, or start or end with a dot.`}
 	}
+	// Invisible format characters (zero-width space, soft hyphen, joiners: Unicode Cf) would
+	// make two names that look the same differ, or hide a word from the token check.
+	if strings.ContainsFunc(clean, func(r rune) bool { return unicode.Is(unicode.Cf, r) }) {
+		return "", &LabelProblem{Reason: LabelInvalid, Message: "The label must not contain invisible characters (zero-width spaces, soft hyphens and the like)."}
+	}
 	words := labelWords(clean)
 	if len(words) == 0 {
 		return "", &LabelProblem{Reason: LabelInvalid, Message: "The label needs at least one letter or digit."}
@@ -320,17 +344,38 @@ func checkLabel(label string, cfg config.Versions) (string, *LabelProblem) {
 // versionName is the version's file name: "<film folder> - <label><ext>".
 func versionName(folder, label, ext string) string { return folder + " - " + label + ext }
 
-// radarrVerdict is the problem Radarr's parse of a version's name (without its extension)
-// shows: a quality, a source, a resolution, or a proper or repack. nil: it reads nothing.
-func radarrVerdict(p arr.Parsed, stem string) *LabelProblem {
+// readsQuality reports whether a parse reads anything that ranks a release: a quality, a
+// source, a resolution, or a proper, real or repack revision.
+func readsQuality(p arr.Parsed) bool {
 	src := strings.ToLower(p.Source)
-	if p.Quality.ID == 0 && (src == "" || src == "unknown") && p.Resolution == 0 && p.Revision <= 1 && !p.Repack {
+	return p.Quality.ID != 0 || (src != "" && src != "unknown") || p.Resolution != 0 || p.Revision > 1 || p.Real > 0 || p.Repack
+}
+
+// sameReading reports whether two parses read the same quality and revision.
+func sameReading(a, b arr.Parsed) bool {
+	return a.Quality.ID == b.Quality.ID && strings.EqualFold(a.Source, b.Source) && a.Resolution == b.Resolution &&
+		a.Revision == b.Revision && a.Real == b.Real && a.Repack == b.Repack
+}
+
+// radarrVerdict is the problem Radarr's parse of a version's name (without its extension)
+// shows, against its parse of the film folder's name alone (base). The label must add
+// nothing that ranks a release: a parse that reads a quality, a source, a resolution, or a
+// proper, real or repack revision is refused, unless the folder name alone reads the same
+// (a film whose own title reads as a quality, such as "Cam (2018)"). A name Radarr cannot
+// parse at all cannot be checked, and is refused too: versions.requireNotUpgradeVerdict asks
+// for Radarr's verdict, and there is none. nil: the label is fine.
+func radarrVerdict(p, base arr.Parsed, stem string) *LabelProblem {
+	if !p.OK {
+		return &LabelProblem{Reason: LabelUnchecked, Message: fmt.Sprintf(
+			"Radarr cannot read the name %q, so the label cannot be checked: try another label, or turn versions.requireNotUpgradeVerdict off.", stem)}
+	}
+	if !readsQuality(p) || (base.OK && sameReading(p, base)) {
 		return nil
 	}
 	what := p.Quality.Name
 	switch {
-	case p.Revision > 1 || p.Repack:
-		what = "a proper or repack"
+	case p.Revision > 1 || p.Real > 0 || p.Repack:
+		what = "a proper, real or repack"
 	case what == "" || p.Quality.ID == 0:
 		what = strings.TrimSpace(p.Source + " " + strconv.Itoa(p.Resolution) + "p")
 	}
@@ -382,6 +427,9 @@ func viewVersion(cfg config.Config, lib LibraryFile, upload store.File, up media
 		v.Label = label
 		if folder, err := filmFolder(path.Dir(lib.AppPath)); err == nil {
 			v.Name = versionName(folder, label, strings.ToLower(path.Ext(upload.Path)))
+			if len(v.Name) > maxNameBytes {
+				v.Problem, v.Name = nameTooLong(), ""
+			}
 		}
 	}
 	return v
@@ -437,6 +485,9 @@ func (e *Engine) confirmVersion(ctx context.Context, user, email string, s *sess
 	if len(req.Overrides) > 0 || len(req.Subtitles) > 0 || req.SeasonDub != "" {
 		return Confirmation{}, badRequest("A second version takes only flow2 and version: no overrides, subtitles or seasonDub.")
 	}
+	if s.t.App != AppRadarr {
+		return Confirmation{}, refuse(CodeVersionUnavailable, "Second versions of films are made for Radarr's films only (episodes: #58).")
+	}
 	if rec.Library.Probe == nil {
 		return Confirmation{}, refuse(CodeWrongState, "The film's library file is not compared yet.")
 	}
@@ -491,8 +542,8 @@ func (e *Engine) confirmVersion(ctx context.Context, user, email string, s *sess
 		return Confirmation{}, refuse(CodeVersionUnavailable, "Radarr's folder for the film cannot be used for the version (%v).", err)
 	}
 	name := versionName(folder, label, strings.ToLower(path.Ext(f.Path)))
-	if len(name) > 255 {
-		return Confirmation{}, refuse(CodeVersionLabel, "The version's file name would be longer than 255 bytes: choose a shorter label.")
+	if len(name) > maxNameBytes {
+		return Confirmation{}, refuse(CodeVersionLabel, "%s", nameTooLong().Message)
 	}
 	stem := strings.TrimSuffix(name, path.Ext(name))
 	if cfg.Versions.RequireNotUpgradeVerdict {
@@ -504,7 +555,11 @@ func (e *Engine) confirmVersion(ctx context.Context, user, email string, s *sess
 		if err != nil {
 			return Confirmation{}, appFailure(AppRadarr, err)
 		}
-		if p := radarrVerdict(parsed, stem); p != nil {
+		base, err := parser.Parse(ctx, folder) // what the film's own name reads as
+		if err != nil {
+			return Confirmation{}, appFailure(AppRadarr, err)
+		}
+		if p := radarrVerdict(parsed, base, stem); p != nil {
 			return Confirmation{}, refuse(CodeVersionLabel, "%s", p.Message)
 		}
 	}
@@ -518,10 +573,17 @@ func (e *Engine) confirmVersion(ctx context.Context, user, email string, s *sess
 		e.log.Warn("version_unavailable", "job", s.job.ID, "error", err)
 		return Confirmation{}, refuse(CodeStorageUnavailable, "The versions folder cannot be read.")
 	}
+	// A record of that name belongs to an earlier job (its file may be gone): it is never
+	// handed to another one.
+	if old, err := e.st.VersionByPath(ctx, dest); err == nil {
+		return Confirmation{}, refuse(CodeVersionExists, "A version named %q was placed before (status %s): choose another label.", name, old.Status)
+	} else if !errors.Is(err, store.ErrNotFound) {
+		return Confirmation{}, err
+	}
 
 	choice := versionChoice{
 		FileID: f.ID, Label: label, Folder: folder, Name: name, Path: dest,
-		LibraryFileID: rec.Library.FileID, LibrarySize: rec.Library.Size,
+		LibraryFileID: rec.Library.FileID, LibrarySize: rec.Library.Size, TMDBID: m.TMDBID,
 	}
 	opts, err := withOption(s.t.Options, "version", choice)
 	if err != nil {
@@ -559,7 +621,7 @@ func (e *Engine) checkVersionRoot(ctx context.Context) error {
 	}
 	if err := e.checkVersionStorage(); err != nil {
 		e.log.Warn("version_storage_unavailable", "error", err)
-		return refuse(CodeStorageUnavailable, "The versions folder is not available: a mount is missing, it is not writable, or it is on another filesystem than the intake folder.")
+		return refuse(CodeStorageUnavailable, "The versions folder is not available: a mount is missing, it is not writable, or it is not on the same mount as the intake folder.")
 	}
 	roots, err := e.p.radarr.RootFolders(ctx)
 	if err != nil {
@@ -567,22 +629,22 @@ func (e *Engine) checkVersionRoot(ctx context.Context) error {
 	}
 	for _, r := range roots {
 		mine := filepath.Clean(pathmap.From(cfg.Paths.Mappings.Radarr, r.Path))
-		if filepath.IsAbs(mine) && config.Overlaps(root, mine) {
+		if filepath.IsAbs(mine) && config.OverlapsOnDisk(root, mine) {
 			return refuse(CodeVersionUnavailable, "versions.root overlaps Radarr's root folder %s: Radarr would take the version for one of the film's files (decision #20).", r.Path)
 		}
 	}
 	return nil
 }
 
-// versionStorage is the filesystem check of versions.root (checkVersionStorage).
+// versionStorage is the filesystem check of versions.root (checkVersionStorage): the
+// sentinels, then a trial hard link from the intake root into versions.root, which also
+// proves it writable. A trial, not a comparison of device ids: two bind mounts of one
+// filesystem have the same st_dev, yet a link between them fails with EXDEV.
 func versionStorage(cfg config.Config) error {
 	if err := fscheck.Sentinels(cfg.Paths); err != nil {
 		return err
 	}
-	if err := fscheck.Writable(cfg.Versions.Root); err != nil {
-		return err
-	}
-	return fscheck.SameDevice(cfg.Paths.IntakeRoot, cfg.Versions.Root)
+	return fscheck.CanLink(cfg.Paths.IntakeRoot, cfg.Versions.Root)
 }
 
 // ---- the placement ------------------------------------------------------------------------
@@ -605,15 +667,21 @@ func (e *Engine) placeVersion(ctx context.Context, job store.Job, t store.Target
 	if c.Path != filepath.Join(cfg.Versions.Root, c.Folder, c.Name) {
 		return e.failVersion(ctx, job, t, CodeVersionFailed, fmt.Sprintf("versions.root changed since the confirmation (the version was to be %s)", c.Path))
 	}
+	// The version's lock, shared with the version keeper: neither reads the record while the
+	// other is writing it. (It is never held with the job's lock taken first.)
+	defer e.locks.Lock(VersionLock(c.Path))()
 	rec, err := e.st.VersionByPath(ctx, c.Path)
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		return err
+	}
+	if rec.ID != 0 && rec.JobID != job.ID {
+		// An earlier job's version of that name (its file may be gone): never taken over.
+		return e.failVersion(ctx, job, t, CodeVersionExists, fmt.Sprintf("%s is recorded for job %s (status %s): nothing is taken over", c.Path, rec.JobID, rec.Status))
 	}
 	placed, err := samePlaced(src, c.Path)
 	if err != nil {
 		return e.failVersion(ctx, job, t, CodeVersionFailed, err.Error())
 	}
-	linked := false
 	if !placed {
 		if _, err := os.Lstat(c.Path); err == nil {
 			return e.failVersion(ctx, job, t, CodeVersionExists, fmt.Sprintf("%s exists: nothing is replaced", c.Path))
@@ -634,39 +702,42 @@ func (e *Engine) placeVersion(ctx context.Context, job store.Job, t store.Target
 		}
 		if why := trackedChanged(LibraryFile{FileID: c.LibraryFileID, Size: c.LibrarySize}, m); why != nil {
 			e.forget(job.ID)
+			if rec.ID != 0 && rec.Status == store.VersionPlacing { // an earlier pass's, before its link
+				if err := e.st.DeleteVersion(ctx, rec.ID); err != nil && !errors.Is(err, store.ErrNotFound) {
+					return err
+				}
+			}
 			_, err := e.p.backToProbed(ctx, job, t, why)
 			return err
 		}
 		// The record first, so that the version keeper knows of the file once it exists.
-		rec = versionRecord(rec, job, t, c, store.VersionPlacing)
-		if rec, err = e.st.PutVersion(ctx, rec); err != nil {
+		if rec, err = e.st.PutVersion(ctx, versionRecord(rec, job, t, c, store.VersionPlacing)); err != nil {
 			return err
 		}
 		if err := linkVersion(cfg.Versions.Root, src, c.Folder, c.Name); err != nil {
+			// Nothing was placed: the record of the attempt goes, so that it never stands
+			// for a file that does not exist.
+			if derr := e.st.DeleteVersion(ctx, rec.ID); derr != nil && !errors.Is(derr, store.ErrNotFound) {
+				return derr
+			}
 			code := CodeVersionFailed
 			switch {
 			case errors.Is(err, fs.ErrExist):
 				code = CodeVersionExists
 			case crossDevice(err):
-				err = fmt.Errorf("%w: versions.root must be on the intake root's filesystem", err)
+				err = fmt.Errorf("%w: versions.root must be on the same mount as the intake root", err)
 			}
 			return e.failVersion(ctx, job, t, code, fmt.Sprintf("place %s: %v", c.Path, err))
 		}
-		linked = true
 	}
-	if rec.ID == 0 || rec.JobID != job.ID || rec.Status == store.VersionPlacing || rec.Status == "" {
-		was := rec.Status
-		rec = versionRecord(rec, job, t, c, store.VersionLinked)
-		if rec, err = e.st.PutVersion(ctx, rec); err != nil {
-			return err
-		}
-		linked = linked || was == store.VersionPlacing
-	}
-	if linked {
-		if err := e.st.Audit(ctx, store.AuditEntry{Actor: actor, Action: "version.linked", JobID: job.ID, Detail: map[string]string{
+	// The record says linked, with its audit entry in the same write; a repeat after a crash
+	// before it finds the record still placing and writes both then.
+	if rec.ID == 0 || rec.Status == store.VersionPlacing || rec.Status == "" {
+		entry := store.AuditEntry{Actor: actor, Action: "version.linked", JobID: job.ID, Detail: map[string]string{
 			"app": t.App, "titleId": strconv.Itoa(t.TitleID), "title": t.Title,
 			"path": c.Path, "label": c.Label, "file": path.Base(files[i].Path),
-		}}); err != nil {
+		}}
+		if _, err = e.st.PutVersion(ctx, versionRecord(rec, job, t, c, store.VersionLinked), entry); err != nil {
 			return err
 		}
 		e.log.Info("version_linked", "job", job.ID, "path", c.Path)
@@ -678,6 +749,9 @@ func (e *Engine) placeVersion(ctx context.Context, job store.Job, t store.Target
 // versionRecord is rec (zero: a new one) for the job's choice, with status.
 func versionRecord(rec store.Version, job store.Job, t store.Target, c versionChoice, status string) store.Version {
 	rec.JobID, rec.App, rec.TitleID, rec.Title, rec.Year = job.ID, t.App, t.TitleID, t.Title, t.Year
+	if c.TMDBID != 0 {
+		rec.TMDBID = c.TMDBID
+	}
 	rec.Path, rec.Label, rec.Status, rec.Detail = c.Path, c.Label, status, ""
 	return rec
 }

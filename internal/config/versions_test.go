@@ -2,6 +2,8 @@ package config
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -47,6 +49,44 @@ func TestValidateVersions(t *testing.T) {
 				t.Errorf("problems %q, want %q", got, tc.want)
 			}
 		})
+	}
+}
+
+// versions.strategy was removed (#56): a configuration that still sets it fails to load.
+func TestVersionsStrategyRemoved(t *testing.T) {
+	if _, err := Load(Options{Environ: []string{"FUKKU_VERSIONS_STRATEGY=mergeApi"}}); err == nil {
+		t.Error("FUKKU_VERSIONS_STRATEGY was accepted")
+	}
+	files := map[string][]byte{"/c.yaml": []byte("versions:\n  strategy: naming\n")}
+	read := func(p string) ([]byte, error) { return files[p], nil }
+	if _, err := Load(Options{File: "/c.yaml", Environ: []string{}, ReadFile: read}); err == nil || !strings.Contains(err.Error(), "strategy") {
+		t.Errorf("versions.strategy in the file: %v", err)
+	}
+}
+
+// A symbolic link does not hide a versions folder inside a library root.
+func TestOverlapsOnDisk(t *testing.T) {
+	dir := t.TempDir()
+	lib := filepath.Join(dir, "movies")
+	if err := os.MkdirAll(filepath.Join(lib, "inside"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, "versions")
+	if err := os.Symlink(filepath.Join(lib, "inside"), link); err != nil {
+		t.Fatal(err)
+	}
+	if Overlaps(link, lib) || !OverlapsOnDisk(link, lib) {
+		t.Errorf("Overlaps %t, OverlapsOnDisk %t; want false, true", Overlaps(link, lib), OverlapsOnDisk(link, lib))
+	}
+	if OverlapsOnDisk(filepath.Join(dir, "elsewhere"), lib) {
+		t.Error("a missing folder outside overlaps")
+	}
+	cfg := Defaults()
+	cfg.Paths.IntakeRoot = "/data/intake"
+	cfg.Paths.LibraryRoots = []string{lib}
+	cfg.Versions.Root = link
+	if got := versionProblems(cfg); !strings.Contains(got, "overlaps the library root") {
+		t.Errorf("problems %q", got)
 	}
 }
 

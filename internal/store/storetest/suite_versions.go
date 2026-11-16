@@ -15,6 +15,7 @@ var versionTests = []struct {
 }{
 	{"Versions", testVersions},
 	{"VersionsOutliveJobs", testVersionsOutliveJobs},
+	{"VersionAuditAndDelete", testVersionAuditAndDelete},
 	{"ReplaceTargetFromImporting", testReplaceTargetFromImporting},
 }
 
@@ -85,6 +86,43 @@ func testVersions(t *testing.T, s store.Store) {
 	}
 	if none := must(s.VersionsOf(ctx, "j3"))(t); len(none) != 0 {
 		t.Fatalf("VersionsOf an unknown job: %+v", none)
+	}
+}
+
+// The audit entries of PutVersion are stored with the record (the job's when they name none),
+// and none is stored when the write is refused; DeleteVersion removes one record.
+func testVersionAuditAndDelete(t *testing.T, s store.Store) {
+	ctx := t.Context()
+	v := must(s.PutVersion(ctx, store.Version{JobID: "j1", App: "radarr", TitleID: 3, TMDBID: 605, Path: "/v/A (2000)/A (2000) - Español.mkv", Status: store.VersionLinked},
+		store.AuditEntry{Action: "version.linked", Detail: map[string]string{"path": "/v/A (2000)/A (2000) - Español.mkv"}},
+		store.AuditEntry{Action: "other", JobID: "j9"}))(t)
+	if got := must(s.VersionByPath(ctx, v.Path))(t); got.TMDBID != 605 {
+		t.Fatalf("tmdb id %d", got.TMDBID)
+	}
+	log := must(s.AuditLog(ctx, "j1"))(t)
+	if len(log) != 1 || log[0].Action != "version.linked" || log[0].Actor != "system" || log[0].Detail["path"] != v.Path || log[0].At.IsZero() {
+		t.Fatalf("audit of j1 %+v", log)
+	}
+	if other := must(s.AuditLog(ctx, "j9"))(t); len(other) != 1 {
+		t.Fatalf("audit of j9 %+v", other)
+	}
+	if _, err := s.PutVersion(ctx, store.Version{JobID: "j1", Path: v.Path}, store.AuditEntry{Action: "dup"}); !errors.Is(err, store.ErrExists) {
+		t.Fatalf("duplicate: %v", err)
+	}
+	if _, err := s.PutVersion(ctx, v, store.AuditEntry{}); err == nil {
+		t.Fatal("an audit entry without an action was accepted")
+	}
+	if log := must(s.AuditLog(ctx, "j1"))(t); len(log) != 1 {
+		t.Fatalf("a refused write left audit entries: %+v", log)
+	}
+	if err := s.DeleteVersion(ctx, v.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.VersionByPath(ctx, v.Path); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("after DeleteVersion: %v", err)
+	}
+	if err := s.DeleteVersion(ctx, v.ID); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("deleting twice: %v", err)
 	}
 }
 

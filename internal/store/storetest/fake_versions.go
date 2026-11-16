@@ -2,6 +2,7 @@ package storetest
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"slices"
 
@@ -15,13 +16,21 @@ func normVersion(v store.Version) store.Version {
 	return v
 }
 
-func (f *Fake) PutVersion(ctx context.Context, v store.Version) (store.Version, error) {
+func (f *Fake) PutVersion(ctx context.Context, v store.Version, audit ...store.AuditEntry) (store.Version, error) {
 	if err := f.lock(ctx); err != nil {
 		return store.Version{}, err
 	}
 	defer f.mu.Unlock()
 	if v.Path == "" {
 		return store.Version{}, errors.New("storetest: a version needs a path")
+	}
+	for _, e := range audit {
+		if e.Action == "" {
+			return store.Version{}, errors.New("storetest: an audit entry needs an action")
+		}
+		if _, err := json.Marshal(e.Detail); err != nil {
+			return store.Version{}, err
+		}
 	}
 	v = normVersion(v)
 	i := slices.IndexFunc(f.vers, func(o store.Version) bool { return o.ID == v.ID })
@@ -40,11 +49,35 @@ func (f *Fake) PutVersion(ctx context.Context, v store.Version) (store.Version, 
 		f.verID++
 		v.ID = f.verID
 		f.vers = append(f.vers, v)
-		return v, nil
+	} else {
+		v.CreatedAt = f.vers[i].CreatedAt
+		f.vers[i] = v
 	}
-	v.CreatedAt = f.vers[i].CreatedAt
-	f.vers[i] = v
+	for _, e := range audit {
+		if e.JobID == "" {
+			e.JobID = v.JobID
+		}
+		e.ID = int64(len(f.audit) + 1)
+		if e.At = norm(e.At); e.At.IsZero() {
+			e.At = f.clock()
+		}
+		e.Actor = actorOr(e.Actor)
+		f.audit = append(f.audit, cloneAudit(e))
+	}
 	return v, nil
+}
+
+func (f *Fake) DeleteVersion(ctx context.Context, id int64) error {
+	if err := f.lock(ctx); err != nil {
+		return err
+	}
+	defer f.mu.Unlock()
+	i := slices.IndexFunc(f.vers, func(o store.Version) bool { return o.ID == id })
+	if i < 0 {
+		return store.ErrNotFound
+	}
+	f.vers = slices.Delete(f.vers, i, i+1)
+	return nil
 }
 
 func (f *Fake) VersionByPath(ctx context.Context, path string) (store.Version, error) {

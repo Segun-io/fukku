@@ -38,11 +38,11 @@ func validateVersions(p *problems, cfg Config) {
 		return
 	}
 	for _, r := range cfg.Paths.LibraryRoots {
-		if r = filepath.Clean(r); Overlaps(v.Root, r) {
+		if r = filepath.Clean(r); OverlapsOnDisk(v.Root, r) {
 			p.add("versions.root", "%s overlaps the library root %s: a version must stay outside Radarr's root folders (decision #20)", v.Root, r)
 		}
 	}
-	if in := filepath.Clean(cfg.Paths.IntakeRoot); Overlaps(v.Root, in) {
+	if in := filepath.Clean(cfg.Paths.IntakeRoot); OverlapsOnDisk(v.Root, in) {
 		p.add("versions.root", "%s overlaps paths.intakeRoot %s", v.Root, in)
 	}
 }
@@ -51,4 +51,20 @@ func validateVersions(p *problems, cfg Config) {
 func Overlaps(a, b string) bool {
 	in := func(x, y string) bool { return x == y || y == "/" || strings.HasPrefix(x, y+"/") }
 	return in(a, b) || in(b, a)
+}
+
+// OverlapsOnDisk is Overlaps on the paths as given and on the paths with their symbolic
+// links resolved (where they exist), so that a link cannot hide a version folder inside a
+// library root or the other way round.
+func OverlapsOnDisk(a, b string) bool {
+	return Overlaps(a, b) || Overlaps(resolved(a), resolved(b))
+}
+
+// resolved is p with its symbolic links resolved, or p itself when it cannot be (it does
+// not exist, say).
+func resolved(p string) string {
+	if r, err := filepath.EvalSymlinks(p); err == nil {
+		return r
+	}
+	return p
 }

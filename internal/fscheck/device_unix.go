@@ -9,7 +9,7 @@ import (
 )
 
 func statDevice(path string) (uint64, error) {
-	info, err := os.Stat(path)
+	info, err := os.Stat(path) //nolint:gosec // configured roots (and a test's own mounts)
 	if err != nil {
 		return 0, err
 	}

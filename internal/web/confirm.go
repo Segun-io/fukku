@@ -62,8 +62,8 @@ import (
 //	409 version_exists     a file of the version's name is already there; nothing is replaced
 //	409 library_changed    Radarr's file for the film changed since the match: the job went
 //	                       back to probed; match the film again
-//	503 storage_unavailable  versions.root is missing, not writable, or on another filesystem
-//	                       than the intake root (the version is a hard link)
+//	503 storage_unavailable  versions.root is missing, not writable, or not on the same mount
+//	                       as the intake root (checked by a trial hard link)
 //	400 bad_request        flow2 or version on a job that is not flow 2, or with other fields
 //	400 bad_request        an override names no row of the job; a subtitle choice names no
 //	                       subtitle file of the job, a file twice, or an unknown language

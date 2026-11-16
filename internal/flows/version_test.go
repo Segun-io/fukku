@@ -169,8 +169,8 @@ func TestVersionPALCopyBecomesSecondVersion(t *testing.T) {
 	if c.Job.State != store.Importing {
 		t.Fatalf("confirmed job is %s", c.Job.State)
 	}
-	if want := []string{"Some Film (2001) - Español"}; !slices.Equal(x.movies.ParseCalls, want) {
-		t.Errorf("Radarr was asked to parse %q, want %q (the name without its extension)", x.movies.ParseCalls, want)
+	if want := []string{"Some Film (2001) - Español", "Some Film (2001)"}; !slices.Equal(x.movies.ParseCalls, want) {
+		t.Errorf("Radarr was asked to parse %q, want %q (the name without its extension, then the folder alone)", x.movies.ParseCalls, want)
 	}
 	if got := x.actions(j); !slices.Equal(got, []string{"version.confirmed"}) {
 		t.Errorf("audit after the confirmation %v", got)
@@ -246,10 +246,10 @@ func TestVersionDifferentCutWithOwnLabel(t *testing.T) {
 func TestVersionWinningLabelRefused(t *testing.T) {
 	x := newVersionEnv(t)
 	x.movies.Parsed = map[string]arr.Parsed{
-		"Some Film (2001) - Dual":   {Quality: arr.Quality{ID: 7, Name: "Bluray-1080p"}, Source: "bluray", Resolution: 1080, Revision: 1},
-		"Some Film (2001) - Final":  {Quality: arr.Quality{Name: "Unknown"}, Source: "unknown", Revision: 2},
-		"Some Film (2001) - Copia":  {Quality: arr.Quality{Name: "Unknown"}, Source: "tv", Resolution: 480, Revision: 1},
-		"Some Film (2001) - Normal": {Quality: arr.Quality{Name: "Unknown"}, Source: "unknown", Revision: 1},
+		"Some Film (2001) - Dual":   {OK: true, Quality: arr.Quality{ID: 7, Name: "Bluray-1080p"}, Source: "bluray", Resolution: 1080, Revision: 1},
+		"Some Film (2001) - Final":  {OK: true, Quality: arr.Quality{Name: "Unknown"}, Source: "unknown", Revision: 2},
+		"Some Film (2001) - Copia":  {OK: true, Quality: arr.Quality{Name: "Unknown"}, Source: "tv", Resolution: 480, Revision: 1},
+		"Some Film (2001) - Normal": {OK: true, Quality: arr.Quality{Name: "Unknown"}, Source: "unknown", Revision: 1},
 	}
 	j := x.versionJob(palMs, "spa")
 	for label, reason := range map[string]string{
@@ -521,26 +521,5 @@ func TestVersionLabels(t *testing.T) {
 	decomposed := "Espan" + string(rune(0x0303)) + "ol" + string(rune(0x200f)) // n and a combining tilde, then a right-to-left mark
 	if got, p := checkLabel(decomposed, cfg); p != nil || got != "Espa"+string(rune(0x00f1))+"ol" {
 		t.Errorf("cleaned %q (%+v), want NFC without the control character", got, p)
-	}
-}
-
-func TestRadarrVerdict(t *testing.T) {
-	unknown := arr.Parsed{Quality: arr.Quality{Name: "Unknown"}, Source: "unknown", Revision: 1}
-	if p := radarrVerdict(unknown, "x"); p != nil {
-		t.Errorf("Unknown: %+v", p)
-	}
-	if p := radarrVerdict(arr.Parsed{}, "x"); p != nil {
-		t.Errorf("nothing parsed: %+v", p)
-	}
-	for name, parsed := range map[string]arr.Parsed{
-		"quality":    {Quality: arr.Quality{ID: 2, Name: "DVD"}, Source: "dvd", Revision: 1},
-		"resolution": {Resolution: 720, Revision: 1},
-		"source":     {Source: "webdl", Revision: 1},
-		"proper":     {Revision: 2},
-		"repack":     {Revision: 1, Repack: true},
-	} {
-		if p := radarrVerdict(parsed, "x"); p == nil || p.Reason != LabelQuality {
-			t.Errorf("%s: %+v", name, p)
-		}
 	}
 }

@@ -9,7 +9,8 @@ import (
 // Radarr's root folders and grouped with the film's file in the media server. Jellyfin loses
 // that grouping when Radarr renames or upgrades the film's file (probe B3e), so the record
 // outlives the job that placed it: the version keeper checks it on a schedule and groups it
-// again. DeleteJob leaves it (like audit entries); nothing deletes one.
+// again. DeleteJob leaves it (like audit entries); only DeleteVersion removes one, for a
+// record of a placement that failed before its file existed.
 
 // Version statuses.
 const (
@@ -27,6 +28,7 @@ type Version struct {
 	JobID   string // the job that placed it; the job itself may be gone
 	App     string // "radarr"
 	TitleID int    // Radarr's movie id
+	TMDBID  int    // the film's TMDB id, to find it again under a new movie id; 0: unknown
 	Title   string
 	Year    int
 	Path    string // the version file as Fukku sees it; unique
@@ -51,9 +53,12 @@ type Version struct {
 type Versions interface {
 	// PutVersion inserts v (ID 0) or replaces the record with v.ID (ErrNotFound when there
 	// is none). Path must be set and unique: another record with the same path is ErrExists.
-	// A zero CreatedAt becomes now on insert and is kept on replace. Returns the record as
-	// stored.
-	PutVersion(ctx context.Context, v Version) (Version, error)
+	// A zero CreatedAt becomes now on insert and is kept on replace. The audit entries are
+	// stored in the same transaction (an empty JobID becomes v.JobID) and logged, so a
+	// status change and its entry are never apart. Returns the record as stored.
+	PutVersion(ctx context.Context, v Version, audit ...AuditEntry) (Version, error)
+	// DeleteVersion removes the record with the id; ErrNotFound when there is none.
+	DeleteVersion(ctx context.Context, id int64) error
 	// VersionByPath returns the record for a path; ErrNotFound when there is none.
 	VersionByPath(ctx context.Context, path string) (Version, error)
 	// VersionsOf lists the records of a job, by ID.

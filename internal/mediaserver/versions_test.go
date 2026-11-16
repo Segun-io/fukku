@@ -45,7 +45,7 @@ func newKeeperEnv(t *testing.T) *kenv {
 	}
 	x.movies = &arrtest.FakeMovies{Library: []arr.Movie{{ID: 7, Title: "Film", File: &arr.MovieFile{ID: 1, Path: appFile, Size: 10}}}}
 	x.server = &mediaservertest.Fake{Pending: map[string]string{serverFile: "film-1", x.version: "ver-1"}}
-	x.k = mediaserver.NewKeeper(stepConfig(), nil, x.st, x.movies, x.server)
+	x.k = mediaserver.NewKeeper(stepConfig(), nil, x.st, x.movies, x.server, nil)
 	if _, err := x.st.PutVersion(t.Context(), store.Version{JobID: "j1", App: "radarr", TitleID: 7, Title: "Film", Year: 2020,
 		Path: x.version, Label: "Español", Status: store.VersionLinked}); err != nil {
 		t.Fatal(err)
@@ -228,7 +228,7 @@ func TestVersionStep(t *testing.T) {
 		t.Errorf("deleted film: %v, want give up", err)
 	}
 
-	none := &mediaserver.VersionStep{Keeper: mediaserver.NewKeeper(stepConfig(), nil, x.st, x.movies, nil), Store: x.st, Config: stepConfig()}
+	none := &mediaserver.VersionStep{Keeper: mediaserver.NewKeeper(stepConfig(), nil, x.st, x.movies, nil, nil), Store: x.st, Config: stepConfig()}
 	if _, _, err := none.Run(t.Context(), store.Job{ID: "j1"}, target, nil); !errors.Is(err, flows.ErrStepSkipped) {
 		t.Errorf("no media server: %v, want skipped", err)
 	}
@@ -241,7 +241,7 @@ func TestKeeperRun(t *testing.T) {
 	ctx := t.Context()
 	for _, v := range []store.Version{
 		{JobID: "j2", App: "radarr", TitleID: 7, Path: x.version + ".placing", Status: store.VersionPlacing},
-		{JobID: "j3", App: "radarr", TitleID: 7, Path: x.version + ".deleted", Status: store.VersionFilmDeleted},
+		{JobID: "j3", App: "radarr", TitleID: 7, Path: x.version + ".deleted", Status: store.VersionFilmDeleted, CheckedAt: time.Now()},
 	} {
 		if _, err := x.st.PutVersion(ctx, v); err != nil {
 			t.Fatal(err)
@@ -256,7 +256,7 @@ func TestKeeperRun(t *testing.T) {
 		return rec.Status == store.VersionGrouped
 	})
 	for _, p := range []string{x.version + ".placing", x.version + ".deleted"} {
-		if rec, _ := x.st.VersionByPath(ctx, p); !rec.CheckedAt.IsZero() {
+		if rec, _ := x.st.VersionByPath(ctx, p); rec.Detail != "" {
 			t.Errorf("%s was checked: %+v", p, rec)
 		}
 	}

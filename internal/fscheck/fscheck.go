@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/segun-io/fukku/internal/config"
 )
@@ -66,20 +67,39 @@ func sameFilesystemRequired(cfg config.Config) bool {
 	return false
 }
 
-// SameDevice returns an error unless dir and other are on the same filesystem (device id):
-// a hard link from one to the other is then possible. Second versions (#56) need it
-// between the intake root and versions.root, whatever the import modes.
-func SameDevice(dir, other string) error {
-	a, err := deviceID(dir)
-	if err != nil {
-		return fmt.Errorf("%s cannot be read", dir)
-	}
-	b, err := deviceID(other)
-	if err != nil {
+// CanLink checks by trial that a hard link from dir into other works: it creates an empty
+// file in dir, links it into other under a name of its own, and removes both. Second
+// versions (#56) are such links, from the intake root into versions.root. Comparing device
+// ids is not enough: two bind mounts of one filesystem report the same st_dev, yet a link
+// between them fails with EXDEV, so only the trial says "the same mount". Neither folder is
+// created. (The move-import check, SameFilesystem, stays a comparison: those moves are
+// Radarr's and Sonarr's, through their own mounts, and Fukku may see the library read-only.)
+func CanLink(dir, other string) error {
+	info, err := os.Stat(other) //nolint:gosec // versions.root, from the configuration
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		return fmt.Errorf("%s does not exist", other)
+	case err != nil:
 		return fmt.Errorf("%s cannot be read", other)
+	case !info.IsDir():
+		return fmt.Errorf("%s is not a directory", other)
 	}
-	if a != b {
-		return fmt.Errorf("%s is on a different filesystem than %s", dir, other)
+	f, err := os.CreateTemp(dir, ".fukku-linkcheck-*")
+	if err != nil {
+		return fmt.Errorf("%s is not writable", dir)
+	}
+	src := f.Name()
+	_ = f.Close()
+	defer func() { _ = os.Remove(src) }()                   //nolint:gosec // the intake root, from the configuration
+	dst := filepath.Join(other, filepath.Base(src)+".link") // another name: the two may be one folder
+	if err := os.Link(src, dst); err != nil {
+		if errors.Is(err, os.ErrPermission) {
+			return fmt.Errorf("%s is not writable", other)
+		}
+		return fmt.Errorf("%s is not on the same mount as %s: a hard link between them fails (%w)", other, dir, errors.Unwrap(err))
+	}
+	if err := os.Remove(dst); err != nil { //nolint:gosec // the trial link CanLink just made
+		return fmt.Errorf("%s: the trial link cannot be removed: %w", other, err)
 	}
 	return nil
 }
