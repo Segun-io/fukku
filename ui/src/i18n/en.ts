@@ -564,6 +564,124 @@ const en = {
     "Files that need attention are confirmed one by one on the next step.",
   "mapping.continue.none": "Nothing to import. Fix a file or stop skipping it first.",
   "mapping.continue.busy": "Wait for the checks to finish.",
+
+  // ---- confirmation, progress and result (#44) ------------------------------------------
+  "job.review": "Review and import",
+  "jobError.import_failed":
+    "The app could not import every file. The list below shows which ones arrived. Check the app, then try again.",
+  "jobError.arr_unavailable":
+    "Waiting for {app}, which is not answering. There is nothing for you to do: the import continues by itself when it is back.",
+  "errors.needs_override":
+    'Some files have problems you have not agreed to yet. Tick "Import anyway" for each, or leave them out.',
+  "errors.incomplete_rows":
+    "Some files have no film or episode to go to. Choose one for each, or leave them out.",
+  "errors.nothing_to_import": "There is nothing to import: every file is left out.",
+
+  "confirm.title": "Confirm the import",
+  "confirm.back": "Back to the upload",
+  "confirm.error.title": "The import could not be prepared",
+  "confirm.wrongState.title": "This upload cannot be confirmed now",
+  "confirm.wrongState.body": "It can only be confirmed after a film or show is chosen.",
+  "confirm.wrongState.action": "Go to the upload",
+  "confirm.pending": "{app} is looking at the files. This takes a moment.",
+  "confirm.intro":
+    "{app} has looked at each file. Check what it found, correct what is wrong, then import.",
+  "confirm.target": "Goes into {app} as",
+  "confirm.title.name": "{title} ({year})",
+  "confirm.rows.title.one": "{count} file",
+  "confirm.rows.title.other": "{count} files",
+  "confirm.row.goesTo": "Goes to ({app})",
+  "confirm.row.episode": "S{season}E{number} {title}",
+  "confirm.row.file": "Your file",
+  "confirm.row.noDuration": "Length unknown",
+  "confirm.quality": "Quality",
+  "confirm.languages": "Languages",
+  "confirm.languages.none": "None found",
+  "confirm.languages.remove": "Remove {name}",
+  "confirm.languages.add": "Add a language",
+  "confirm.languages.choose": "Choose…",
+  "confirm.formats": "Custom formats",
+  "confirm.formats.none": "None",
+  "confirm.score": "Custom format score",
+  "confirm.checking": "{app} is checking your change…",
+  "confirm.issues.title": "Read this before you import",
+  "confirm.rejection": "The app refuses it:",
+  "confirm.override": "Import anyway",
+  "confirm.override.missing": 'Tick "Import anyway" for each file with a problem, or leave it out.',
+  "confirm.override.stale":
+    "The server found problems this page did not show. They are shown now: read them, then try again.",
+  "confirm.skip": "Leave this file out",
+  "confirm.skip.undo": "Include this file again",
+  "confirm.skipped": "This file is left out and will not be imported.",
+  "confirm.nothing": "Every file is left out, so there is nothing to import.",
+  "confirm.submit": "Import",
+  "confirm.change": "Choose a different title",
+  "confirm.warning.not_offered": "The app did not recognise this file, so it cannot import it.",
+  "confirm.warning.existing_file":
+    "An episode in this file already has a file in the library. Replacing files comes in a later version.",
+  "confirm.warning.double_episode":
+    "This file is about twice as long as one episode. It may hold two episodes: check which ones it covers.",
+  "confirm.warning.runtime_mismatch":
+    "This file is much shorter or longer than the episode it is matched to. It may be the wrong episode or a different cut.",
+  "confirm.warning.duplicate_episode":
+    "Another file is matched to the same episode. Only one of them can be imported.",
+  "confirm.warning.duplicate_film":
+    "More than one file is set to be imported for this film, and a film has one file. Leave the others out.",
+  "confirm.warning.language":
+    "The languages found in this file may not be the ones you want for this title, for example a dub where the original is wanted. Check them before you import.",
+  "confirm.warning.language.facts":
+    "Custom formats: {formats}. Score {score}; the profile asks for at least {min}.",
+  "confirm.warning.unknown": "The app or Fukku noticed something about this file (code: {code}).",
+  "confirm.hint.dvd_order":
+    "Most episodes are far from the expected length. The files may follow the DVD order instead of the air order: check the episode numbers.",
+  "confirm.hint.unknown": "A note from the server (code: {code}).",
+  "confirm.subtitles.title": "Subtitle files",
+  "confirm.subtitles.intro":
+    "These files are handed to the subtitle manager after the import. The language and flags are guessed from the file name: correct them if they are wrong.",
+  "confirm.subtitles.language": "Language of {name} (two letters, such as en or es)",
+  "confirm.subtitles.noLanguage": "Type the language as two letters, such as en or es.",
+  "confirm.subtitles.invalid":
+    "Give every subtitle file a language of two letters, such as en or es.",
+  "confirm.subtitles.guessHint": "Guessed from the file name.",
+  "confirm.subtitles.forced": "{name} is forced",
+  "confirm.subtitles.forced.short": "Forced",
+  "confirm.subtitles.hi": "{name} is for the hard of hearing",
+  "confirm.subtitles.hi.short": "For the hard of hearing",
+
+  "import.title": "Importing",
+  "import.title.done": "Result",
+  "import.app": "the app",
+  "import.running": "{app} is moving the files into the library. This page updates by itself.",
+  "import.rows": "Files",
+  "import.row": "File {n} of {total}",
+  "import.row.waiting": "Waiting",
+  "import.row.imported": "Imported",
+  "import.row.skipped": "Left out",
+  "import.row.failed": "Not imported",
+  "import.steps": "Steps after the import",
+  "import.post.running": "The files are in the library. These steps finish the job.",
+  "import.step.mediaServerRefresh": "Tell the media server about the new files",
+  "import.step.subtitles": "Hand the subtitles to the subtitle manager",
+  "import.step.mediaServerRefresh.failed":
+    "The media server did not show the title in time. It will show up after its next library scan, or start a scan there by hand.",
+  "import.step.subtitles.failed":
+    "The subtitles were not written. Add them in the subtitle manager by hand. The files stay in this upload until it expires.",
+  "import.step.failed":
+    "This step failed. The import itself is not undone. Tell the person who runs the server.",
+  "import.status.pending": "Working",
+  "import.status.ok": "Done",
+  "import.status.failed": "Failed",
+  "import.status.skipped": "Not used",
+  "import.done.title": "{title} is in the library",
+  "import.done.body": "{app} imported the files.",
+  "import.done.failedSteps": "One of the steps after it failed: see below.",
+  "import.link": "Open the title in the media server",
+  "import.link.none": "There is no link to the media server for this title.",
+  "import.unmonitored.title": "This title is not monitored",
+  "import.unmonitored.chosen":
+    "You chose not to replace this file when a better copy appears, so automatic upgrades will not replace it. Pressing the title's own Search button in {app} still can.",
+  "import.unmonitored.body":
+    "Only a dub was imported, so the title is now unmonitored: automatic upgrades will not replace this file. Pressing the title's own Search button in {app} still can, so do not use it if you want to keep this one.",
 };
 
 export default en;

@@ -570,6 +570,127 @@ const es: Record<keyof typeof en, string> = {
     "Los archivos que necesitan atención se confirman uno por uno en el paso siguiente.",
   "mapping.continue.none": "Nada que importar. Arregla un archivo o deja de omitirlo primero.",
   "mapping.continue.busy": "Espera a que terminen las comprobaciones.",
+
+  // ---- confirmation, progress and result (#44) ------------------------------------------
+  "job.review": "Revisar e importar",
+  "jobError.import_failed":
+    "La aplicación no pudo importar todos los archivos. La lista de abajo muestra cuáles llegaron. Revisa la aplicación y vuelve a intentarlo.",
+  "jobError.arr_unavailable":
+    "Esperando a {app}, que no responde. No tienes que hacer nada: la importación continúa sola cuando vuelva.",
+  "errors.needs_override":
+    "Algunos archivos tienen problemas que aún no has aceptado. Marca «Importar de todos modos» en cada uno, o déjalos fuera.",
+  "errors.incomplete_rows":
+    "Algunos archivos no tienen película o episodio al que ir. Elige uno para cada uno, o déjalos fuera.",
+  "errors.nothing_to_import": "No hay nada que importar: todos los archivos están fuera.",
+
+  "confirm.title": "Confirmar la importación",
+  "confirm.back": "Volver a la subida",
+  "confirm.error.title": "No se pudo preparar la importación",
+  "confirm.wrongState.title": "Esta subida no se puede confirmar ahora",
+  "confirm.wrongState.body": "Solo se puede confirmar después de elegir una película o serie.",
+  "confirm.wrongState.action": "Ir a la subida",
+  "confirm.pending": "{app} está mirando los archivos. Tarda un momento.",
+  "confirm.intro":
+    "{app} ha mirado cada archivo. Revisa lo que encontró, corrige lo que esté mal y luego importa.",
+  "confirm.target": "Entra en {app} como",
+  "confirm.title.name": "{title} ({year})",
+  "confirm.rows.title.one": "{count} archivo",
+  "confirm.rows.title.other": "{count} archivos",
+  "confirm.row.goesTo": "Va a ({app})",
+  "confirm.row.episode": "T{season}E{number} {title}",
+  "confirm.row.file": "Tu archivo",
+  "confirm.row.noDuration": "Duración desconocida",
+  "confirm.quality": "Calidad",
+  "confirm.languages": "Idiomas",
+  "confirm.languages.none": "No se encontró ninguno",
+  "confirm.languages.remove": "Quitar {name}",
+  "confirm.languages.add": "Añadir un idioma",
+  "confirm.languages.choose": "Elegir…",
+  "confirm.formats": "Formatos personalizados",
+  "confirm.formats.none": "Ninguno",
+  "confirm.score": "Puntuación de formatos personalizados",
+  "confirm.checking": "{app} está comprobando tu cambio…",
+  "confirm.issues.title": "Lee esto antes de importar",
+  "confirm.rejection": "La aplicación lo rechaza:",
+  "confirm.override": "Importar de todos modos",
+  "confirm.override.missing":
+    "Marca «Importar de todos modos» en cada archivo con un problema, o déjalo fuera.",
+  "confirm.override.stale":
+    "El servidor encontró problemas que esta página no mostraba. Ahora se muestran: léelos y vuelve a intentarlo.",
+  "confirm.skip": "Dejar este archivo fuera",
+  "confirm.skip.undo": "Incluir este archivo de nuevo",
+  "confirm.skipped": "Este archivo queda fuera y no se importará.",
+  "confirm.nothing": "Todos los archivos están fuera, así que no hay nada que importar.",
+  "confirm.submit": "Importar",
+  "confirm.change": "Elegir otro título",
+  "confirm.warning.not_offered":
+    "La aplicación no reconoció este archivo, así que no puede importarlo.",
+  "confirm.warning.existing_file":
+    "Un episodio de este archivo ya tiene un archivo en la biblioteca. Reemplazar archivos llegará en una versión posterior.",
+  "confirm.warning.double_episode":
+    "Este archivo dura casi el doble que un episodio. Puede tener dos episodios: comprueba cuáles abarca.",
+  "confirm.warning.runtime_mismatch":
+    "Este archivo es mucho más corto o más largo que el episodio al que se asignó. Puede ser el episodio equivocado u otro montaje.",
+  "confirm.warning.duplicate_episode":
+    "Otro archivo está asignado al mismo episodio. Solo se puede importar uno de los dos.",
+  "confirm.warning.duplicate_film":
+    "Hay más de un archivo para importar de esta película, y una película tiene un solo archivo. Deja fuera los demás.",
+  "confirm.warning.language":
+    "Los idiomas de este archivo pueden no ser los que quieres para este título, por ejemplo un doblaje cuando se quiere el original. Compruébalos antes de importar.",
+  "confirm.warning.language.facts":
+    "Formatos personalizados: {formats}. Puntuación {score}; el perfil pide al menos {min}.",
+  "confirm.warning.unknown": "La aplicación o Fukku notó algo en este archivo (código: {code}).",
+  "confirm.hint.dvd_order":
+    "La mayoría de los episodios están lejos de la duración esperada. Puede que los archivos sigan el orden del DVD y no el de emisión: comprueba los números de episodio.",
+  "confirm.hint.unknown": "Una nota del servidor (código: {code}).",
+  "confirm.subtitles.title": "Archivos de subtítulos",
+  "confirm.subtitles.intro":
+    "Estos archivos se pasan al gestor de subtítulos después de la importación. El idioma y las marcas se deducen del nombre del archivo: corrígelos si están mal.",
+  "confirm.subtitles.language": "Idioma de {name} (dos letras, como en o es)",
+  "confirm.subtitles.noLanguage": "Escribe el idioma con dos letras, como en o es.",
+  "confirm.subtitles.invalid":
+    "Da a cada archivo de subtítulos un idioma de dos letras, como en o es.",
+  "confirm.subtitles.guessHint": "Deducido del nombre del archivo.",
+  "confirm.subtitles.forced": "{name} es forzado",
+  "confirm.subtitles.forced.short": "Forzado",
+  "confirm.subtitles.hi": "{name} es para personas con dificultades auditivas",
+  "confirm.subtitles.hi.short": "Para personas con dificultades auditivas",
+
+  "import.title": "Importando",
+  "import.title.done": "Resultado",
+  "import.app": "la aplicación",
+  "import.running":
+    "{app} está moviendo los archivos a la biblioteca. Esta página se actualiza sola.",
+  "import.rows": "Archivos",
+  "import.row": "Archivo {n} de {total}",
+  "import.row.waiting": "En espera",
+  "import.row.imported": "Importado",
+  "import.row.skipped": "Fuera",
+  "import.row.failed": "No importado",
+  "import.steps": "Pasos después de la importación",
+  "import.post.running": "Los archivos ya están en la biblioteca. Estos pasos terminan el trabajo.",
+  "import.step.mediaServerRefresh": "Avisar al servidor multimedia de los archivos nuevos",
+  "import.step.subtitles": "Pasar los subtítulos al gestor de subtítulos",
+  "import.step.mediaServerRefresh.failed":
+    "El servidor multimedia no mostró el título a tiempo. Aparecerá tras su próximo escaneo de la biblioteca, o inicia uno allí a mano.",
+  "import.step.subtitles.failed":
+    "Los subtítulos no se escribieron. Añádelos a mano en el gestor de subtítulos. Los archivos siguen en esta subida hasta que caduque.",
+  "import.step.failed":
+    "Este paso falló. La importación en sí no se deshace. Avisa a quien administra el servidor.",
+  "import.status.pending": "En curso",
+  "import.status.ok": "Hecho",
+  "import.status.failed": "Falló",
+  "import.status.skipped": "No se usa",
+  "import.done.title": "{title} está en la biblioteca",
+  "import.done.body": "{app} importó los archivos.",
+  "import.done.failedSteps": "Uno de los pasos siguientes falló: mira abajo.",
+  "import.link": "Abrir el título en el servidor multimedia",
+  "import.link.none": "No hay enlace al servidor multimedia para este título.",
+  "import.unmonitored.title": "Este título no está monitorizado",
+  "import.unmonitored.chosen":
+    "Elegiste no reemplazar este archivo cuando aparezca una copia mejor, así que las mejoras automáticas no lo reemplazarán. El botón de búsqueda del propio título en {app} sí puede hacerlo.",
+  "import.unmonitored.body":
+    "Solo se importó un doblaje, así que el título ya no está monitorizado: las mejoras automáticas no reemplazarán este archivo. El botón de búsqueda del propio título en {app} sí puede hacerlo, así que no lo uses si quieres conservar este.",
 };
 
 export default es;

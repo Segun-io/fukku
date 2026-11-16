@@ -2,10 +2,11 @@
 // `uploads.ts`). State changes are kept in memory; `resetMocks()` puts the fixtures back.
 
 import { HttpResponse, http } from "msw";
-import type { Job, JobAction, JobState, MatchRequest, Target } from "@/api/types";
+import type { ConfirmRequest, Job, JobAction, JobState, MatchRequest, Target } from "@/api/types";
 import { adminSettings, adminStatus } from "./admin-fixtures";
+import { confirmRefusal, type ImportProgress, importAt } from "./confirm-fixtures";
 import { jobs as fixtureJobs, jobDetail, session } from "./fixtures";
-import { mappingHandlers, resetMapping } from "./mapping-fixtures";
+import { currentProposal, mappingHandlers, resetMapping } from "./mapping-fixtures";
 import { apps, movieHits, searchMovies, searchSeries, seriesHits } from "./match-fixtures";
 import { mappingJobs, type Scenario, seasonFiles, seasonJob } from "./scenarios";
 import { filesOf, pendingOf, resetUploads, uploadHandlers } from "./uploads";
@@ -13,10 +14,12 @@ import { filesOf, pendingOf, resetUploads, uploadHandlers } from "./uploads";
 let jobs: Job[] = structuredClone(fixtureJobs);
 let targets: Record<string, Target> = {};
 let admin = false;
+let imports: Record<string, ImportProgress> = {};
 
 export function resetMocks() {
   jobs = structuredClone(fixtureJobs);
   targets = {};
+  imports = {};
   admin = false;
   resetUploads();
   resetMapping();
@@ -117,6 +120,20 @@ export const handlers = [
     if (job.id === seasonJob.id) detail.files = seasonFiles;
     const target = targets[job.id];
     if (target) detail.target = target;
+    const progress = imports[job.id];
+    if (progress && !["done", "failed", "cancelled"].includes(job.state)) {
+      const at = importAt(progress);
+      progress.tick += 1;
+      move(job, at.state);
+      detail.state = job.state;
+      detail.actions = job.actions;
+      detail.import = at.import;
+      detail.result = at.result;
+    } else if (progress) {
+      const at = importAt({ ...progress, tick: 3 });
+      detail.import = at.import;
+      detail.result = at.result;
+    }
     if (job.state === "uploading") {
       // The files and unfinished uploads the mock tus endpoint holds for this job.
       detail.files = [...detail.files, ...filesOf(job.id)];
@@ -213,5 +230,27 @@ export const handlers = [
     }
     delete targets[job.id];
     return HttpResponse.json(move(job, "probed"));
+  }),
+
+  // ---- Confirm (#40) ----
+
+  http.post("/api/jobs/:id/confirm", async ({ params, request }) => {
+    const job = jobs.find((j) => j.id === params.id && j.owner === session.user.name);
+    if (!job) return notFound();
+    const proposal = currentProposal(job.id);
+    if (job.state !== "awaiting-confirmation" || !proposal) {
+      return failure(409, "wrong_state", "The job is not waiting for confirmation.");
+    }
+    const body = (await request.json()) as ConfirmRequest;
+    const refusal = confirmRefusal(proposal.rows, body);
+    if (refusal) {
+      return HttpResponse.json(
+        { error: { code: refusal.code, message: refusal.message, rows: refusal.rows } },
+        { status: refusal.status },
+      );
+    }
+    const going = proposal.rows.filter((r) => !r.skip);
+    imports[job.id] = { rows: going.map((r) => ({ id: r.id, name: r.name })), tick: 0 };
+    return HttpResponse.json(move(job, "importing"), { status: 202 });
   }),
 ];

@@ -272,7 +272,7 @@ describe("correcting the awkward season", () => {
     expect(screen.getByText(/confirmed one by one on the next step/)).toBeVisible();
     expect(screen.getByRole("link", { name: "Continue" })).toHaveAttribute(
       "href",
-      `/jobs/${mappingJobId}`,
+      `/jobs/${mappingJobId}/confirm`,
     );
   });
 });

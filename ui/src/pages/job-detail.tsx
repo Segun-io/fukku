@@ -5,6 +5,7 @@ import { useJob } from "@/api/jobs";
 import { useSession } from "@/api/session";
 import type { JobDetail } from "@/api/types";
 import { errorKey } from "@/components/error-message";
+import { ImportSection } from "@/components/jobs/import-section";
 import { JobActions } from "@/components/jobs/job-actions";
 import { ManualImportSection } from "@/components/jobs/manual-import";
 import { MatchSection } from "@/components/jobs/match-section";
@@ -23,6 +24,8 @@ const m1Steps = jobPath.slice(0, 4);
 
 /** States in which nothing more happens by itself: the history is the last thing to read. */
 const settled: readonly JobDetail["state"][] = ["probed", "done", "cancelled"];
+
+const appNames = { radarr: "Radarr", sonarr: "Sonarr" } as const;
 
 /** Up to this many videos show what was found in them without being asked. */
 const openProbes = 3;
@@ -97,7 +100,9 @@ function JobView({ job }: { job: JobDetail }) {
   // Importing, or stalled there: the app's import command may still be running.
   const importMayRun =
     standing === "importing" && (job.state === "importing" || job.state === "stalled");
-  const errorText = explained ? jobErrorText(job.error?.code ?? "") : null;
+  const errorText = explained
+    ? jobErrorText(job.error?.code ?? "", job.target ? appNames[job.target.app] : "")
+    : null;
 
   const items: FileListItem[] = job.files.map((f) => ({
     id: f.id,
@@ -154,6 +159,8 @@ function JobView({ job }: { job: JobDetail }) {
       </header>
 
       <MatchSection job={job} className={job.state === "probed" ? "border-t pt-8" : section} />
+
+      <ImportSection job={job} className={section} />
 
       {job.state === "probed" && (
         <ManualImportSection items={job.manualImport} className="border-t pt-8" />

@@ -154,6 +154,12 @@ export function resetMapping() {
 }
 resetMapping();
 
+/** The proposal as the mock serves it now, for the confirm handler. */
+export function currentProposal(jobId: string): Proposal | undefined {
+  const p = proposals.get(jobId);
+  return p && proposalOf(p);
+}
+
 /** Makes the next edit of this job's proposal fail with this status, once. */
 export function failNextEdit(jobId: string, status: number, code: string) {
   const p = proposals.get(jobId);

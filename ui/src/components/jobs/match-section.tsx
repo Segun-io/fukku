@@ -50,6 +50,11 @@ export function MatchSection({ job, className }: { job: JobDetail; className?: s
               {t("job.mapping")}
             </Link>
           </Button>
+          <Button asChild variant="outline">
+            <Link to="/jobs/$id/confirm" params={{ id: job.id }}>
+              {t("job.review")}
+            </Link>
+          </Button>
           <Button
             type="button"
             variant="outline"

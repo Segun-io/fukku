@@ -38,6 +38,13 @@ export const matchErrorCodes = [
   "title_not_found",
 ] as const;
 
+/** Codes of the proposal and confirm endpoints (#38, #40). */
+export const confirmErrorCodes = [
+  "needs_override",
+  "incomplete_rows",
+  "nothing_to_import",
+] as const;
+
 /** Refusals of `/api/uploads/` (#10). */
 export const uploadErrorCodes = [
   "bad_name",
@@ -63,6 +70,7 @@ export const knownErrorCodes = [
   ...commonErrorCodes,
   ...jobErrorCodes,
   ...matchErrorCodes,
+  ...confirmErrorCodes,
   ...uploadErrorCodes,
   ...clientErrorCodes,
 ] as const;
@@ -82,6 +90,8 @@ export type Session = {
   insecureDev: boolean;
   uiLanguages: string[];
   apps: { radarr: boolean; sonarr: boolean };
+  /** True when a subtitle manager is configured and uploaded subtitles are handed to it (#42). */
+  subtitleManager: boolean;
   upload: {
     endpoint: string;
     chunkSize: number;
@@ -245,7 +255,29 @@ export type ManualImport = {
 /** The title a job was matched to (#37); `null` until the job is matched. */
 export type Target = { app: AppName; titleId: number; title: string; year: number };
 
+/** How far the import is (#40). `status` is `running` while the app works. */
+export type ImportInfo = {
+  status: string;
+  rows: { id: string; name: string; result: string }[];
+};
+
+export type PostStepStatus = "pending" | "ok" | "failed" | "skipped";
+export type PostStepInfo = { step: string; status: PostStepStatus; detail: string };
+
+/** What the finished import left (#40). `titleLink` is null without a media server link. */
+export type ImportResult = {
+  titleLink: string | null;
+  postProcessing: PostStepInfo[];
+  /** Null until the monitoring is set. False: automatic upgrades will not replace the file. */
+  monitored: boolean | null;
+  /** Why Fukku left the title unmonitored: `dub_only`, `chosen`, or empty. */
+  unmonitorReason: "dub_only" | "chosen" | "";
+};
+
 export type JobDetail = Job & {
+  /** From `importing` on (#40). */
+  import?: ImportInfo | null;
+  result?: ImportResult | null;
   /** Set from `matched` on (#37). */
   target?: Target | null;
   files: JobFile[];
@@ -326,3 +358,15 @@ export type MatchRequest =
       rootFolder?: string;
       seriesType: SeriesType;
     };
+
+// ---- Confirm (#40) ----------------------------------------------------------------------
+
+/** What the user decided for an uploaded subtitle file: the language is ISO 639-1 (two letters). */
+export type SubtitleChoice = {
+  fileId: number;
+  language: string;
+  forced: boolean;
+  hearingImpaired: boolean;
+};
+
+export type ConfirmRequest = { overrides: string[]; subtitles?: SubtitleChoice[] };

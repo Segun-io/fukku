@@ -84,7 +84,16 @@ describe("visibleActions", () => {
 
 describe("polling", () => {
   it("polls every 2 s while a job is moving", () => {
-    for (const state of ["uploading", "uploaded", "probing", "stalled"] as const) {
+    for (const state of [
+      "uploading",
+      "uploaded",
+      "probing",
+      "matched",
+      "importing",
+      "imported",
+      "post-processing",
+      "stalled",
+    ] as const) {
       expect(jobPollInterval(state), state).toBe(movingInterval);
     }
     expect(movingInterval).toBe(2000);
@@ -97,14 +106,14 @@ describe("polling", () => {
   });
 
   it("is slower in the other states and stops without data", () => {
-    expect(jobPollInterval("importing")).toBe(slowInterval);
     expect(jobPollInterval("awaiting-confirmation")).toBe(slowInterval);
     expect(jobPollInterval(undefined)).toBe(false);
   });
 
   it("a list follows its fastest job", () => {
     expect(jobsPollInterval(["done", "probing"])).toBe(movingInterval);
-    expect(jobsPollInterval(["done", "importing"])).toBe(slowInterval);
+    expect(jobsPollInterval(["done", "importing"])).toBe(movingInterval);
+    expect(jobsPollInterval(["done", "awaiting-confirmation"])).toBe(slowInterval);
     expect(jobsPollInterval(["done", "failed", "probed"])).toBe(idleListInterval);
     expect(jobsPollInterval([])).toBe(idleListInterval);
   });
