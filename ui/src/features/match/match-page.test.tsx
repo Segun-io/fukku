@@ -127,7 +127,8 @@ describe("the match page", () => {
     const results = await screen.findByRole("group", { name: "Results" });
     expect(await within(results).findAllByRole("radio")).toHaveLength(3);
     const sintel = within(results).getByRole("radio", { name: /Sintel \(2010\)/ });
-    expect(sintel.closest("label")).toHaveTextContent("Already in Radarr · Already has a file");
+    expect(sintel.closest("label")).toHaveTextContent("Already in Radarr");
+    expect(sintel.closest("label")).toHaveTextContent("Already has a file");
     expect(sintel.closest("label")).toHaveTextContent("A young woman searches for the baby dragon");
     expect(
       within(results)

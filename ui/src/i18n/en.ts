@@ -59,6 +59,10 @@ const en = {
 
   // ---- patterns: status timeline -------------------------------------------------------
   "patterns.timeline.label": "What has happened so far",
+  "patterns.flow.label": "Steps of the import",
+  "patterns.flow.step.match": "Choose the title",
+  "patterns.flow.step.mapping": "Check the files",
+  "patterns.flow.step.confirm": "Confirm",
   "patterns.timeline.step.done": "Done",
   "patterns.timeline.step.current": "Now",
   "patterns.timeline.step.upcoming": "Not yet",
@@ -134,6 +138,8 @@ const en = {
   "patterns.demo.picker.compact": "With files under it",
   "patterns.demo.copy.title": "Copy field",
   "patterns.demo.select.title": "Select field",
+  "patterns.demo.status.title": "State of a row",
+  "patterns.demo.flow.title": "Head of a step",
   "patterns.demo.shell.title": "Shell states",
   "patterns.demo.shell.banner": "Insecure-development banner",
   "patterns.demo.shell.offline": "Offline",
@@ -293,7 +299,7 @@ const en = {
   "job.skipped.item": "{name}: {reason}",
   "job.manual.title": "Import it by hand",
   "job.manual.intro":
-    "The files are checked, but Fukku cannot add them to Radarr or Sonarr yet. In the app, open Manual Import and choose the folder shown here.",
+    "Or do it yourself in Radarr or Sonarr: open Manual Import there and choose the folder shown here.",
   "job.manual.folder": "Folder in {app}",
   "job.manual.copy": "Copy",
   "job.manual.copyFor": "Copy the {app} folder",
@@ -412,6 +418,8 @@ const en = {
   "errors.upload_busy": "The server is still working on this upload. Try again in a moment.",
 
   "job.match": "Choose the film or show",
+  "job.match.body":
+    "Say which title these files are, then check them and import. Radarr or Sonarr does the import.",
   "job.target.title": "Chosen title",
   "job.target.body": "{title} ({year}) in {app}",
   "job.target.change": "Choose a different title",
@@ -474,7 +482,7 @@ const en = {
   "mapping.back": "Back to the upload",
   "mapping.target": "{title} ({year}) in {app}",
   "mapping.intro":
-    "Each file is on its own row, with what {app} makes of it. Change what is wrong; every change is checked again by {app}.",
+    "Each file has its own row, with what {app} makes of it. Change what is wrong: {app} checks every change again.",
   "mapping.fromNames":
     "The season and the episodes come from the file names, or from {app}'s best guess. Check them against what each file really is.",
   "mapping.pending.title": "{app} is looking at the files",
@@ -525,10 +533,17 @@ const en = {
   "mapping.retry": "Try again",
   "mapping.discard": "Undo my change",
   "mapping.ok": "No problems found.",
+  "mapping.state.attention": "Needs attention",
+  "mapping.state.refused": "Refused",
+  "mapping.state.skipped": "Skipped",
+  "mapping.state.failed": "Not checked",
+  "mapping.languages.none": "None found",
   "mapping.notOffered":
     "{app} did not offer this file, so it cannot be changed or imported. You can only skip it.",
-  "mapping.rejection.permanent": "{app} refuses it: {reason}",
-  "mapping.rejection.temporary": "{app} would refuse it for now: {reason}",
+  "mapping.rejection.permanent":
+    "{app} refuses this file: “{reason}”. To import it anyway, confirm it on the next step, or skip it here.",
+  "mapping.rejection.temporary":
+    "{app} refuses this file for now: “{reason}”. That can change by itself. To import it anyway, confirm it on the next step.",
   "mapping.warning.double_episode":
     "This file is about twice as long as an episode. It may hold two.",
   "mapping.warning.double_episode.action": "Make it episodes {first} and {second}",
@@ -559,7 +574,7 @@ const en = {
   "mapping.bulk.season.apply": "Set the season",
   "mapping.bulk.checking": "Checking the selected files…",
   "mapping.bulk.failed": "The change to the selected files was not checked.",
-  "mapping.continue": "Continue",
+  "mapping.continue": "Continue to the confirmation",
   "mapping.continue.attention":
     "Files that need attention are confirmed one by one on the next step.",
   "mapping.continue.none": "Nothing to import. Fix a file or stop skipping it first.",
@@ -572,7 +587,7 @@ const en = {
   "jobError.arr_unavailable":
     "Waiting for {app}, which is not answering. There is nothing for you to do: the import continues by itself when it is back.",
   "errors.needs_override":
-    'Some files have problems you have not agreed to yet. Tick "Import anyway" for each, or leave them out.',
+    "Some files have problems you have not agreed to yet. Tick “Import anyway” for each, or leave them out.",
   "errors.incomplete_rows":
     "Some files have no film or episode to go to. Choose one for each, or leave them out.",
   "errors.nothing_to_import": "There is nothing to import: every file is left out.",
@@ -599,15 +614,24 @@ const en = {
   "confirm.languages.none": "None found",
   "confirm.languages.remove": "Remove {name}",
   "confirm.languages.add": "Add a language",
-  "confirm.languages.choose": "Choose…",
+  "confirm.languages.choose": "Add a language…",
   "confirm.formats": "Custom formats",
   "confirm.formats.none": "None",
   "confirm.score": "Custom format score",
   "confirm.checking": "{app} is checking your change…",
   "confirm.issues.title": "Read this before you import",
-  "confirm.rejection": "The app refuses it:",
+  "confirm.rejection": "{app} refuses this file:",
   "confirm.override": "Import anyway",
-  "confirm.override.missing": 'Tick "Import anyway" for each file with a problem, or leave it out.',
+  "confirm.state.ready": "Ready to import",
+  "confirm.state.issues": "Needs your decision",
+  "confirm.state.agreed": "Imported anyway",
+  "confirm.state.out": "Left out",
+  "confirm.count.label": "What will happen",
+  "confirm.count.in.one": "{count} file will be imported",
+  "confirm.count.in.other": "{count} files will be imported",
+  "confirm.count.out.one": "{count} is left out",
+  "confirm.count.out.other": "{count} are left out",
+  "confirm.override.missing": "Tick “Import anyway” for each file with a problem, or leave it out.",
   "confirm.override.stale":
     "The server found problems this page did not show. They are shown now: read them, then try again.",
   "confirm.skip": "Leave this file out",
@@ -652,6 +676,8 @@ const en = {
   "import.title.done": "Result",
   "import.app": "the app",
   "import.running": "{app} is moving the files into the library. This page updates by itself.",
+  "import.waiting": "The import waits for {app} and continues by itself.",
+  "import.count": "{done} of {total} files in the library",
   "import.rows": "Files",
   "import.row": "File {n} of {total}",
   "import.row.waiting": "Waiting",

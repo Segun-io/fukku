@@ -6,9 +6,11 @@ import {
   type RowSelectionState,
   useReactTable,
 } from "@tanstack/react-table";
-import { CircleAlert, Clock, ListTree } from "lucide-react";
+import { Ban, ListTree, TriangleAlert } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Proposal } from "@/api/proposal";
+import { inputClass, selectClass } from "@/components/patterns/field";
+import { StatusLabel } from "@/components/patterns/status-label";
 import { Notice } from "@/components/shell/notice";
 import { Button } from "@/components/ui/button";
 import { useT } from "@/i18n";
@@ -23,12 +25,50 @@ import {
   QualityCell,
   SeasonCell,
   SkipCell,
-  selectClass,
 } from "./row-cells";
 import { needsAttention, rowStatus, seasonsOf, shownRows, summarize } from "./state";
 import { useMapping } from "./use-mapping";
 
 const appNames = { radarr: "Radarr", sonarr: "Sonarr", "": "" } as const;
+
+// How a row is laid out. A file is its label first (the name over its figures, and its state
+// at the far edge), then the controls in columns, then what is against it in sentences that
+// get the full width. The same areas serve the table (from 64rem, where the columns have
+// headers) and the list below it, where each control carries its caption.
+const layouts = {
+  show: {
+    columns: "grid-cols-[2.75rem_9rem_minmax(0,1fr)_10.5rem_minmax(5rem,7rem)_6rem]",
+    head: "[grid-template-areas:'select_season_episodes_quality_languages_skip']",
+    wide: "[grid-template-areas:'select_file_file_file_file_file'_'._season_episodes_quality_languages_skip'_'._notes_notes_notes_notes_notes']",
+    narrow: cn(
+      "grid-cols-[2.75rem_5.5rem_minmax(0,1fr)]",
+      "[grid-template-areas:'select_file_file'_'season_season_episodes'_'quality_quality_quality'_'languages_languages_skip'_'notes_notes_notes']",
+      "sm:grid-cols-[2.75rem_5.5rem_minmax(0,1fr)_11rem]",
+      "sm:[grid-template-areas:'select_file_file_file'_'season_season_episodes_quality'_'languages_languages_languages_skip'_'notes_notes_notes_notes']",
+    ),
+  },
+  film: {
+    columns: "grid-cols-[14rem_minmax(0,1fr)_6rem]",
+    head: "[grid-template-areas:'quality_languages_skip']",
+    wide: "[grid-template-areas:'file_file_file'_'quality_languages_skip'_'notes_notes_notes']",
+    narrow: cn(
+      "grid-cols-[minmax(0,1fr)_auto]",
+      "[grid-template-areas:'file_file'_'quality_quality'_'languages_skip'_'notes_notes']",
+    ),
+  },
+} as const;
+
+/** Where each cell stands in the areas above, and how it sits on its line. */
+const place: Record<string, string> = {
+  select: "[grid-area:select]",
+  file: "[grid-area:file] min-w-0 self-center",
+  season: "[grid-area:season] min-w-0",
+  episodes: "[grid-area:episodes] min-w-0",
+  quality: "[grid-area:quality] min-w-0",
+  languages: "[grid-area:languages] min-w-0 self-center",
+  skip: "[grid-area:skip] self-center justify-self-start",
+  notes: "[grid-area:notes] min-w-0 empty:hidden",
+};
 
 /** True from the width where the rows are a table; below it they are cards. */
 function useWide(query = "(min-width: 64rem)"): boolean {
@@ -85,6 +125,15 @@ export function MappingView({ jobId, proposal }: { jobId: string; proposal: Prop
     [],
   );
 
+  const columnFilters = useMemo(
+    () => (onlyAttention ? [{ id: "attention", value: true }] : []),
+    [onlyAttention],
+  );
+  const columnVisibility = useMemo(
+    () => ({ attention: false, select: show, season: show, episodes: show }),
+    [show],
+  );
+
   const table = useReactTable({
     data: items,
     columns,
@@ -93,11 +142,11 @@ export function MappingView({ jobId, proposal }: { jobId: string; proposal: Prop
     getFilteredRowModel: getFilteredRowModel(),
     enableRowSelection: true,
     onRowSelectionChange: setSelection,
-    state: {
-      rowSelection: selection,
-      columnFilters: onlyAttention ? [{ id: "attention", value: true }] : [],
-      columnVisibility: { attention: false, select: show, season: show, episodes: show },
-    },
+    // There are no pages. Left on, the table resets its page index in a microtask each time
+    // the filters change identity, which sets state, which renders again: with a filter list
+    // made on every render that never ends, and after a real click it froze the page.
+    autoResetPageIndex: false,
+    state: { rowSelection: selection, columnFilters, columnVisibility },
   });
 
   const rows = table.getRowModel().rows;
@@ -124,15 +173,12 @@ export function MappingView({ jobId, proposal }: { jobId: string; proposal: Prop
   };
 
   const canContinue = summary.toImport + summary.attention > 0 && !checking && !failed;
+  const layout = layouts[show ? "show" : "film"];
+  const rowLook = "grid gap-x-3 gap-y-3 px-4 py-4 data-selected:bg-primary-soft/40";
 
   return (
     <MappingProvider value={ctx}>
-      <div className="grid gap-5">
-        <p className="max-w-[65ch] text-ink-2">{t("mapping.intro", { app: appName })}</p>
-        {show && (
-          <p className="max-w-[65ch] text-ink-2">{t("mapping.fromNames", { app: appName })}</p>
-        )}
-
+      <div className="grid gap-6">
         {proposal.hints.map((h) =>
           h.code === "dvd_order" ? (
             <Notice
@@ -155,19 +201,34 @@ export function MappingView({ jobId, proposal }: { jobId: string; proposal: Prop
 
         <section
           aria-label={t("mapping.summary.label")}
-          className="flex flex-wrap items-center gap-x-6 gap-y-3"
+          className="flex flex-wrap items-center justify-between gap-x-8 gap-y-1 border-y py-2"
         >
-          <ul className="flex flex-wrap gap-x-5 gap-y-1 font-medium">
-            <li>{t("mapping.summary.toImport", { count: summary.toImport })}</li>
-            <li>{t("mapping.summary.skipped", { count: summary.skipped })}</li>
-            <li className={cn(summary.attention > 0 && "text-caution-foreground")}>
-              {t("mapping.summary.attention", { count: summary.attention })}
+          <ul className="flex flex-wrap gap-x-6 gap-y-1">
+            <li>
+              <StatusLabel tone="done" className="text-base">
+                {t("mapping.summary.toImport", { count: summary.toImport })}
+              </StatusLabel>
+            </li>
+            <li>
+              <StatusLabel
+                tone={summary.attention > 0 ? "caution" : "waiting"}
+                icon={TriangleAlert}
+                className="text-base"
+              >
+                {t("mapping.summary.attention", { count: summary.attention })}
+              </StatusLabel>
+            </li>
+            <li>
+              <StatusLabel tone="waiting" icon={Ban} className="text-base">
+                {t("mapping.summary.skipped", { count: summary.skipped })}
+              </StatusLabel>
             </li>
           </ul>
           <label className="inline-flex min-h-11 items-center gap-3">
             <input
               type="checkbox"
-              className="size-5 accent-primary"
+              name="only-attention"
+              className="size-5 shrink-0 accent-primary"
               checked={onlyAttention}
               onChange={(e) => setOnlyAttention(e.target.checked)}
             />
@@ -175,31 +236,40 @@ export function MappingView({ jobId, proposal }: { jobId: string; proposal: Prop
           </label>
         </section>
 
-        {show && (
-          <BulkBar
-            seasons={seasonsOf(proposal.episodes ?? [])}
-            count={selectedIds.length}
-            status={mapping.state.bulk}
-            onShift={(shift) => void mapping.bulk({ rowIds: selectedIds, shift })}
-            onSeason={(seasonNumber) => void mapping.bulk({ rowIds: selectedIds, seasonNumber })}
-            onClear={() => table.resetRowSelection()}
-            onRetry={mapping.retryBulk}
-            onDiscard={mapping.discardBulk}
-          />
-        )}
+        <div className="grid gap-4">
+          {show && (
+            <BulkBar
+              seasons={seasonsOf(proposal.episodes ?? [])}
+              count={selectedIds.length}
+              status={mapping.state.bulk}
+              onShift={(shift) => void mapping.bulk({ rowIds: selectedIds, shift })}
+              onSeason={(seasonNumber) => void mapping.bulk({ rowIds: selectedIds, seasonNumber })}
+              onClear={() => table.resetRowSelection()}
+              onRetry={mapping.retryBulk}
+              onDiscard={mapping.discardBulk}
+            />
+          )}
 
-        {rows.length === 0 ? (
-          <p className="rounded-xl border border-dashed border-input px-5 py-6 text-ink-2">
-            {t("mapping.filter.empty")}
-          </p>
-        ) : wide ? (
-          <div className="overflow-x-auto rounded-xl border bg-card">
-            <table className="w-full min-w-[56rem] border-collapse text-left">
+          {rows.length === 0 ? (
+            <p className="rounded-xl border border-dashed border-input px-5 py-6 text-ink-2">
+              {t("mapping.filter.empty")}
+            </p>
+          ) : wide ? (
+            <table className="block overflow-hidden rounded-xl border bg-card shadow-sm">
               <caption className="sr-only">{t("mapping.table.label")}</caption>
-              <thead>
-                <tr className="border-b text-sm text-muted-foreground">
+              <thead className="block border-b bg-muted">
+                <tr className={cn("grid items-center gap-x-3 px-4", layout.columns, layout.head)}>
                   {table.getVisibleLeafColumns().map((col) => (
-                    <th key={col.id} scope="col" className="px-3 py-2 font-medium">
+                    <th
+                      key={col.id}
+                      scope="col"
+                      className={cn(
+                        "text-left text-sm font-medium text-ink-2",
+                        col.id === "file" || col.id === "notes"
+                          ? "sr-only"
+                          : cn("py-1", place[col.id]),
+                      )}
+                    >
                       {col.id === "select" ? (
                         <SelectAll table={table} />
                       ) : (
@@ -209,13 +279,17 @@ export function MappingView({ jobId, proposal }: { jobId: string; proposal: Prop
                   ))}
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="block divide-y">
                 {rows.map((row) => (
-                  <tr key={row.id} className="border-b align-top last:border-b-0">
+                  <tr
+                    key={row.id}
+                    data-selected={row.getIsSelected() || undefined}
+                    className={cn(rowLook, layout.columns, layout.wide)}
+                  >
                     {row.getVisibleCells().map((cell) => {
                       const Cell = cells[cell.column.id] ?? Nothing;
                       return (
-                        <td key={cell.id} className="px-3 py-3">
+                        <td key={cell.id} className={cn("p-0", place[cell.column.id])}>
                           <Cell
                             item={row.original}
                             selected={row.getIsSelected()}
@@ -228,38 +302,51 @@ export function MappingView({ jobId, proposal }: { jobId: string; proposal: Prop
                 ))}
               </tbody>
             </table>
-          </div>
-        ) : (
-          <>
-            <SelectAll table={table} />
-            <ul aria-label={t("mapping.table.label")} className="grid gap-3">
-              {rows.map((row) => (
-                <li key={row.id} className="grid gap-3 rounded-xl border bg-card p-4">
-                  {row.getVisibleCells().map((cell) => {
-                    const id = cell.column.id;
-                    const Cell = cells[id] ?? Nothing;
-                    return (
-                      <div key={cell.id} className={cn(id === "select" && "-mb-2")}>
-                        {id !== "select" && id !== "file" && id !== "skip" && id !== "notes" && (
-                          <p className="mb-1 text-sm text-muted-foreground">
-                            <ColumnTitle id={id} />
-                          </p>
-                        )}
-                        <Cell
-                          item={row.original}
-                          selected={row.getIsSelected()}
-                          toggle={row.getToggleSelectedHandler()}
-                        />
-                      </div>
-                    );
-                  })}
-                </li>
-              ))}
-            </ul>
-          </>
-        )}
+          ) : (
+            <div className="overflow-hidden rounded-xl border bg-card shadow-sm">
+              {show && (
+                <div className="border-b bg-muted px-4 text-sm font-medium text-ink-2">
+                  <SelectAll table={table} named />
+                </div>
+              )}
+              <ul aria-label={t("mapping.table.label")} className="divide-y">
+                {rows.map((row) => (
+                  <li
+                    key={row.id}
+                    data-selected={row.getIsSelected() || undefined}
+                    className={cn(rowLook, layout.narrow)}
+                  >
+                    {row.getVisibleCells().map((cell) => {
+                      const id = cell.column.id;
+                      const Cell = cells[id] ?? Nothing;
+                      const captioned =
+                        id === "season" ||
+                        id === "episodes" ||
+                        id === "quality" ||
+                        id === "languages";
+                      return (
+                        <div key={cell.id} className={cn(place[id], id === "select" && "-mt-2.5")}>
+                          {captioned && (
+                            <p className="mb-1 text-sm text-muted-foreground">
+                              <ColumnTitle id={id} />
+                            </p>
+                          )}
+                          <Cell
+                            item={row.original}
+                            selected={row.getIsSelected()}
+                            toggle={row.getToggleSelectedHandler()}
+                          />
+                        </div>
+                      );
+                    })}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
 
-        <div className="flex flex-wrap items-center gap-x-5 gap-y-3">
+        <div className="flex flex-col gap-x-5 gap-y-3 sm:flex-row sm:items-center">
           {canContinue ? (
             <Button asChild size="lg">
               <Link to="/jobs/$id/confirm" params={{ id: jobId }}>
@@ -271,7 +358,7 @@ export function MappingView({ jobId, proposal }: { jobId: string; proposal: Prop
               {t("mapping.continue")}
             </Button>
           )}
-          <p className="max-w-[52ch] text-sm text-muted-foreground">
+          <p aria-live="polite" className="max-w-[52ch] text-sm text-ink-2">
             {summary.toImport + summary.attention === 0
               ? t("mapping.continue.none")
               : checking || failed
@@ -312,7 +399,7 @@ const Nothing = () => null;
  * mounted again each time, and a control being used would lose the focus. */
 const cells: Record<string, (props: CellProps) => React.ReactNode> = {
   select: SelectCell,
-  file: ({ item }) => <FileCell row={item.row} />,
+  file: ({ item }) => <FileCell item={item} />,
   season: ({ item }) => <SeasonCell row={item.row} />,
   episodes: ({ item }) => <EpisodesCell row={item.row} />,
   quality: ({ item }) => <QualityCell row={item.row} />,
@@ -324,7 +411,7 @@ const cells: Record<string, (props: CellProps) => React.ReactNode> = {
 function SelectCell({ item, selected, toggle }: CellProps) {
   const { t } = useT();
   return (
-    <label className="inline-flex min-h-11 min-w-11 items-center justify-center">
+    <label className="-ml-3 inline-flex min-h-11 min-w-11 items-center justify-center">
       <input
         type="checkbox"
         className="size-5 accent-primary"
@@ -336,7 +423,14 @@ function SelectCell({ item, selected, toggle }: CellProps) {
   );
 }
 
-function SelectAll({ table }: { table: ReturnType<typeof useReactTable<Item>> }) {
+function SelectAll({
+  table,
+  named = false,
+}: {
+  table: ReturnType<typeof useReactTable<Item>>;
+  /** Writes the name next to the box, where no column header stands above it. */
+  named?: boolean;
+}) {
   const { t } = useT();
   const ref = useRef<HTMLInputElement>(null);
   const all = table.getIsAllRowsSelected();
@@ -345,7 +439,7 @@ function SelectAll({ table }: { table: ReturnType<typeof useReactTable<Item>> })
     if (ref.current) ref.current.indeterminate = some && !all;
   }, [some, all]);
   return (
-    <label className="inline-flex min-h-11 min-w-11 items-center gap-2">
+    <label className="-ml-3 inline-flex min-h-11 min-w-11 items-center justify-center gap-3 pl-3">
       <input
         ref={ref}
         type="checkbox"
@@ -354,6 +448,7 @@ function SelectAll({ table }: { table: ReturnType<typeof useReactTable<Item>> })
         checked={all}
         onChange={(e) => table.toggleAllRowsSelected(e.target.checked)}
       />
+      {named && <span aria-hidden="true">{t("mapping.select.all")}</span>}
     </label>
   );
 }
@@ -385,17 +480,26 @@ function BulkBar({
   const shiftValue = Number(shift);
   const shiftOk = shift.trim() !== "" && Number.isInteger(shiftValue) && shiftValue !== 0;
   const idle = count > 0 && status === null;
+  const control = "h-10 pointer-coarse:h-11";
   return (
-    <section
-      aria-label={t("mapping.bulk.label")}
-      className="grid gap-3 rounded-xl border bg-muted p-4"
-    >
-      <p aria-live="polite" className="font-medium">
-        {count > 0 ? t("mapping.bulk.selected", { count }) : t("mapping.bulk.none")}
-      </p>
+    <section aria-label={t("mapping.bulk.label")} className="grid gap-3">
+      {/* One line for the selection; while the app checks a bulk change it says so in the same
+          place, so the rows below do not move. */}
+      {status?.status === "checking" ? (
+        <StatusLabel tone="waiting" role="status" className="text-base">
+          {t("mapping.bulk.checking")}
+        </StatusLabel>
+      ) : (
+        <p
+          aria-live="polite"
+          className={cn("max-w-[65ch]", count > 0 ? "font-medium" : "text-ink-2")}
+        >
+          {count > 0 ? t("mapping.bulk.selected", { count }) : t("mapping.bulk.none")}
+        </p>
+      )}
       <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
         <form
-          className="flex flex-wrap items-end gap-2"
+          className="flex items-end gap-2"
           onSubmit={(e) => {
             e.preventDefault();
             if (idle && shiftOk) onShift(shiftValue);
@@ -405,24 +509,21 @@ function BulkBar({
             {t("mapping.bulk.shift")}
             <input
               type="number"
+              name="shift"
               inputMode="numeric"
+              autoComplete="off"
               step={1}
               value={shift}
               onChange={(e) => setShift(e.target.value)}
-              className={cn(selectClass, "w-24")}
+              className={cn(inputClass, "w-24 font-mono tabular-nums")}
             />
           </label>
-          <Button
-            type="submit"
-            variant="outline"
-            className="h-10 pointer-coarse:h-11"
-            disabled={!idle || !shiftOk}
-          >
+          <Button type="submit" variant="outline" className={control} disabled={!idle || !shiftOk}>
             {t("mapping.bulk.shift.apply")}
           </Button>
         </form>
         <form
-          className="flex flex-wrap items-end gap-2"
+          className="flex items-end gap-2"
           onSubmit={(e) => {
             e.preventDefault();
             if (idle && season !== "") onSeason(Number(season));
@@ -431,9 +532,11 @@ function BulkBar({
           <label className="grid gap-1 text-sm text-muted-foreground">
             {t("mapping.bulk.season")}
             <select
+              name="season"
+              autoComplete="off"
               value={season}
               onChange={(e) => setSeason(e.target.value)}
-              className={cn(selectClass, "w-40")}
+              className={cn(selectClass, "w-36")}
             >
               <option value="" />
               {seasons.map((s) => (
@@ -446,28 +549,25 @@ function BulkBar({
           <Button
             type="submit"
             variant="outline"
-            className="h-10 pointer-coarse:h-11"
+            className={control}
             disabled={!idle || season === ""}
           >
             {t("mapping.bulk.season.apply")}
           </Button>
         </form>
-        <Button type="button" variant="ghost" disabled={count === 0} onClick={onClear}>
+        <Button
+          type="button"
+          variant="ghost"
+          className={control}
+          disabled={count === 0}
+          onClick={onClear}
+        >
           {t("mapping.bulk.clear")}
         </Button>
       </div>
-      {status?.status === "checking" && (
-        <p role="status" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground">
-          <Clock aria-hidden="true" className="size-4" />
-          {t("mapping.bulk.checking")}
-        </p>
-      )}
       {status?.status === "failed" && (
-        <div role="alert" className="grid gap-2 text-sm">
-          <p className="inline-flex items-center gap-1.5 text-destructive">
-            <CircleAlert aria-hidden="true" className="size-4" />
-            {t("mapping.bulk.failed")}
-          </p>
+        <div role="alert" className="flex flex-wrap items-center gap-x-4 gap-y-2">
+          <StatusLabel tone="error">{t("mapping.bulk.failed")}</StatusLabel>
           <div className="flex flex-wrap gap-2">
             <Button type="button" variant="outline" size="sm" onClick={onRetry}>
               {t("mapping.retry")}

@@ -6,9 +6,22 @@ import type { ConfirmRequest, Job, JobAction, JobState, MatchRequest, Target } f
 import { adminSettings, adminStatus } from "./admin-fixtures";
 import { confirmRefusal, type ImportProgress, importAt } from "./confirm-fixtures";
 import { jobs as fixtureJobs, jobDetail, session } from "./fixtures";
-import { currentProposal, mappingHandlers, resetMapping } from "./mapping-fixtures";
+import {
+  applyMappingScenarios,
+  currentProposal,
+  mappingHandlers,
+  resetMapping,
+} from "./mapping-fixtures";
 import { apps, movieHits, searchMovies, searchSeries, seriesHits } from "./match-fixtures";
-import { mappingJobs, type Scenario, seasonFiles, seasonJob } from "./scenarios";
+import {
+  dubJobs,
+  importDetails,
+  importingJobs,
+  mappingJobs,
+  type Scenario,
+  seasonFiles,
+  seasonJob,
+} from "./scenarios";
 import { filesOf, pendingOf, resetUploads, uploadHandlers } from "./uploads";
 
 let jobs: Job[] = structuredClone(fixtureJobs);
@@ -35,7 +48,10 @@ export function applyScenarios(scenarios: readonly Scenario[]) {
   if (scenarios.includes("empty")) jobs = [];
   if (scenarios.includes("season")) jobs.push(structuredClone(seasonJob));
   if (scenarios.includes("mapping")) jobs.push(...structuredClone(mappingJobs));
+  if (scenarios.includes("importing")) jobs.push(...structuredClone(importingJobs));
+  if (scenarios.includes("dub")) jobs.push(...structuredClone(dubJobs));
   if (scenarios.includes("admin")) admin = true;
+  applyMappingScenarios(scenarios);
 }
 
 /** The mock API's rule (#11): a user sees their own jobs, an admin everyone's. */
@@ -118,6 +134,7 @@ export const handlers = [
     if (!job) return notFound();
     const detail = jobDetail(job);
     if (job.id === seasonJob.id) detail.files = seasonFiles;
+    Object.assign(detail, structuredClone(importDetails[job.id] ?? {}));
     const target = targets[job.id];
     if (target) detail.target = target;
     const progress = imports[job.id];

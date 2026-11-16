@@ -1,11 +1,12 @@
 import { Link, useParams } from "@tanstack/react-router";
-import { ArrowLeft, LoaderCircle } from "lucide-react";
 import { ApiError } from "@/api/client";
 import { useJob } from "@/api/jobs";
 import { useProposal } from "@/api/proposal";
 import { useSession } from "@/api/session";
 import type { JobDetail } from "@/api/types";
 import { errorKey } from "@/components/error-message";
+import { BackToJob, FlowHeader } from "@/components/patterns/flow-header";
+import { StatusLabel } from "@/components/patterns/status-label";
 import { EmptyState, ErrorState, LoadingState } from "@/components/shell/states";
 import { Button } from "@/components/ui/button";
 import { useT } from "@/i18n";
@@ -15,22 +16,6 @@ import { ConfirmView } from "./confirm-view";
 const reviewable = ["matched", "awaiting-confirmation"];
 
 const appNames = { radarr: "Radarr", sonarr: "Sonarr" } as const;
-
-function Back({ id }: { id: string }) {
-  const { t } = useT();
-  return (
-    <p>
-      <Link
-        to="/jobs/$id"
-        params={{ id }}
-        className="inline-flex min-h-11 items-center gap-1.5 text-sm underline-offset-4 hover:underline"
-      >
-        <ArrowLeft aria-hidden="true" className="size-4" />
-        {t("confirm.back")}
-      </Link>
-    </p>
-  );
-}
 
 export function ConfirmPage() {
   const { id } = useParams({ from: "/jobs/$id/confirm" });
@@ -54,15 +39,18 @@ export function ConfirmPage() {
     body = <LoadingState />;
   } else if (!reviewable.includes(data.state)) {
     body = (
-      <EmptyState as="h1" title={t("confirm.wrongState.title")}>
-        {t("confirm.wrongState.body")}
-        <span className="mt-3 block">
+      <EmptyState
+        as="h1"
+        title={t("confirm.wrongState.title")}
+        action={
           <Button asChild variant="outline">
             <Link to="/jobs/$id" params={{ id }}>
               {t("confirm.wrongState.action")}
             </Link>
           </Button>
-        </span>
+        }
+      >
+        {t("confirm.wrongState.body")}
       </EmptyState>
     );
   } else {
@@ -71,7 +59,7 @@ export function ConfirmPage() {
 
   return (
     <section className="grid max-w-(--container-flow) gap-6">
-      <Back id={id} />
+      <BackToJob id={id}>{t("confirm.back")}</BackToJob>
       {body}
     </section>
   );
@@ -96,20 +84,21 @@ function Review({ job }: { job: JobDetail }) {
     const app = job.target ? appNames[job.target.app] : "Radarr";
     return (
       <>
-        <h1>{t("confirm.title")}</h1>
-        <p role="status" className="flex items-center gap-2 text-ink-2">
-          <LoaderCircle aria-hidden="true" className="size-5 animate-spin" />
+        <FlowHeader step="confirm" title={t("confirm.title")} />
+        <StatusLabel tone="waiting" role="status" className="text-base">
           {t("confirm.pending", { app })}
-        </p>
+        </StatusLabel>
+        <LoadingState rows={2} />
       </>
     );
   }
   return (
     <>
-      <h1>{t("confirm.title")}</h1>
-      <p translate="no" className="text-ink-2 [overflow-wrap:anywhere]">
-        {job.name ?? t("jobs.unnamed")}
-      </p>
+      <FlowHeader step="confirm" title={t("confirm.title")} subject={job.name ?? t("jobs.unnamed")}>
+        <p>
+          {t("confirm.intro", { app: data.app === "" ? "Radarr or Sonarr" : appNames[data.app] })}
+        </p>
+      </FlowHeader>
       <ConfirmView
         job={job}
         proposal={data}

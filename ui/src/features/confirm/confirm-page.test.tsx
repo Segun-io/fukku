@@ -168,7 +168,7 @@ describe("the confirmation page", () => {
 
     // Without the tick the button does not send anything and says why.
     await user.click(importButton());
-    expect(await screen.findByRole("alert")).toHaveTextContent('Tick "Import anyway"');
+    expect(await screen.findByRole("alert")).toHaveTextContent("Tick “Import anyway”");
     expect(screen.getByRole("checkbox", { name: "Import anyway" })).toHaveFocus();
     expect(bodies).toHaveLength(0);
 

@@ -3,13 +3,14 @@
 // Spanish dub, and an episode that already has a file. The mock re-checks every edit the way
 // the real one does, so the screen can be driven end to end. Titles are invented.
 
-import { HttpResponse, http } from "msw";
+import { delay, HttpResponse, http } from "msw";
 import type {
   BulkEdit,
   Notice,
   Proposal,
   ProposalRow,
   Ref,
+  Rejection,
   RowEdit,
   RowEpisode,
   SeriesEpisode,
@@ -71,12 +72,16 @@ type Stored = {
   languages: Ref[];
   customFormats: string[];
   customFormatScore: number;
+  /** What the app holds against the file (`?mock=rejected`). */
+  rejections?: Rejection[];
 };
 
 type MockProposal = {
   app: "radarr" | "sonarr";
   target: { titleId: number; title: string; year: number };
   rows: Stored[];
+  /** The app has not answered yet (`?mock=pending`). */
+  pending?: boolean;
   /** The next PATCH or bulk answers with this status, once (a test or a demo sets it). */
   fail?: { status: number; code: string };
 };
@@ -119,8 +124,13 @@ function season(): Stored[] {
 }
 
 let proposals = new Map<string, MockProposal>();
+/** `?mock=slow`: every re-check takes this long. `?mock=failing`: every re-check fails. */
+let checkDelay = 0;
+let checkFails = false;
 
 export function resetMapping() {
+  checkDelay = 0;
+  checkFails = false;
   proposals = new Map<string, MockProposal>([
     [
       mappingJobId,
@@ -153,6 +163,32 @@ export function resetMapping() {
   ]);
 }
 resetMapping();
+
+/**
+ * `npm run dev:mock` only. `rejected`: the app refuses the second file of the season for good
+ * and the third for now, and the film for good. `pending`: the app has not answered yet.
+ * `slow`: a re-check takes four seconds, to look at "Checking…". `failing`: it fails.
+ */
+export function applyMappingScenarios(names: readonly string[]) {
+  if (names.includes("rejected")) {
+    const rows = proposals.get(mappingJobId)?.rows ?? [];
+    if (rows[1]) {
+      rows[1].rejections = [
+        { reason: "Not an upgrade for existing episode file(s)", permanent: true },
+      ];
+    }
+    if (rows[2]) {
+      rows[2].rejections = [{ reason: "Episode has not aired yet", permanent: false }];
+    }
+    const film = proposals.get(mappingFilmJobId)?.rows[0];
+    if (film) film.rejections = [{ reason: "Sample", permanent: true }];
+  }
+  if (names.includes("pending")) {
+    for (const p of proposals.values()) p.pending = true;
+  }
+  if (names.includes("slow")) checkDelay = 4000;
+  checkFails = names.includes("failing");
+}
 
 /** The proposal as the mock serves it now, for the confirm handler. */
 export function currentProposal(jobId: string): Proposal | undefined {
@@ -206,7 +242,7 @@ function view(p: MockProposal, s: Stored): ProposalRow {
     languages: s.languages,
     customFormats: s.customFormats,
     customFormatScore: s.customFormatScore,
-    rejections: [],
+    rejections: s.rejections ?? [],
     warnings,
     importable: false,
   };
@@ -214,11 +250,23 @@ function view(p: MockProposal, s: Stored): ProposalRow {
     if (s.seasonNumber !== undefined) row.seasonNumber = s.seasonNumber;
     row.episodes = eps.map(rowEpisode);
   }
-  row.importable = !row.skip && (!show || eps.length > 0) && warnings.length === 0;
+  row.importable =
+    !row.skip && (!show || eps.length > 0) && warnings.length === 0 && row.rejections.length === 0;
   return row;
 }
 
 function proposalOf(p: MockProposal): Proposal {
+  if (p.pending) {
+    return {
+      state: "pending",
+      app: p.app,
+      target: p.target,
+      rows: [],
+      hints: [],
+      qualities: [],
+      languages: [],
+    };
+  }
   const rows = p.rows.map((s) => view(p, s));
   const out: Proposal = {
     state: "ready",
@@ -289,6 +337,8 @@ export const mappingHandlers = [
   http.patch("/api/jobs/:id/proposal/rows/:rowId", async ({ params, request }) => {
     const p = proposals.get(String(params.id));
     if (!p) return fail(404, "not_found", "No such job.");
+    if (checkDelay > 0) await delay(checkDelay);
+    if (checkFails) return fail(502, "arr_unavailable", "Mock failure.");
     if (p.fail) {
       const { status, code } = p.fail;
       p.fail = undefined;
@@ -305,6 +355,8 @@ export const mappingHandlers = [
   http.post("/api/jobs/:id/proposal/bulk", async ({ params, request }) => {
     const p = proposals.get(String(params.id));
     if (!p) return fail(404, "not_found", "No such job.");
+    if (checkDelay > 0) await delay(checkDelay);
+    if (checkFails) return fail(502, "arr_unavailable", "Mock failure.");
     if (p.fail) {
       const { status, code } = p.fail;
       p.fail = undefined;

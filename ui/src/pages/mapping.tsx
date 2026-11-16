@@ -1,8 +1,8 @@
 import { Link, useParams } from "@tanstack/react-router";
-import { ArrowLeft } from "lucide-react";
 import { ApiError } from "@/api/client";
 import { useProposal } from "@/api/proposal";
 import { errorKey } from "@/components/error-message";
+import { BackToJob, FlowHeader } from "@/components/patterns/flow-header";
 import { EmptyState, ErrorState, LoadingState } from "@/components/shell/states";
 import { Button } from "@/components/ui/button";
 import { MappingView } from "@/features/mapping/mapping-view";
@@ -15,18 +15,7 @@ export function MappingPage() {
   const { t } = useT();
   const proposal = useProposal(id);
 
-  const back = (
-    <p>
-      <Link
-        to="/jobs/$id"
-        params={{ id }}
-        className="inline-flex min-h-11 items-center gap-1.5 text-sm underline-offset-4 hover:underline"
-      >
-        <ArrowLeft aria-hidden="true" className="size-4" />
-        {t("mapping.back")}
-      </Link>
-    </p>
-  );
+  const back = <BackToJob id={id}>{t("mapping.back")}</BackToJob>;
 
   const data = proposal.data;
   let body: React.ReactNode;
@@ -65,25 +54,35 @@ export function MappingPage() {
     body = <LoadingState />;
   } else if (data.state === "pending") {
     body = (
-      <div className="grid gap-4">
-        <h1>{t("mapping.pending.title", { app: appNames[data.app] || "Radarr, Sonarr" })}</h1>
-        <p className="text-ink-2">{t("mapping.pending.body")}</p>
-        <LoadingState rows={2} />
-      </div>
+      <>
+        <FlowHeader
+          step="mapping"
+          title={t("mapping.pending.title", { app: appNames[data.app] || "Radarr, Sonarr" })}
+        >
+          <p role="status">{t("mapping.pending.body")}</p>
+        </FlowHeader>
+        <LoadingState rows={2} className="max-w-(--container-flow)" />
+      </>
     );
   } else {
+    const app = appNames[data.app];
     body = (
       <>
-        <h1>{t("mapping.title")}</h1>
-        {data.target && (
-          <p translate="no" className="text-ink-2 [overflow-wrap:anywhere]">
-            {t("mapping.target", {
+        <FlowHeader
+          step="mapping"
+          title={t("mapping.title")}
+          subject={
+            data.target &&
+            t("mapping.target", {
               title: data.target.title,
               year: String(data.target.year),
-              app: appNames[data.app],
-            })}
-          </p>
-        )}
+              app,
+            })
+          }
+        >
+          <p>{t("mapping.intro", { app })}</p>
+          {data.app === "sonarr" && <p>{t("mapping.fromNames", { app })}</p>}
+        </FlowHeader>
         <MappingView jobId={id} proposal={data} />
       </>
     );

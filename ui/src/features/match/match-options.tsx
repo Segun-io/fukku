@@ -1,16 +1,15 @@
 import { Link, useNavigate } from "@tanstack/react-router";
+import { TriangleAlert } from "lucide-react";
 import { useId, useState } from "react";
 import { ApiError } from "@/api/client";
 import { useMatchAction } from "@/api/match";
 import type { AppName, MatchRequest, SeriesType } from "@/api/types";
 import { ErrorMessage } from "@/components/error-message";
 import { SelectField } from "@/components/patterns/select-field";
+import { Notice } from "@/components/shell/notice";
 import { Button } from "@/components/ui/button";
 import { useT } from "@/i18n";
 import type { AppInfos, Hit } from "./hits";
-
-export const fieldClass =
-  "h-10 w-full rounded-md border border-input bg-card px-3 text-base text-foreground shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 pointer-coarse:h-11";
 
 const appName: Record<AppName, string> = { radarr: "Radarr", sonarr: "Sonarr" };
 export const nameOf = (app: AppName) => appName[app];
@@ -19,19 +18,24 @@ export const nameOf = (app: AppName) => appName[app];
 export function ExistsNotice({ jobId }: { jobId: string }) {
   const { t } = useT();
   return (
-    <div role="note" className="grid gap-2 border-l-2 border-primary pl-4">
-      <h2 className="text-lg leading-tight">{t("match.exists.title")}</h2>
-      <p className="max-w-[65ch] text-ink-2">{t("match.exists.body")}</p>
-      <p>
+    <Notice
+      role="note"
+      tone="caution"
+      icon={TriangleAlert}
+      titleAs="h2"
+      title={t("match.exists.title")}
+      action={
         <Link
           to="/jobs/$id"
           params={{ id: jobId }}
-          className="inline-flex min-h-11 items-center underline underline-offset-4"
+          className="inline-flex min-h-11 items-center font-medium underline underline-offset-4"
         >
           {t("match.manual")}
         </Link>
-      </p>
-    </div>
+      }
+    >
+      {t("match.exists.body")}
+    </Notice>
   );
 }
 
@@ -92,7 +96,7 @@ export function MatchOptions({ jobId, hit, infos }: Props) {
 
   const app = nameOf(hit.app);
   return (
-    <form onSubmit={submit} className="grid gap-5" aria-labelledby={`${ids}-title`}>
+    <form onSubmit={submit} className="grid gap-5 border-t pt-8" aria-labelledby={`${ids}-title`}>
       <h2 id={`${ids}-title`}>{t("match.options.title")}</h2>
 
       {hit.inLibrary ? (
@@ -100,7 +104,7 @@ export function MatchOptions({ jobId, hit, infos }: Props) {
           {t("match.options.inLibrary", { title: hit.title, app })}
         </p>
       ) : (
-        <>
+        <div className="grid gap-x-4 gap-y-5 sm:grid-cols-2">
           {profiles.length > 0 && (
             <SelectField
               label={t("match.profile")}
@@ -132,10 +136,10 @@ export function MatchOptions({ jobId, hit, infos }: Props) {
           )}
 
           {hit.app === "radarr" && (
-            <label className="flex min-h-11 items-center gap-3">
+            <label className="flex min-h-11 items-center gap-3 sm:col-span-2">
               <input
                 type="checkbox"
-                className="size-5 accent-primary"
+                className="size-5 shrink-0 accent-primary"
                 checked={monitored}
                 onChange={(e) => setMonitored(e.target.checked)}
               />
@@ -156,7 +160,7 @@ export function MatchOptions({ jobId, hit, infos }: Props) {
               ))}
             </SelectField>
           )}
-        </>
+        </div>
       )}
 
       {noProfiles && (
@@ -165,7 +169,7 @@ export function MatchOptions({ jobId, hit, infos }: Props) {
       {needsProfile && !noProfiles && (
         <p className="text-sm text-muted-foreground">{t("match.profile.needed")}</p>
       )}
-      <div>
+      <div className="grid sm:block">
         <Button type="submit" size="lg" disabled={needsProfile || match.isPending}>
           {t("match.submit")}
         </Button>

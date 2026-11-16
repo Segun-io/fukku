@@ -270,7 +270,7 @@ describe("correcting the awkward season", () => {
     expect(summary().getByText("1 skipped")).toBeVisible();
     expect(summary().getByText("1 needs attention")).toBeVisible();
     expect(screen.getByText(/confirmed one by one on the next step/)).toBeVisible();
-    expect(screen.getByRole("link", { name: "Continue" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "Continue to the confirmation" })).toHaveAttribute(
       "href",
       `/jobs/${mappingJobId}/confirm`,
     );
@@ -361,7 +361,7 @@ describe("edits that overlap, fail or meet a changed job", () => {
     expect(rowOf(e03).getByRole("combobox", { name: `Quality of ${e03}` })).toHaveDisplayValue(
       "WEBDL-1080p",
     );
-    expect(screen.getByRole("link", { name: "Continue" })).toBeVisible();
+    expect(screen.getByRole("link", { name: "Continue to the confirmation" })).toBeVisible();
   });
 
   it("reloads the rows on a 409 and lets the user try the edit again", async () => {
@@ -499,7 +499,7 @@ describe("keyboard and small screens", () => {
     );
     await waitFor(() => expect(edits(sent)).toHaveLength(1));
     expect(edits(sent)[0]?.body).toEqual({ episodeIds: [104] });
-    expect(screen.getByRole("link", { name: "Continue" })).toBeVisible();
+    expect(screen.getByRole("link", { name: "Continue to the confirmation" })).toBeVisible();
   });
 
   it("is available in Spanish", async () => {
@@ -513,7 +513,7 @@ describe("keyboard and small screens", () => {
       screen.getByRole("checkbox", { name: "Solo los archivos que necesitan atención" }),
     ).toBeVisible();
     expect(screen.getByRole("combobox", { name: `Temporada de ${e01}` })).toBeVisible();
-    expect(screen.getByRole("link", { name: "Continuar" })).toBeVisible();
+    expect(screen.getByRole("link", { name: "Seguir a la confirmación" })).toBeVisible();
   });
 });
 

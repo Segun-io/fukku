@@ -8,7 +8,9 @@ import {
   FileProgressList,
   type UploadStatus,
 } from "@/components/patterns/file-progress";
+import { FlowHeader } from "@/components/patterns/flow-header";
 import { SelectField } from "@/components/patterns/select-field";
+import { StatusLabel } from "@/components/patterns/status-label";
 import { type JobEvent, StatusTimeline } from "@/components/patterns/status-timeline";
 import { InsecureDevBanner, OfflineBanner, SignInAgain } from "@/components/shell/banners";
 import { ShellHeader } from "@/components/shell/header";
@@ -341,6 +343,37 @@ export function DesignPage() {
           <option value="uploading">{t("state.uploading")}</option>
           <option value="failed">{t("state.failed")}</option>
         </SelectField>
+      </Section>
+
+      <Section title={t("patterns.demo.status.title")}>
+        <ul className="divide-y border-y">
+          {(
+            [
+              ["done", "mapping.ok"],
+              ["caution", "mapping.state.attention"],
+              ["error", "mapping.state.refused"],
+              ["waiting", "mapping.checking"],
+            ] as const
+          ).map(([tone, key]) => (
+            <li
+              key={tone}
+              className="flex flex-col gap-x-4 gap-y-1 py-3 sm:flex-row sm:items-baseline sm:justify-between"
+            >
+              <span translate="no" className="font-medium [overflow-wrap:anywhere]">
+                {film}
+              </span>
+              <StatusLabel tone={tone} className="shrink-0 sm:w-44">
+                {t(key)}
+              </StatusLabel>
+            </li>
+          ))}
+        </ul>
+      </Section>
+
+      <Section title={t("patterns.demo.flow.title")}>
+        <FlowHeader step="mapping" title={t("mapping.title")} subject="Some Film (2001) in Radarr">
+          <p>{t("mapping.intro", { app: "Radarr" })}</p>
+        </FlowHeader>
       </Section>
 
       <Section title={t("patterns.demo.shell.title")}>
