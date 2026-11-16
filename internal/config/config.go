@@ -42,6 +42,14 @@ type Server struct {
 	ArrStallBackoff Duration `yaml:"arrStallBackoff"`
 	// ArrStallLimit: after this many stalls in a row in one state, the job fails instead.
 	ArrStallLimit int `yaml:"arrStallLimit"`
+	// ImportPollInterval: how often a running import is looked at (its command polled).
+	ImportPollInterval Duration `yaml:"importPollInterval"`
+	// PostStepAttempts: how often a post-processing step is run before it is recorded as
+	// failed. A step's own retries inside one run count as one attempt.
+	PostStepAttempts int `yaml:"postStepAttempts"`
+	// PostStepBackoff: the wait after a step's first failed attempt, doubled for each
+	// further one (at most 16 times).
+	PostStepBackoff Duration `yaml:"postStepBackoff"`
 }
 
 type Auth struct {

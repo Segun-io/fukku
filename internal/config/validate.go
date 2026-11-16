@@ -78,6 +78,9 @@ func validateWeb(p *problems, cfg Config, opts ValidateOptions) {
 	nonNegative(p, "server.readinessCacheTtl", int64(s.ReadinessCacheTTL))
 	positive(p, "server.arrStallBackoff", int64(s.ArrStallBackoff))
 	positive(p, "server.arrStallLimit", int64(s.ArrStallLimit))
+	positive(p, "server.importPollInterval", int64(s.ImportPollInterval))
+	positive(p, "server.postStepAttempts", int64(s.PostStepAttempts))
+	positive(p, "server.postStepBackoff", int64(s.PostStepBackoff))
 
 	a := cfg.Auth
 	oneOf(p, "auth.mode", a.Mode, "proxyHeaders", "oidc", "none")

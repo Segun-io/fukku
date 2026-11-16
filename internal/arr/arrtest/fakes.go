@@ -44,6 +44,10 @@ type base struct {
 	imported map[int][]arr.Row // rows of each import command
 	// Imports records every Import call: its rows and mode.
 	Imports []ImportCall
+	// OnImport, when set, is called for every row an import command gives a file (Complete,
+	// FailPartway), as the app moves it: tests remove the source there. It runs with the
+	// fake locked, so it must not call the fake.
+	OnImport func(r arr.Row)
 }
 
 // ImportCall is one recorded Import call.
@@ -137,7 +141,11 @@ func (b *base) Import(_ context.Context, rows []arr.Row, mode string) (int, erro
 		return 0, err
 	}
 	id := len(b.cmds) + 1
-	b.cmds = append(b.cmds, arr.Command{ID: id, Name: "ManualImport", Status: "started", Result: "unknown"})
+	cmd := arr.Command{ID: id, Name: "ManualImport", Status: "started", Result: "unknown"}
+	for _, r := range rows {
+		cmd.Files = append(cmd.Files, r.Path)
+	}
+	b.cmds = append(b.cmds, cmd)
 	if b.imported == nil {
 		b.imported = map[int][]arr.Row{}
 	}
@@ -155,13 +163,35 @@ func (b *base) Command(_ context.Context, id int) (arr.Command, error) {
 	if id < 1 || id > len(b.cmds) {
 		return arr.Command{}, fmt.Errorf("command %d: %w", id, ErrNotFound)
 	}
-	return b.cmds[id-1], nil
+	return copyCommand(b.cmds[id-1]), nil
 }
 
 func (b *base) Commands(context.Context) ([]arr.Command, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	return append([]arr.Command(nil), b.cmds...), b.fail("Commands")
+	out := make([]arr.Command, 0, len(b.cmds))
+	for _, c := range b.cmds {
+		out = append(out, copyCommand(c))
+	}
+	return out, b.fail("Commands")
+}
+
+func copyCommand(c arr.Command) arr.Command {
+	c.Files = append([]string(nil), c.Files...)
+	return c
+}
+
+// Started returns the ids of the commands still running (neither Complete nor Fail yet).
+func (b *base) Started() []int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	var ids []int
+	for _, c := range b.cmds {
+		if c.Status == "started" {
+			ids = append(ids, c.ID)
+		}
+	}
+	return ids
 }
 
 // finish ends command id and returns the rows it imported (nil for an unknown id).
@@ -172,6 +202,13 @@ func (b *base) finish(id int, status, result, message string) []arr.Row {
 	c := &b.cmds[id-1]
 	c.Status, c.Result, c.Message = status, result, message
 	return b.imported[id]
+}
+
+// moved calls OnImport for r.
+func (b *base) moved(r arr.Row) {
+	if b.OnImport != nil {
+		b.OnImport(r)
+	}
 }
 
 // FakeMovies is an in-memory arr.MovieManager.
@@ -273,12 +310,19 @@ func (f *FakeMovies) Complete(id int) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	for _, r := range f.finish(id, "completed", "successful", "") {
-		if i := f.find(r.MovieID); i >= 0 {
-			f.Library[i].File = &arr.MovieFile{
-				ID: 5000 + id, Path: path.Join(f.Library[i].Path, path.Base(r.Path)),
-				Size: r.Size, Quality: r.Quality, Languages: r.Languages,
-			}
+		f.give(id, r)
+	}
+}
+
+// give makes r's file the tracked file of r's film.
+func (f *FakeMovies) give(id int, r arr.Row) {
+	if i := f.find(r.MovieID); i >= 0 {
+		f.Library[i].File = &arr.MovieFile{
+			ID: 5000 + id, Path: path.Join(f.Library[i].Path, path.Base(r.Path)),
+			Size: r.Size, Quality: r.Quality, Languages: r.Languages,
 		}
+		f.Library[i].HasFile = true
+		f.moved(r)
 	}
 }
 
@@ -287,6 +331,16 @@ func (f *FakeMovies) Fail(id int, message string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.finish(id, "failed", "unsuccessful", message)
+}
+
+// FailPartway imports the first n rows of an import command, then fails it with message.
+func (f *FakeMovies) FailPartway(id, n int, message string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	rows := f.finish(id, "failed", "unsuccessful", message)
+	for _, r := range rows[:min(n, len(rows))] {
+		f.give(id, r)
+	}
 }
 
 // FakeSeries is an in-memory arr.SeriesManager.
@@ -395,17 +449,23 @@ func (f *FakeSeries) Complete(id int) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	for _, r := range f.finish(id, "completed", "successful", "") {
-		f.nextFile++
-		for _, ep := range r.EpisodeIDs {
-			for sid, eps := range f.Eps {
-				for i := range eps {
-					if eps[i].ID == ep {
-						f.Eps[sid][i].FileID = 9000 + f.nextFile
-					}
+		f.give(r)
+	}
+}
+
+// give makes r's file the file of each of r's episodes.
+func (f *FakeSeries) give(r arr.Row) {
+	f.nextFile++
+	for _, ep := range r.EpisodeIDs {
+		for sid, eps := range f.Eps {
+			for i := range eps {
+				if eps[i].ID == ep {
+					f.Eps[sid][i].FileID = 9000 + f.nextFile
 				}
 			}
 		}
 	}
+	f.moved(r)
 }
 
 // Fail finishes an import command as failed, with the app's message.
@@ -413,4 +473,14 @@ func (f *FakeSeries) Fail(id int, message string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.finish(id, "failed", "unsuccessful", message)
+}
+
+// FailPartway imports the first n rows of an import command, then fails it with message.
+func (f *FakeSeries) FailPartway(id, n int, message string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	rows := f.finish(id, "failed", "unsuccessful", message)
+	for _, r := range rows[:min(n, len(rows))] {
+		f.give(r)
+	}
 }

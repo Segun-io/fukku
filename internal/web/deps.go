@@ -24,4 +24,8 @@ type Deps struct {
 	// Proposals is the proposal flow (#38), shared with the job runner, which runs its
 	// matched step. Nil: no proposal routes.
 	Proposals *flows.Proposals
+	// Imports is the import engine (#40), built on Proposals and shared with the job
+	// runner, which runs its importing, imported and post-processing steps. Nil: no
+	// confirmation route, and JobDetail has no import or result.
+	Imports *flows.Engine
 }

@@ -44,7 +44,10 @@ redacted. A test keeps this table and the code in step.
 | `server.jobStuckAfter` | `FUKKU_SERVER_JOB_STUCK_AFTER` | `1h` | A failed or stalled job older than this logs `job_stuck` once a minute |
 | `server.readinessCacheTtl` | `FUKKU_SERVER_READINESS_CACHE_TTL` | `15s` | How long `/readyz` reuses the answer of the Radarr and Sonarr checks, so polling does not hit them every time. `0` turns the cache off |
 | `server.arrStallBackoff` | `FUKKU_SERVER_ARR_STALL_BACKOFF` | `30s` | A job stalled with `arr_unavailable` (Radarr or Sonarr did not answer: no connection, a timeout, a 5xx, 401, 403 or 429) tries again once the app answers its status call and this long has passed; the wait doubles with each further stall, up to 16 times |
-| `server.arrStallLimit` | `FUKKU_SERVER_ARR_STALL_LIMIT` | `5` | After this many stalls in a row in one state (the app answers its status call but keeps failing the real one, e.g. a proposal scan that times out), the job fails instead, so it does not cycle for ever; the user can retry it |
+| `server.arrStallLimit` | `FUKKU_SERVER_ARR_STALL_LIMIT` | `5` | After this many stalls in a row in one state (the app answers its status call but keeps failing the real one, e.g. a proposal scan that times out), the job fails instead, so it does not cycle for ever; the user can retry it. Not while importing: an import whose command may still be running only stalls, so it is never given up on (or cancelled) halfway |
+| `server.importPollInterval` | `FUKKU_SERVER_IMPORT_POLL_INTERVAL` | `2s` | How often an import is looked at while it runs: Fukku asks Radarr or Sonarr whether the files arrived and polls the Manual Import command |
+| `server.postStepAttempts` | `FUKKU_SERVER_POST_STEP_ATTEMPTS` | `5` | Runs of a post-processing step (media server refresh, subtitle hand-over) before it is recorded as failed; the job still ends `done`. A step that retries by itself (the subtitle hand-over, `subtitles.attempts`) gives up after one run, so its retries are not multiplied |
+| `server.postStepBackoff` | `FUKKU_SERVER_POST_STEP_BACKOFF` | `30s` | Wait after a post-processing step's first failed run; doubles for each further one, up to 16 times |
 
 ## auth
 

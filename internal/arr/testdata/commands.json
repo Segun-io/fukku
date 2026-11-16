@@ -1,2 +1,2 @@
-[{"id":40,"name":"RefreshMovie","status":"completed","result":"successful","message":"Completed"},
- {"id":41,"name":"ManualImport","status":"failed","result":"unsuccessful","message":"Destination already exists"}]
+[{"id":40,"name":"RefreshMovie","status":"completed","result":"successful","message":"Completed","body":{"movieIds":[3]}},
+ {"id":41,"name":"ManualImport","status":"failed","result":"unsuccessful","message":"Destination already exists","body":{"files":[{"path":"/downloads/intake/jobs/0123/files/a.mkv","movieId":3},{"path":"/downloads/intake/jobs/0123/files/b.mkv","movieId":3}],"importMode":"move"}}]

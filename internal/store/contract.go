@@ -183,7 +183,7 @@ var transitions = map[State]map[State]bool{
 	Matched:              {AwaitingConfirmation: true, Probed: true, Cancelled: true, Failed: true, Stalled: true},
 	AwaitingConfirmation: {Importing: true, Matched: true, Probed: true, Cancelled: true, Failed: true},
 	Importing:            {Imported: true, Failed: true, Stalled: true},
-	Imported:             {PostProcessing: true, Failed: true},
+	Imported:             {PostProcessing: true, Failed: true, Stalled: true},
 	PostProcessing:       {Done: true, Failed: true, Stalled: true},
 	// Failed and Stalled also go to the job's own Resume state; Transition checks that.
 	Failed:  {Cancelled: true},

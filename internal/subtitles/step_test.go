@@ -12,6 +12,7 @@ import (
 
 	"github.com/segun-io/fukku/internal/arr"
 	"github.com/segun-io/fukku/internal/config"
+	"github.com/segun-io/fukku/internal/flows"
 	"github.com/segun-io/fukku/internal/store"
 	"github.com/segun-io/fukku/internal/subtitles"
 	"github.com/segun-io/fukku/internal/subtitles/subtitlestest"
@@ -94,6 +95,10 @@ func TestLanguageAndFlagsFromFileNames(t *testing.T) {
 			if c.wantFailText != "" {
 				if done || err == nil || !strings.Contains(err.Error(), c.wantFailText) {
 					t.Fatalf("done=%v err=%v, want failure %q", done, err, c.wantFailText)
+				}
+				// The step retried by itself: the engine must not run it again.
+				if !errors.Is(err, flows.ErrStepGaveUp) {
+					t.Fatalf("err=%v does not give up", err)
 				}
 				if len(h.fake.Sent()) != 0 {
 					t.Fatal("an unsendable file was sent")
@@ -283,15 +288,15 @@ func TestSkipped(t *testing.T) {
 	h.add("Film.mkv", store.KindVideo, "v")
 	h.add("Film.es.srt", store.KindSubtitle, "x")
 	h.step.Config.Provider = "none"
-	done, detail, err := h.run()
-	if !done || err != nil || !subtitles.IsSkipped(detail) {
-		t.Fatalf("provider none: done=%v detail=%q err=%v", done, detail, err)
+	_, _, err := h.run()
+	if reason, ok := flows.SkipReason(err); !ok || !errors.Is(err, flows.ErrStepSkipped) || reason != "no subtitle manager is configured" {
+		t.Fatalf("provider none: err=%v", err)
 	}
 	h.step.Config.Provider = "bazarr"
 	h.step.Config.HandOverUploads = false
-	done, detail, err = h.run()
-	if !done || err != nil || !subtitles.IsSkipped(detail) {
-		t.Fatalf("hand-over off: done=%v detail=%q err=%v", done, detail, err)
+	_, _, err = h.run()
+	if reason, ok := flows.SkipReason(err); !ok || reason != "handing uploads over is switched off" {
+		t.Fatalf("hand-over off: err=%v", err)
 	}
 	if len(h.fake.Sent()) != 0 {
 		t.Fatal("sent")
@@ -301,9 +306,9 @@ func TestSkipped(t *testing.T) {
 func TestNoSubtitleFiles(t *testing.T) {
 	h := newHarness(t)
 	h.add("Film.mkv", store.KindVideo, "v")
-	done, detail, err := h.run()
-	if !done || err != nil || subtitles.IsSkipped(detail) {
-		t.Fatalf("done=%v detail=%q err=%v", done, detail, err)
+	_, _, err := h.run()
+	if reason, ok := flows.SkipReason(err); !ok || reason != "no subtitle files" {
+		t.Fatalf("err=%v", err)
 	}
 }
 
@@ -319,8 +324,8 @@ func TestOnlyAcceptedRegularFilesWithinTheLimitAreRead(t *testing.T) {
 
 	// A pending file (not checked by the worker) is not touched.
 	h.files[big.ID-1].Status = store.FilePending
-	if done, detail, err := h.run(); !done || err != nil || detail != "no subtitle files" {
-		t.Fatalf("pending: done=%v detail=%q err=%v", done, detail, err)
+	if _, _, err := h.run(); !errors.Is(err, flows.ErrStepSkipped) {
+		t.Fatalf("pending: err=%v", err)
 	}
 	h.files[big.ID-1].Status = store.FileOK
 

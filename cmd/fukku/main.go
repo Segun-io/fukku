@@ -31,6 +31,7 @@ import (
 	"github.com/segun-io/fukku/internal/runner"
 	"github.com/segun-io/fukku/internal/spool"
 	"github.com/segun-io/fukku/internal/store"
+	"github.com/segun-io/fukku/internal/subtitles"
 	"github.com/segun-io/fukku/internal/version"
 	"github.com/segun-io/fukku/internal/web"
 	"github.com/segun-io/fukku/internal/worker"
@@ -162,17 +163,35 @@ func runWeb(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 		deps.Sonarr = arr.NewSonarr(cfg.Sonarr)
 	}
 	deps.Proposals = flows.NewProposals(cfg, log, st, deps.Radarr, deps.Sonarr, deps.Locks)
+	// The import engine (#40) and its post-processing steps, in the order they run.
+	deps.Imports = flows.NewEngine(deps.Proposals)
+	deps.Imports.AddPostStep(subtitleStep(cfg, st))
 	// The job runner (#29) drives jobs next to the HTTP server and stops with it, before
 	// the store closes.
 	rn := runner.New(cfg, log, st, q, time.Now)
 	rn.Handle(store.Matched, deps.Proposals.Matched)
+	rn.Handle(store.Importing, deps.Imports.Importing)
+	rn.Handle(store.Imported, deps.Imports.Imported)
+	rn.Handle(store.PostProcessing, deps.Imports.PostProcessing)
 	rn.ResumeWhen(flows.CodeArrUnavailable, "the app answers again", deps.Proposals.AppAnswers)
 	ran := make(chan error, 1)
 	go func() { ran <- rn.Run(ctx) }()
 	err = web.New(cfg, log, ui.FS(), deps).Run(ctx)
 	cancel()
 	<-swept
-	return errors.Join(err, <-ran, st.Close())
+	err = errors.Join(err, <-ran)
+	deps.Imports.Wait() // the post-processing goroutines end with ctx
+	return errors.Join(err, st.Close())
+}
+
+// subtitleStep is the post-processing step that hands uploaded subtitles to the subtitle
+// manager (#42); with provider none it is recorded as skipped.
+func subtitleStep(cfg config.Config, st store.Store) *subtitles.Step {
+	s := &subtitles.Step{Store: st, IntakeRoot: cfg.Paths.IntakeRoot, Config: cfg.Subtitles}
+	if cfg.Subtitles.Provider == "bazarr" && cfg.Subtitles.URL != "" {
+		s.Manager = subtitles.NewBazarr(cfg.Subtitles.URL, cfg.Subtitles.APIKey.Reveal(), cfg.Subtitles.RequestTimeout.D())
+	}
+	return s
 }
 
 // runCombined runs the same web process and worker as split mode, in one process.

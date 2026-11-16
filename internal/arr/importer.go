@@ -125,10 +125,21 @@ type commandJSON struct {
 	Status  string `json:"status"`
 	Result  string `json:"result"`
 	Message string `json:"message"`
+	Body    *struct {
+		Files []struct {
+			Path string `json:"path"`
+		} `json:"files"`
+	} `json:"body"`
 }
 
 func (j commandJSON) command() Command {
-	return Command(j)
+	c := Command{ID: j.ID, Name: j.Name, Status: j.Status, Result: j.Result, Message: j.Message}
+	if j.Body != nil {
+		for _, f := range j.Body.Files {
+			c.Files = append(c.Files, f.Path)
+		}
+	}
+	return c
 }
 
 func (c *client) Command(ctx context.Context, id int) (Command, error) {

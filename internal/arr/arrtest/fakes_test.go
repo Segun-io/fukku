@@ -97,3 +97,45 @@ func TestFakeSeries(t *testing.T) {
 		t.Errorf("command = %+v", c)
 	}
 }
+
+// A command carries its files' paths; OnImport sees each row given a file; FailPartway
+// imports the first rows only; Started lists what still runs.
+func TestFakeImportCommands(t *testing.T) {
+	f := &arrtest.FakeSeries{Eps: map[int][]arr.Episode{5: {{ID: 1}, {ID: 2}, {ID: 3}}}}
+	var moved []string
+	f.OnImport = func(r arr.Row) { moved = append(moved, r.Path) }
+	rows := []arr.Row{{Path: "/in/a.mkv", EpisodeIDs: []int{1}}, {Path: "/in/b.mkv", EpisodeIDs: []int{2, 3}}}
+	id, _ := f.Import(ctx, rows, "move")
+	other, _ := f.Import(ctx, rows[:1], "move")
+	cs, _ := f.Commands(ctx)
+	if len(cs) != 2 || len(cs[0].Files) != 2 || cs[0].Files[1] != "/in/b.mkv" || cs[1].Files[0] != "/in/a.mkv" {
+		t.Fatalf("commands %+v", cs)
+	}
+	if got := f.Started(); len(got) != 2 {
+		t.Fatalf("started %v", got)
+	}
+	f.FailPartway(id, 1, "disk full")
+	if c, _ := f.Command(ctx, id); c.Status != "failed" || c.Message != "disk full" {
+		t.Errorf("command %+v", c)
+	}
+	eps, _ := f.Episodes(ctx, 5)
+	if eps[0].FileID == 0 || eps[1].FileID != 0 || eps[2].FileID != 0 || len(moved) != 1 || moved[0] != "/in/a.mkv" {
+		t.Errorf("episodes %+v, moved %v", eps, moved)
+	}
+	if got := f.Started(); len(got) != 1 || got[0] != other {
+		t.Errorf("started %v", got)
+	}
+
+	m := &arrtest.FakeMovies{Library: []arr.Movie{{ID: 7, Path: "/movies/F"}}}
+	m.OnImport = func(r arr.Row) { moved = append(moved, r.Path) }
+	mid, _ := m.Import(ctx, []arr.Row{{Path: "/in/f.mkv", MovieID: 7}}, "move")
+	m.FailPartway(mid, 0, "x")
+	if got, _ := m.Movie(ctx, 7); got.File != nil {
+		t.Errorf("film %+v", got)
+	}
+	mid, _ = m.Import(ctx, []arr.Row{{Path: "/in/f.mkv", MovieID: 7}}, "move")
+	m.Complete(mid)
+	if got, _ := m.Movie(ctx, 7); got.File == nil || !got.HasFile || moved[len(moved)-1] != "/in/f.mkv" {
+		t.Errorf("film %+v", got)
+	}
+}

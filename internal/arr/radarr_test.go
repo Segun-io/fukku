@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -400,12 +401,17 @@ func TestCommandAndCommands(t *testing.T) {
 		"GET /api/v3/command":    ok("commands.json"),
 	})
 	c, err := r.Command(ctx, 41)
-	if err != nil || c != (arr.Command{ID: 41, Name: "ManualImport", Status: "completed", Result: "successful", Message: "Completed"}) {
+	if err != nil || !reflect.DeepEqual(c, arr.Command{ID: 41, Name: "ManualImport", Status: "completed", Result: "successful", Message: "Completed"}) {
 		t.Fatalf("Command = %+v, %v", c, err)
 	}
 	cs, err := r.Commands(ctx)
 	if err != nil || len(cs) != 2 || cs[1].Status != "failed" || cs[1].Message != "Destination already exists" {
 		t.Fatalf("Commands = %+v, %v", cs, err)
+	}
+	// The files of a ManualImport come from its body: they tell which job it belongs to.
+	want := []string{"/downloads/intake/jobs/0123/files/a.mkv", "/downloads/intake/jobs/0123/files/b.mkv"}
+	if len(cs[0].Files) != 0 || !reflect.DeepEqual(cs[1].Files, want) {
+		t.Errorf("files = %v, %v", cs[0].Files, cs[1].Files)
 	}
 }
 

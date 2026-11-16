@@ -25,6 +25,10 @@ func Defaults() Config {
 			ReadinessCacheTTL: Duration(15 * time.Second),
 			ArrStallBackoff:   Duration(30 * time.Second),
 			ArrStallLimit:     5,
+			// Polling a command is cheap; the import of a large file by rename is quick.
+			ImportPollInterval: Duration(2 * time.Second),
+			PostStepAttempts:   5,
+			PostStepBackoff:    Duration(30 * time.Second),
 		},
 		Auth: Auth{
 			Mode:            "proxyHeaders",
