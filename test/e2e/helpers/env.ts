@@ -13,3 +13,11 @@ export const composeProject = process.env.FUKKU_E2E_COMPOSE_PROJECT ?? "fukku-te
 export const dockerSocket = process.env.FUKKU_E2E_DOCKER_SOCKET ?? "/var/run/docker.sock";
 /** Where files.sparse creates files: a volume of the runner. */
 export const filesDir = process.env.FUKKU_E2E_FILES_DIR ?? "/files";
+
+/** The web process, straight (it answers 403 to anyone but the proxy), and the test Radarr. */
+export const webURL = "http://fukku-web:8080";
+export const radarrURL = "http://radarr:7878";
+export const radarrKey = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"; // fake, valid only in the test environment
+/** The library filesystem as the runner sees it, and the generated upload fixtures. */
+export const dataDir = process.env.FUKKU_E2E_DATA_DIR ?? "/data";
+export const fixturesDir = process.env.FUKKU_E2E_FIXTURES_DIR ?? "/fixtures";

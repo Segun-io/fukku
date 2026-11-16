@@ -10,6 +10,7 @@ env_dir=../env
   echo "the stack is not up: make image env-up dev-up" >&2
   exit 1
 }
+[ -d ../../.cache/e2e-fixtures/hostile ] || { echo "the fixtures are missing: make e2e-fixtures" >&2; exit 1; }
 [ -d node_modules/@playwright/test ] || { echo "dependencies are missing: make e2e-deps" >&2; exit 1; }
 
 # The image's browsers only work with the same Playwright version.

@@ -174,7 +174,13 @@ func (x *extractor) run(ctx context.Context) (Output, error) {
 		out, err = Output{Refused: string(ref)}, nil
 	}
 	if err == nil && out.Refused == "" {
-		err = x.job.Rename(x.partial, x.args.Dest)
+		// A job that has only archives has no files/ yet.
+		if parent := path.Dir(x.args.Dest); parent != "." {
+			err = x.job.MkdirAll(parent, 0o755)
+		}
+		if err == nil {
+			err = x.job.Rename(x.partial, x.args.Dest)
+		}
 	}
 	if err != nil || out.Refused != "" {
 		if rerr := x.job.RemoveAll(x.partial); rerr != nil {

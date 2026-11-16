@@ -635,3 +635,22 @@ func TestSeasonZip(t *testing.T) {
 		}
 	}
 }
+
+// A job that has only archives has no files/ directory yet: the extraction creates it.
+func TestCreatesTheParentOfDest(t *testing.T) {
+	sb := newSandbox(t)
+	if err := os.Remove(filepath.Join(sb.job, "files")); err != nil {
+		t.Fatal(err)
+	}
+	archive := sb.put(t, buildZip(t, filepath.Join(t.TempDir(), "a.zip"), zent{name: "a.mkv", data: "video"}))
+	out, err := Run(context.Background(), sb.root, Args{Archive: archive, Dest: "files/out"}, testLimits())
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if len(out.Files) != 1 || out.Refused != "" {
+		t.Fatalf("got %+v", out)
+	}
+	if got := treeOf(t, filepath.Join(sb.job, "files", "out")); got["a.mkv"] != "video" {
+		t.Errorf("on disk %v", got)
+	}
+}

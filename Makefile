@@ -98,13 +98,17 @@ hooks: ## install the git pre-commit hook (gitleaks on staged changes)
 e2e-deps: $(DEV_DEP) ## install the Playwright project's dependencies (no scripts, no browser download)
 	$(IN_DEV) bash -c 'cd test/e2e && if [ ! -f node_modules/.package-lock.json ] || [ package-lock.json -nt node_modules/.package-lock.json ]; then npm ci --no-audit; fi'
 
+.PHONY: e2e-fixtures
+e2e-fixtures: $(DEV_DEP) ## generate the files the end-to-end tests upload into .cache/e2e-fixtures (never committed)
+	$(IN_DEV) go run ./test/fixtures/cmd/genfixtures -quick -out .cache/e2e-fixtures >/dev/null
+
 .PHONY: e2e-check
 e2e-check: e2e-deps ## lint and type-check the Playwright project
 	$(IN_DEV) bash -c 'cd test/e2e && npm run lint && npm run typecheck'
 
 .PHONY: e2e
-e2e: ## Playwright through the UI against the dev stack; make e2e ARGS='smoke.spec.ts -g home'
-	$(MAKE) --no-print-directory image env-up dev-up e2e-deps
+e2e: ## Playwright through the UI and API against the dev stack; make e2e ARGS='smoke.spec.ts -g home'
+	$(MAKE) --no-print-directory image env-up dev-up e2e-deps e2e-fixtures
 	test/e2e/run.sh $(ARGS)
 
 ## ---- build ------------------------------------------------------------------------
