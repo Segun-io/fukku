@@ -34,7 +34,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        arch: [amd64, arm64] # arm64 is built and smoke-tested under QEMU emulation
+        # Pull requests build amd64 only: arm64 runs under QEMU emulation and takes about an hour.
+        # Pushes to main, the weekly schedule and manual runs build and smoke-test both.
+        arch: ${{ fromJSON(github.event_name == 'pull_request' && '["amd64"]' || '["amd64", "arm64"]') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/build-image
