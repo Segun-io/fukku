@@ -3,8 +3,11 @@
 package probes
 
 import (
+	"context"
 	"fmt"
+	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -217,4 +220,215 @@ func TestJ2MergeVersionsPersistence(t *testing.T) {
 	p.evidence("survivesScan", afterScan == 2)
 	p.evidence("survivesRefresh", afterRefresh == 2)
 	p.observed()
+}
+
+// ---- J1 alternatives (issue #49: evidence for decision #22) ------------------------------
+
+// refreshRun is one placement of a new film file and the wait until Jellyfin lists it.
+type refreshRun struct {
+	Seconds float64 `json:"seconds"` // trigger sent until the item is listed; -1: not within the limit
+	// MediaInfoAtFirstSight is whether the item already had a runtime and streams when listed;
+	// SecondsToMediaInfo is the time from the trigger until it did (-1: not within a minute).
+	MediaInfoAtFirstSight bool    `json:"mediaInfoAtFirstSight"`
+	SecondsToMediaInfo    float64 `json:"secondsToMediaInfo"`
+	// ScanSeconds is the time until the library scan task was idle again (full scans only).
+	ScanSeconds float64 `json:"scanSeconds,omitempty"`
+}
+
+// refreshSeq numbers the films the J1 alternatives place.
+var refreshSeq int
+
+const (
+	fillerFilms = 200
+	pollEvery   = 250 * time.Millisecond
+)
+
+// timeRefresh places a fresh film file n times, calls trigger after each, and measures how
+// long Jellyfin takes to list the item. It stops early when an item is not listed within limit.
+func timeRefresh(p *probe, label string, n int, limit time.Duration, fullScan bool, trigger func(dir, file string) error) []refreshRun {
+	p.t.Helper()
+	var runs []refreshRun
+	for i := 1; i <= n; i++ {
+		p.must(env.Jellyfin.WaitScanIdle(p.ctx, scanTimeout), "wait for idle library")
+		refreshSeq++ // names must never repeat: Jellyfin keeps items by path
+		name := uniq(fmt.Sprintf("Probe %s %d (2005)", label, refreshSeq))
+		term := name[:strings.Index(name, " (")]
+		dir := p.fresh(movies(name))
+		file := filepath.Join(dir, name+" - WEBDL-1080p.mkv")
+		p.video(file, short)
+		known, err := env.Jellyfin.FindMovie(p.ctx, term, dir)
+		p.must(err, "look for the film before the trigger")
+		p.check(known == nil, "the new film is not known before the trigger")
+
+		start := time.Now()
+		p.must(trigger(dir, file), label+" trigger")
+		var it *testenv.Item
+		err = testenv.WaitFor(p.ctx, limit, pollEvery, "item to appear", func() (bool, error) {
+			var err error
+			it, err = env.Jellyfin.FindMovie(p.ctx, term, dir)
+			return it != nil, err
+		})
+		run := refreshRun{Seconds: -1, SecondsToMediaInfo: -1}
+		if err != nil {
+			p.observe("%s run %d: not listed within %s", label, i, limit)
+			runs = append(runs, run)
+			return runs
+		}
+		run.Seconds = time.Since(start).Seconds()
+		run.MediaInfoAtFirstSight = it.HasMediaInfo()
+		if run.MediaInfoAtFirstSight {
+			run.SecondsToMediaInfo = run.Seconds
+		} else if testenv.WaitFor(p.ctx, time.Minute, pollEvery, "media info", func() (bool, error) {
+			it, err = env.Jellyfin.FindMovie(p.ctx, term, dir)
+			return it != nil && it.HasMediaInfo(), err
+		}) == nil {
+			run.SecondsToMediaInfo = time.Since(start).Seconds()
+		}
+		if fullScan {
+			p.must(env.Jellyfin.WaitScanIdle(p.ctx, 15*time.Minute), "wait for the scan to end")
+			run.ScanSeconds = time.Since(start).Seconds()
+		}
+		runs = append(runs, run)
+	}
+	return runs
+}
+
+// describeRuns is the min, median and max of the runs, and how many items were complete at
+// first sight.
+func describeRuns(runs []refreshRun) string {
+	var secs []float64
+	complete := 0
+	for _, r := range runs {
+		if r.Seconds < 0 {
+			return fmt.Sprintf("%d run(s), the item did not appear within the limit", len(runs))
+		}
+		secs = append(secs, r.Seconds)
+		if r.MediaInfoAtFirstSight {
+			complete++
+		}
+	}
+	sort.Float64s(secs)
+	out := fmt.Sprintf("%d run(s): min %.1f s, median %.1f s, max %.1f s; runtime and streams present at first sight in %d of %d",
+		len(secs), secs[0], secs[len(secs)/2], secs[len(secs)-1], complete, len(runs))
+	var info []float64
+	for _, r := range runs {
+		info = append(info, r.SecondsToMediaInfo)
+	}
+	sort.Float64s(info)
+	if complete < len(runs) {
+		out += fmt.Sprintf(" (runtime and streams after min %.1f s, median %.1f s, max %.1f s; -1: not within a minute)", info[0], info[len(info)/2], info[len(info)-1])
+	}
+	if runs[0].ScanSeconds > 0 {
+		var total float64
+		for _, r := range runs {
+			total += r.ScanSeconds
+		}
+		out += fmt.Sprintf("; the scan task ran %.0f s on average", total/float64(len(runs)))
+	}
+	return out
+}
+
+// jellyfinFillers adds n small films to the Movies library and scans them in, so the refresh
+// timings are taken on a library of a realistic size. It returns the time the scan took.
+func jellyfinFillers(p *probe, n int) time.Duration {
+	p.t.Helper()
+	p.must(env.Jellyfin.WaitScanIdle(p.ctx, scanTimeout), "wait for idle library")
+	first := ""
+	var dirs []string
+	for i := 1; i <= n; i++ {
+		name := uniq(fmt.Sprintf("Probe Filler %03d (%d)", i, 1980+i%40))
+		dir := p.fresh(movies(name))
+		dirs = append(dirs, dir)
+		file := filepath.Join(dir, name+" - WEBDL-1080p.mkv")
+		if first == "" {
+			p.video(file, short)
+			first = file
+		} else {
+			p.must(os.Link(first, file), "hard link filler")
+		}
+	}
+	p.t.Cleanup(func() {
+		for _, d := range dirs {
+			_ = os.RemoveAll(d)
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), scanTimeout)
+		defer cancel()
+		_ = env.Jellyfin.ScanAndWait(ctx, scanTimeout)
+	})
+	start := time.Now()
+	p.must(env.Jellyfin.ScanAndWait(p.ctx, 15*time.Minute), "scan in the filler films")
+	return time.Since(start).Round(time.Second)
+}
+
+// TestJ1RefreshAlternatives measures four ways to make a new film visible (J1a to J1d), each
+// on a library of about two hundred films, several runs each, with real-time monitoring off.
+// The existing J1 probe is the baseline: the file path reported to /Library/Media/Updated.
+func TestJ1RefreshAlternatives(t *testing.T) {
+	const claim = "Unverified in the plan. Decision #22: probe whether the item becomes visible without waiting for LibraryMonitorDelay (J1: file path, 60 s)"
+	delay, err := env.Jellyfin.LibraryMonitorDelay(t.Context())
+	if err != nil {
+		t.Fatalf("read LibraryMonitorDelay: %v", err)
+	}
+	libraryID, err := env.Jellyfin.LibraryID(t.Context(), filepath.Join(env.Data, "media", "movies"))
+	if err != nil {
+		t.Fatalf("find the Movies library: %v", err)
+	}
+
+	p := newProbe(t, "J1a", "Jellyfin: reporting the film's folder to /Library/Media/Updated", claim, false, "jellyfin")
+	scan := jellyfinFillers(p, fillerFilms)
+	var total struct {
+		Count int `json:"TotalRecordCount"`
+	}
+	p.must(env.Jellyfin.Do(p.ctx, "GET", "/Items"+testenv.Q("Recursive", "true", "IncludeItemTypes", "Movie", "Limit", "0"), nil, &total), "count films")
+	version, err := env.Jellyfin.Version(p.ctx)
+	p.must(err, "server version")
+	p.observe("library of %d films; server %s; LibraryMonitorDelay %d s; scanning in %d new films took %s", total.Count, version, delay, fillerFilms, scan)
+	p.evidence("films", total.Count)
+	p.evidence("libraryMonitorDelaySeconds", delay)
+
+	runs := timeRefresh(p, "J1a", 3, 3*time.Minute, false, func(dir, _ string) error { return env.Jellyfin.MediaUpdated(p.ctx, dir) })
+	p.evidence("runs", runs)
+	p.observe("folder path reported, delay %d s: %s", delay, describeRuns(runs))
+	p.observed()
+
+	t.Run("J1b", func(t *testing.T) {
+		p := newProbe(t, "J1b", "Jellyfin: refreshing the library's folder item (POST /Items/{id}/Refresh)", claim, false, "jellyfin")
+		for _, recursive := range []bool{false, true} {
+			label := map[bool]string{false: "without recursion", true: "with recursion"}[recursive]
+			runs := timeRefresh(p, "J1b", 5, 3*time.Minute, false, func(_, _ string) error {
+				return env.Jellyfin.RefreshItem(p.ctx, libraryID, recursive)
+			})
+			p.evidence("runs "+label, runs)
+			p.observe("refresh of the library item %s: %s", label, describeRuns(runs))
+		}
+		p.observed()
+	})
+
+	t.Run("J1c", func(t *testing.T) {
+		p := newProbe(t, "J1c", "Jellyfin: /Library/Media/Updated (file path) with a lower LibraryMonitorDelay", claim, false, "jellyfin")
+		t.Cleanup(func() {
+			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+			defer cancel()
+			if err := env.Jellyfin.SetLibraryMonitorDelay(ctx, delay); err != nil {
+				t.Errorf("restore LibraryMonitorDelay to %d: %v", delay, err)
+			}
+		})
+		for _, d := range []int{1, 5, 15, 30} {
+			p.must(env.Jellyfin.SetLibraryMonitorDelay(p.ctx, d), fmt.Sprintf("set LibraryMonitorDelay %d", d))
+			runs := timeRefresh(p, "J1c", 3, 3*time.Minute, false, func(_, file string) error { return env.Jellyfin.MediaUpdated(p.ctx, file) })
+			p.evidence(fmt.Sprintf("runs with delay %d", d), runs)
+			p.observe("file path reported, LibraryMonitorDelay %d s: %s", d, describeRuns(runs))
+		}
+		p.observed()
+	})
+
+	t.Run("J1d", func(t *testing.T) {
+		p := newProbe(t, "J1d", "Jellyfin: a full POST /Library/Refresh (upper bound)", claim, false, "jellyfin")
+		runs := timeRefresh(p, "J1d", 3, 10*time.Minute, true, func(_, _ string) error {
+			return env.Jellyfin.Do(p.ctx, "POST", "/Library/Refresh", nil, nil)
+		})
+		p.evidence("runs", runs)
+		p.observe("full library refresh on a library of about %d films: %s", total.Count, describeRuns(runs))
+		p.observed()
+	})
 }

@@ -2,6 +2,8 @@ package testenv
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"strings"
 	"time"
 )
@@ -23,12 +25,32 @@ type Item struct {
 	SpecialFeatureCount int           `json:"SpecialFeatureCount"`
 	ParentIndexNumber   *int          `json:"ParentIndexNumber"`
 	IndexNumber         *int          `json:"IndexNumber"`
+	RunTimeTicks        int64         `json:"RunTimeTicks"`
+	ProductionYear      int           `json:"ProductionYear"`
 }
 
 type MediaSource struct {
-	ID   string `json:"Id"`
-	Path string `json:"Path"`
-	Name string `json:"Name"`
+	ID           string        `json:"Id"`
+	Path         string        `json:"Path"`
+	Name         string        `json:"Name"`
+	RunTimeTicks int64         `json:"RunTimeTicks"`
+	MediaStreams []MediaStream `json:"MediaStreams"`
+}
+
+// MediaStream is one video, audio or subtitle stream of a media source.
+type MediaStream struct {
+	Type string `json:"Type"`
+}
+
+// HasMediaInfo reports whether the item carries a runtime and at least one stream, which is
+// what Jellyfin fills in once it has probed the file.
+func (it Item) HasMediaInfo() bool {
+	for _, ms := range it.MediaSources {
+		if ms.RunTimeTicks > 0 && len(ms.MediaStreams) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // ItemsUnder returns the items of the given types whose path is under dir.
@@ -127,4 +149,79 @@ func (j *Jellyfin) Extras(ctx context.Context, id string) (trailers, special []s
 	}
 	special, err = get("SpecialFeatures")
 	return trailers, special, err
+}
+
+// LibraryID returns the item id of the library (virtual folder) whose location contains path.
+func (j *Jellyfin) LibraryID(ctx context.Context, path string) (string, error) {
+	var libs []struct {
+		ItemID    string   `json:"ItemId"`
+		Locations []string `json:"Locations"`
+	}
+	if err := j.Do(ctx, "GET", "/Library/VirtualFolders", nil, &libs); err != nil {
+		return "", err
+	}
+	for _, l := range libs {
+		for _, loc := range l.Locations {
+			if path == loc || strings.HasPrefix(path, strings.TrimRight(loc, "/")+"/") {
+				return l.ItemID, nil
+			}
+		}
+	}
+	return "", fmt.Errorf("no library contains %s", path)
+}
+
+// RefreshItem asks Jellyfin to refresh an item (POST /Items/{id}/Refresh) with the default
+// metadata mode: it looks for new and changed children without downloading anything again.
+func (j *Jellyfin) RefreshItem(ctx context.Context, id string, recursive bool) error {
+	return j.Do(ctx, "POST", "/Items/"+id+"/Refresh"+Q("metadataRefreshMode", "Default", "imageRefreshMode", "Default",
+		"recursive", fmt.Sprint(recursive)), nil, nil)
+}
+
+// MediaUpdated reports paths to POST /Library/Media/Updated as created.
+func (j *Jellyfin) MediaUpdated(ctx context.Context, paths ...string) error {
+	var ups []M
+	for _, p := range paths {
+		ups = append(ups, M{"Path": p, "UpdateType": "Created"})
+	}
+	return j.Do(ctx, "POST", "/Library/Media/Updated", M{"Updates": ups}, nil)
+}
+
+// FindMovie returns the movie whose path is under dir, using a name search (cheap on a big
+// library), or nil when Jellyfin does not list it yet. term must be part of the item's name.
+func (j *Jellyfin) FindMovie(ctx context.Context, term, dir string) (*Item, error) {
+	var res struct {
+		Items []Item `json:"Items"`
+	}
+	q := Q("Recursive", "true", "IncludeItemTypes", "Movie", "SearchTerm", term,
+		"Fields", "Path,MediaSources", "EnableImages", "false")
+	if err := j.Do(ctx, "GET", "/Items"+q, nil, &res); err != nil {
+		return nil, err
+	}
+	prefix := strings.TrimRight(dir, "/") + "/"
+	for _, it := range res.Items {
+		if strings.HasPrefix(it.Path, prefix) {
+			return &it, nil
+		}
+	}
+	return nil, nil
+}
+
+// LibraryMonitorDelay returns the server's LibraryMonitorDelay in seconds.
+func (j *Jellyfin) LibraryMonitorDelay(ctx context.Context) (int, error) {
+	var cfg struct {
+		Delay int `json:"LibraryMonitorDelay"`
+	}
+	err := j.Do(ctx, "GET", "/System/Configuration", nil, &cfg)
+	return cfg.Delay, err
+}
+
+// SetLibraryMonitorDelay changes the server's LibraryMonitorDelay (seconds) and leaves every
+// other setting as it was. The change takes effect without a restart.
+func (j *Jellyfin) SetLibraryMonitorDelay(ctx context.Context, seconds int) error {
+	var cfg map[string]json.RawMessage
+	if err := j.Do(ctx, "GET", "/System/Configuration", nil, &cfg); err != nil {
+		return err
+	}
+	cfg["LibraryMonitorDelay"] = json.RawMessage(fmt.Sprint(seconds))
+	return j.Do(ctx, "POST", "/System/Configuration", cfg, nil)
 }
