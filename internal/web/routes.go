@@ -11,6 +11,7 @@ import (
 // auth.FromContext (except for /healthz and /readyz) and on a body limit.
 func (s *Server) routes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /healthz", s.healthz)
+	mux.HandleFunc("GET /readyz", s.readyz)
 	mux.HandleFunc("GET /api/session", s.session)
 	s.jobRoutes(mux) // #11
 	mux.Handle(uploadsPath, s.uploadsHandler())

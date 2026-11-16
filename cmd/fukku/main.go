@@ -4,7 +4,7 @@
 //	fukku worker        the worker process (parses uploads); no network, no secrets
 //	fukku combined      both in one process (mode=combined; weaker isolation)
 //	fukku check-config  load, validate and print the configuration with secrets redacted
-//	fukku healthcheck   container health check (web: /healthz, worker: heartbeat age)
+//	fukku healthcheck   container health check (web: /readyz, worker: heartbeat age)
 //	fukku version
 package main
 
@@ -64,7 +64,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	configFile := fset.String("config", os.Getenv("FUKKU_CONFIG"), "YAML configuration file")
 	insecureDev := fset.Bool("insecure-dev", false, "allow auth.mode=none (development only)")
 	role := fset.String("role", "web", "check-config: role to validate for (web, worker, combined)")
-	checkWorker := fset.Bool("worker", false, "healthcheck: check the worker heartbeat instead of /healthz")
+	checkWorker := fset.Bool("worker", false, "healthcheck: check the worker heartbeat instead of the web check")
 
 	switch cmd {
 	case "version", "--version", "-v":
@@ -190,7 +190,7 @@ func healthcheckWeb(cfg config.Config, stderr io.Writer) int {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+net.JoinHostPort(host, port)+"/healthz", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+net.JoinHostPort(host, port)+"/readyz?local=1", nil)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
@@ -202,7 +202,7 @@ func healthcheckWeb(cfg config.Config, stderr io.Writer) int {
 	}
 	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		fmt.Fprintf(stderr, "healthz returned %d\n", resp.StatusCode)
+		fmt.Fprintf(stderr, "readyz returned %d\n", resp.StatusCode)
 		return 1
 	}
 	return 0

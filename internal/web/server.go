@@ -26,6 +26,8 @@ type Server struct {
 	deps Deps
 	tus  *uploads.Handler // /api/uploads/; nil without a store
 	http *http.Server
+
+	ready readiness
 }
 
 // New builds the server. ui is the built single-page app.
@@ -39,6 +41,7 @@ func New(cfg config.Config, log *slog.Logger, ui fs.FS, deps Deps) *Server {
 			s.tus = h
 		}
 	}
+	s.ready.now = time.Now
 	s.http = &http.Server{
 		Addr:              cfg.Server.ListenAddress,
 		Handler:           s.Handler(),
@@ -78,8 +81,7 @@ func (s *Server) Run(ctx context.Context) error {
 	return nil
 }
 
-// healthz says the process is up. Readiness (database, spool, sentinels, worker heartbeat,
-// *arr reachability) is /readyz, from M1.
+// healthz says the process is up. Readiness is /readyz.
 func (s *Server) healthz(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "version": version.Version})
 }

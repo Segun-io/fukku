@@ -57,7 +57,10 @@ LABEL org.opencontainers.image.title="Fukku" \
 
 USER 10001:10001
 EXPOSE 8080
-# Web by default; the worker's compose service overrides this with `fukku healthcheck --worker`.
+# Web by default: `fukku healthcheck` asks /readyz?local=1 (database, spool, sentinels, intake
+# root, worker heartbeat; never Radarr or Sonarr, so a reverse proxy keeps routing to the UI
+# while they are down).
+# The worker's compose service overrides this with `fukku healthcheck --worker`.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s CMD ["fukku", "healthcheck"]
 ENTRYPOINT ["tini", "--", "fukku"]
 CMD ["web"]

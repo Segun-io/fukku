@@ -16,11 +16,12 @@ func Defaults() Config {
 	return Config{
 		Mode: "split",
 		Server: Server{
-			ListenAddress: ":8080",
-			UILanguages:   []string{"en", "es"},
-			LogFormat:     "logfmt",
-			DataDir:       "/var/lib/fukku",
-			JobStuckAfter: Duration(time.Hour),
+			ListenAddress:     ":8080",
+			UILanguages:       []string{"en", "es"},
+			LogFormat:         "logfmt",
+			DataDir:           "/var/lib/fukku",
+			JobStuckAfter:     Duration(time.Hour),
+			ReadinessCacheTTL: Duration(15 * time.Second),
 		},
 		Auth: Auth{
 			Mode:            "proxyHeaders",

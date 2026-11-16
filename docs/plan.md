@@ -225,7 +225,7 @@ Configuration comes from a YAML file plus environment overrides (`FUKKU_…`, wi
 
 ## 13. Observability and operations
 
-- `/healthz` (process up), `/readyz` (database, spool writable, sentinels present, worker heartbeat younger than 2 min, *arr reachable). A container `HEALTHCHECK` uses `/readyz`.
+- `/healthz` (process up), `/readyz` (database, spool writable, sentinels present, intake root writable, same filesystem, worker heartbeat younger than 2 min: 503 when one fails; Radarr and Sonarr reachable: reported, and a failure only makes the status `degraded` with 200). The container `HEALTHCHECK` uses local checks only (`/readyz?local=1`, which leaves the *arr checks out), so a reverse proxy that stops routing to unhealthy containers keeps serving the UI while Radarr or Sonarr is down.
 - Structured log events with stable names (`upload_completed`, `job_state`, `import_submitted`, `job_stuck` once a minute while a job has been failed or stalled for more than 1 h).
 - Optional Prometheus `/metrics`: uploads in flight, bytes, job states, worker task durations.
 - Backup: the SQLite file (documented online-copy command). Uploads in progress are not backed up.

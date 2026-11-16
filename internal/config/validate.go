@@ -75,6 +75,7 @@ func validateWeb(p *problems, cfg Config, opts ValidateOptions) {
 	oneOf(p, "server.logFormat", s.LogFormat, "logfmt", "json")
 	absPath(p, "server.dataDir", s.DataDir)
 	positive(p, "server.jobStuckAfter", int64(s.JobStuckAfter))
+	nonNegative(p, "server.readinessCacheTtl", int64(s.ReadinessCacheTTL))
 
 	a := cfg.Auth
 	oneOf(p, "auth.mode", a.Mode, "proxyHeaders", "oidc", "none")

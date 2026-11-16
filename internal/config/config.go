@@ -29,13 +29,14 @@ type Config struct {
 }
 
 type Server struct {
-	ListenAddress string   `yaml:"listenAddress"`
-	PublicBaseURL string   `yaml:"publicBaseUrl"`
-	UILanguages   []string `yaml:"uiLanguages"`
-	LogFormat     string   `yaml:"logFormat"`
-	Metrics       bool     `yaml:"metrics"`
-	DataDir       string   `yaml:"dataDir"`
-	JobStuckAfter Duration `yaml:"jobStuckAfter"`
+	ListenAddress     string   `yaml:"listenAddress"`
+	PublicBaseURL     string   `yaml:"publicBaseUrl"`
+	UILanguages       []string `yaml:"uiLanguages"`
+	LogFormat         string   `yaml:"logFormat"`
+	Metrics           bool     `yaml:"metrics"`
+	DataDir           string   `yaml:"dataDir"`
+	JobStuckAfter     Duration `yaml:"jobStuckAfter"`
+	ReadinessCacheTTL Duration `yaml:"readinessCacheTtl"`
 }
 
 type Auth struct {
