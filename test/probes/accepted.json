@@ -24,12 +24,6 @@
     "reason": "Sonarr does not reject a not-original-language episode, even at a very negative score"
   },
   {
-    "id": "C5f",
-    "verdict": "differs",
-    "ref": "#23, plan §6",
-    "reason": "Bazarr's upload endpoint reads forced and hi as lower-case true: True does not set them, and the \".hi\" in earlier C5 file names came from bracketed cues"
-  },
-  {
     "id": "C6",
     "verdict": "differs",
     "ref": "plan §6, corrected in M0",

@@ -26,109 +26,38 @@ import (
 // C5: Bazarr accepts an uploaded subtitle for a Radarr film (plan §6 "Subtitles", spec).
 func TestC5BazarrSubtitleUpload(t *testing.T) {
 	p := newProbe(t, "C5", "Bazarr accepts a subtitle upload for a film",
-		"`POST /api/movies/subtitles?radarrid=&language=&forced=&hi=` with multipart field `file`; all four query parameters required",
+		"`POST /api/movies/subtitles?radarrid=&language=&forced=&hi=` with multipart field `file`; all four query parameters required; the write is confirmed by the film's history",
 		true, "bazarr", "radarr")
 	movie := addFilm(p, tearsOfSteel)
 	id := testenv.ID(movie)
 	importFilm(p, movie, tearsOfSteel, tearsOfSteel.dotted()+".1080p.WEB-DL", "eng")
 
-	// Bazarr learns about films from Radarr on a schedule; ask it to sync now.
-	form := url.Values{"taskid": {"update_movies"}}
-	p.must(env.Bazarr.DoRaw(p.ctx, "POST", "/api/system/tasks", "application/x-www-form-urlencoded",
-		strings.NewReader(form.Encode()), nil, nil), "start the Bazarr movie sync")
-	p.must(testenv.WaitFor(p.ctx, 3*time.Minute, 3*time.Second, "Bazarr to know the film", func() (bool, error) {
-		var res struct {
-			Data []M `json:"data"`
-		}
-		err := env.Bazarr.Do(p.ctx, "GET", fmt.Sprintf("/api/movies?radarrid[]=%d", id), nil, &res)
-		return len(res.Data) > 0, err
-	}), "Bazarr sync")
-	// The film shows up before the sync job ends, and the job can still rewrite its record;
-	// an upload processed in that window fails inside Bazarr. Wait for the job to finish.
-	p.must(testenv.WaitFor(p.ctx, 3*time.Minute, 2*time.Second, "Bazarr sync to finish", func() (bool, error) {
-		var res struct {
-			Data []struct {
-				JobID      string `json:"job_id"`
-				JobRunning bool   `json:"job_running"`
-			} `json:"data"`
-		}
-		err := env.Bazarr.Do(p.ctx, "GET", "/api/system/tasks", nil, &res)
-		for _, j := range res.Data {
-			if j.JobID == "update_movies" && j.JobRunning {
-				return false, nil
-			}
-		}
-		return err == nil, err
-	}), "Bazarr sync")
+	// Bazarr stores a film once it has a file, and knows it right after Radarr's import
+	// event (C5b); an upload for a film it does not know yet is refused with 404.
+	p.must(testenv.WaitFor(p.ctx, 2*time.Minute, 500*time.Millisecond, "Bazarr to know the film", func() (bool, error) {
+		return bazarrKnowsMovie(p.ctx, id), nil
+	}), "Bazarr to know the film")
 
-	upload := func(query string) error {
-		var body bytes.Buffer
-		mw := multipart.NewWriter(&body)
-		fw, err := mw.CreateFormFile("file", "upload.es.srt")
-		if err != nil {
-			return err
-		}
-		if _, err := fw.Write([]byte(fixtures.SRT(time.Minute, "spa"))); err != nil {
-			return err
-		}
-		if err := mw.Close(); err != nil {
-			return err
-		}
-		return env.Bazarr.DoRaw(p.ctx, "POST", "/api/movies/subtitles"+query, mw.FormDataContentType(), &body, nil, nil)
-	}
-	missing := upload(fmt.Sprintf("?radarrid=%d&language=es", id))
+	tg := movieTarget(movie)
+	removeSRTFiles(tg.folder)
+	_, missing := bazarrUpload(p.ctx, tg.uploadPath, append(slices.Clone(tg.idQuery), "language", "es"), "fukku-c5-missing.es.srt", srtPlain(time.Minute, 1))
 	p.evidence("withoutForcedAndHi", testenv.StatusOf(missing))
 	p.observe("upload without forced and hi: HTTP %d", testenv.StatusOf(missing))
 
-	folder := movie["path"].(string)
-	// Bazarr writes the file from a background job, behind its own sync jobs on a fresh
-	// environment; wait for the exact file name expected.
-	waitSRT := func(want string) string {
-		var got string
-		_ = testenv.WaitFor(p.ctx, 3*time.Minute, 2*time.Second, "subtitle file", func() (bool, error) {
-			for _, f := range listDir(folder) {
-				if strings.HasSuffix(f, want) {
-					got = f
-					return true, nil
-				}
-			}
-			return false, nil
-		})
-		return got
-	}
-	removeSRTs := func() {
-		for _, f := range listDir(folder) {
-			if filepath.Ext(f) == ".srt" {
-				_ = os.Remove(filepath.Join(folder, f))
-			}
-		}
-	}
+	// forced and hi are sent as lower-case false: the endpoint reads only lower-case "true"
+	// as true (C5f). Plain cues, so Bazarr adds no ".hi" of its own. The history proves the write.
+	tl := tg.upload(p.ctx, c5Name("c5"), "false", "false", srtPlain(time.Minute, 1), 30*time.Second)
+	p.evidence("timeline", tl)
+	p.observe("forced=false&hi=false: %s", tl)
+	removeSRTFiles(tg.folder)
 
-	removeSRTs()
-	err := upload(testenv.Q("radarrid", fmt.Sprint(id), "language", "es", "forced", "False", "hi", "False"))
-	plain := waitSRT(".es.srt")
-	p.observe("forced=False&hi=False: error %v; wrote %q", err, plain)
-
-	removeSRTs()
-	lerr := upload(testenv.Q("radarrid", fmt.Sprint(id), "language", "es", "forced", "false", "hi", "false"))
-	lower := waitSRT(".es.hi.srt")
-	p.observe("forced=false&hi=false (lower case): error %v; wrote %q", lerr, lower)
-	p.evidence("capitalisedFlags", plain)
-	p.evidence("lowerCaseFlags", lower)
-	removeSRTs()
-
-	const flags = "Bazarr reads forced and hi as Python strings: send True/False capitalised; lower-case \"false\" counts as true"
 	switch {
-	case err == nil && plain != "" && missing != nil:
+	case missing != nil && tl.Accepted && tl.FileAfter >= 0 && tl.HistoryAfter >= 0:
 		p.confirm()
-		if strings.HasSuffix(lower, ".hi.srt") {
-			p.observe("note: %s", flags)
-		}
-	case err == nil && missing != nil && lower != "":
-		p.observe("note: %s", flags)
-		p.partial("uploads are written by a background job: the first upload after a Radarr sync was accepted (2xx) but not written within 3 min, while a later one was written within seconds; Fukku must confirm through Bazarr's history and retry")
+	case tl.Accepted && tl.HistoryAfter >= 0:
+		p.partial("the upload was written and is in the history, but the call without forced and hi was not refused")
 	default:
-		p.differ("no upload produced a subtitle file (%v, %v)", err, lerr)
+		p.differ("the upload was not written within 30 s (%s)", tl)
 	}
 }
 
@@ -690,9 +619,9 @@ func TestC5Flags(t *testing.T) {
 		p.observe("a subtitle whose cues are bracketed, like the fixture \"[spa] cue 1\", is named .hi.srt even with hi=false: that, not the flags, is what the C5 probe saw as \"lower-case false counts as true\"; and C5's first wait for a name ending in .es.srt could not match a file named .es.hi.srt")
 		switch {
 		case strings.Contains(lowForced, ".forced.") && strings.Contains(lowHI, ".hi.") && !strings.Contains(capForced, ".forced.") && !strings.Contains(capHI, ".hi.") && strings.Contains(bracketed, ".hi."):
-			p.differ("the upload endpoint needs lower-case true/false: \"True\" does not set forced or hi (plan §6 and §18 item 5 say to send True/False capitalised, and that lower-case false counts as true; the latter was bracketed cues)")
-		case strings.Contains(capForced, ".forced."):
 			p.confirm()
+		case strings.Contains(capForced, ".forced."):
+			p.differ("a capitalised True sets forced: plan §6 (lower-case true/false) is wrong")
 		default:
 			p.partial("the flag results do not fit either reading: see the rows")
 		}
@@ -700,7 +629,7 @@ func TestC5Flags(t *testing.T) {
 }
 
 var specC5f = spec{"C5f", "Bazarr reads forced and hi as lower-case strings on upload",
-	"Plan §6: `forced` and `hi` are read as Python strings, so send `True`/`False` capitalised; lower-case `false` counts as true", []string{"bazarr", "radarr"}}
+	"Plan §6: the upload endpoint reads `forced` and `hi` as lower-case strings: send `true`/`false`; `True` does not set a flag", []string{"bazarr", "radarr"}}
 
 // C5d: the same for an episode through Sonarr.
 func TestC5Episode(t *testing.T) {

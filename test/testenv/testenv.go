@@ -22,6 +22,7 @@ import (
 type Env struct {
 	Radarr, Sonarr *Arr
 	Bazarr         *Client
+	BazarrKey      string // the test Bazarr's API key, for clients that are not testenv.Client
 	Jellyfin       *Jellyfin
 	Indexer        *Indexer
 	JellyfinDB     string // path of jellyfin.db
@@ -58,6 +59,7 @@ func FromEnv() (*Env, error) {
 		Radarr:     &Arr{Client: newClient(vals["RADARR_URL"], "X-Api-Key", vals["RADARR_KEY"]), Name: "radarr"},
 		Sonarr:     &Arr{Client: newClient(vals["SONARR_URL"], "X-Api-Key", vals["SONARR_KEY"]), Name: "sonarr"},
 		Bazarr:     newClient(vals["BAZARR_URL"], "X-API-KEY", vals["BAZARR_KEY"]),
+		BazarrKey:  vals["BAZARR_KEY"],
 		Jellyfin:   &Jellyfin{Client: newClient(vals["JELLYFIN_URL"], "Authorization", `MediaBrowser Token="`+vals["JELLYFIN_KEY"]+`"`), Key: vals["JELLYFIN_KEY"]},
 		Indexer:    &Indexer{Client: newClient(vals["INDEXER_URL"], "X-Api-Key", vals["INDEXER_KEY"]), Key: vals["INDEXER_KEY"]},
 		JellyfinDB: vals["JELLYFIN_DB"],

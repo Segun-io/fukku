@@ -39,6 +39,11 @@ func Defaults() Config {
 			Provider:        "none",
 			HandOverUploads: true,
 			RequestTimeout:  Duration(30 * time.Second),
+			Attempts:        4,
+			ConfirmTimeout:  Duration(20 * time.Second),
+			PollInterval:    Duration(time.Second),
+			RetryBackoff:    Duration(5 * time.Second),
+			MaxFileSize:     ByteSize(2 << 20),
 		},
 		MediaServer: MediaServer{
 			Provider:       "none",

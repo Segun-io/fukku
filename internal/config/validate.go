@@ -115,6 +115,11 @@ func validateWeb(p *problems, cfg Config, opts ValidateOptions) {
 		service(p, "subtitles", st.URL, st.APIKey)
 	}
 	positive(p, "subtitles.requestTimeout", int64(st.RequestTimeout))
+	positive(p, "subtitles.attempts", int64(st.Attempts))
+	positive(p, "subtitles.confirmTimeout", int64(st.ConfirmTimeout))
+	positive(p, "subtitles.pollInterval", int64(st.PollInterval))
+	positive(p, "subtitles.retryBackoff", int64(st.RetryBackoff))
+	positive(p, "subtitles.maxFileSize", int64(st.MaxFileSize))
 
 	ms := cfg.MediaServer
 	oneOf(p, "mediaServer.provider", ms.Provider, "jellyfin", "none")

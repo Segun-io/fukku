@@ -72,6 +72,12 @@ type Subtitles struct {
 	APIKey          Secret   `yaml:"apiKey"`
 	HandOverUploads bool     `yaml:"handOverUploads"`
 	RequestTimeout  Duration `yaml:"requestTimeout"`
+	// Hand-over of uploaded subtitle files (plan §6, Subtitles).
+	Attempts       int      `yaml:"attempts"`       // uploads of one file before giving up
+	ConfirmTimeout Duration `yaml:"confirmTimeout"` // how long to wait for the history to show one upload
+	PollInterval   Duration `yaml:"pollInterval"`   // how often to look at the history meanwhile
+	RetryBackoff   Duration `yaml:"retryBackoff"`   // wait before the second upload; doubles each time
+	MaxFileSize    ByteSize `yaml:"maxFileSize"`    // largest subtitle file read for the hand-over
 }
 
 type MediaServer struct {

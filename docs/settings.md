@@ -103,6 +103,11 @@ same settings.
 | `subtitles.apiKey` | `FUKKU_SUBTITLES_API_KEY` | (empty) | API key (secret) |
 | `subtitles.handOverUploads` | `FUKKU_SUBTITLES_HAND_OVER_UPLOADS` | `true` | Give uploaded subtitle files to the subtitle manager after import |
 | `subtitles.requestTimeout` | `FUKKU_SUBTITLES_REQUEST_TIMEOUT` | `30s` | Timeout of one API request |
+| `subtitles.attempts` | `FUKKU_SUBTITLES_ATTEMPTS` | `4` | Uploads of one subtitle file before the hand-over gives up and the step fails |
+| `subtitles.confirmTimeout` | `FUKKU_SUBTITLES_CONFIRM_TIMEOUT` | `20s` | How long to wait after an upload for the subtitle manager's history to show it written |
+| `subtitles.pollInterval` | `FUKKU_SUBTITLES_POLL_INTERVAL` | `1s` | How often the history is read while waiting |
+| `subtitles.retryBackoff` | `FUKKU_SUBTITLES_RETRY_BACKOFF` | `5s` | Wait before the second upload of a file; doubles for each further one |
+| `subtitles.maxFileSize` | `FUKKU_SUBTITLES_MAX_FILE_SIZE` | `2MiB` | Largest subtitle file the hand-over reads |
 
 ## mediaServer
 
