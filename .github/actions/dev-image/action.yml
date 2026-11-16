@@ -1,0 +1,29 @@
+name: dev image
+description: >
+  Make the pinned development image (tools/dev/Dockerfile) available to `make`. The image is
+  cached as a tarball keyed on the Dockerfile's hash, the same hash the Makefile tags it with,
+  so an unchanged Dockerfile is loaded, never rebuilt.
+runs:
+  using: composite
+  steps:
+    - id: key
+      shell: bash
+      run: echo "hash=$(sha256sum tools/dev/Dockerfile | cut -c1-12)" >> "$GITHUB_OUTPUT"
+    - id: cache
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ runner.temp }}/dev-image.tar.zst
+        key: dev-image-${{ steps.key.outputs.hash }}
+    - if: steps.cache.outputs.cache-hit == 'true'
+      shell: bash
+      run: zstd -dc "$RUNNER_TEMP/dev-image.tar.zst" | docker load
+    - if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        make dev-image
+        docker save "fukku-dev:${{ steps.key.outputs.hash }}" | zstd -3 -T0 -o "$RUNNER_TEMP/dev-image.tar.zst"
+    - if: steps.cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ runner.temp }}/dev-image.tar.zst
+        key: dev-image-${{ steps.key.outputs.hash }}

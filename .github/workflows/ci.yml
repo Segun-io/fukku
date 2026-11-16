@@ -25,6 +25,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0 # gitleaks scans the history
+      - uses: ./.github/actions/dev-image
       - run: make check
 
   image:
@@ -60,7 +61,8 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - run: make dev-image env-up
+      - uses: ./.github/actions/dev-image
+      - run: make env-up
       # Pull requests run the probes that need no internet; pushes, the schedule and manual
       # runs also run those that add titles through the *arr metadata services.
       - run: make ${{ github.event_name == 'pull_request' && 'probes' || 'probes-online' }}
