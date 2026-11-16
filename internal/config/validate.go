@@ -125,11 +125,13 @@ func validateWeb(p *problems, cfg Config, opts ValidateOptions) {
 
 	ms := cfg.MediaServer
 	oneOf(p, "mediaServer.provider", ms.Provider, "jellyfin", "none")
-	oneOf(p, "mediaServer.refreshMethod", ms.RefreshMethod, "pathUpdate", "libraryScan", "none")
+	oneOf(p, "mediaServer.refreshMethod", ms.RefreshMethod, "libraryRefresh", "pathUpdate", "libraryScan", "none")
 	if ms.Provider == "jellyfin" {
 		service(p, "mediaServer", ms.URL, ms.APIKey)
 	}
 	positive(p, "mediaServer.requestTimeout", int64(ms.RequestTimeout))
+	positive(p, "mediaServer.itemWait", int64(ms.ItemWait))
+	positive(p, "mediaServer.itemPollInterval", int64(ms.ItemPollInterval))
 	positive(p, "worker.heartbeatMaxAge", int64(cfg.Worker.HeartbeatMaxAge))
 }
 

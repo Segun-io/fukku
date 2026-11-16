@@ -152,6 +152,22 @@ func (s *sonarr) Episodes(ctx context.Context, seriesID int) ([]Episode, error) 
 	return eps, nil
 }
 
+// EpisodeFiles lists the files Sonarr tracks for the show.
+func (s *sonarr) EpisodeFiles(ctx context.Context, seriesID int) ([]EpisodeFile, error) {
+	var out []struct {
+		ID   int    `json:"id"`
+		Path string `json:"path"`
+	}
+	if err := s.get(ctx, "/episodefile", url.Values{"seriesId": {strconv.Itoa(seriesID)}}, &out); err != nil {
+		return nil, err
+	}
+	files := make([]EpisodeFile, 0, len(out))
+	for _, f := range out {
+		files = append(files, EpisodeFile{ID: f.ID, Path: f.Path})
+	}
+	return files, nil
+}
+
 // Busy reports an active download for the show (GET /queue/details?seriesId=).
 func (s *sonarr) Busy(ctx context.Context, seriesID int) (bool, error) {
 	var out []json.RawMessage

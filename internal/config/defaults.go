@@ -49,8 +49,12 @@ func Defaults() Config {
 		},
 		MediaServer: MediaServer{
 			Provider:       "none",
-			RefreshMethod:  "pathUpdate",
+			RefreshMethod:  "libraryRefresh",
 			RequestTimeout: Duration(30 * time.Second),
+			// pathUpdate shows an item only after the server's LibraryMonitorDelay (60 s by
+			// default), so the wait must outlast it.
+			ItemWait:         Duration(2 * time.Minute),
+			ItemPollInterval: Duration(2 * time.Second),
 		},
 		Paths: Paths{
 			IntakeRoot:            "/data/intake",

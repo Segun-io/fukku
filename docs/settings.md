@@ -118,9 +118,11 @@ same settings.
 | `mediaServer.provider` | `FUKKU_MEDIA_SERVER_PROVIDER` | `none` | `jellyfin` or `none` (Plex and Emby are backlog) |
 | `mediaServer.url` | `FUKKU_MEDIA_SERVER_URL` | (empty) | Base URL, e.g. `http://jellyfin:8096` |
 | `mediaServer.apiKey` | `FUKKU_MEDIA_SERVER_API_KEY` | (empty) | API key (secret) |
-| `mediaServer.refreshMethod` | `FUKKU_MEDIA_SERVER_REFRESH_METHOD` | `pathUpdate` | `pathUpdate` (tell the server which path changed), `libraryScan` (full scan) or `none` |
+| `mediaServer.refreshMethod` | `FUKKU_MEDIA_SERVER_REFRESH_METHOD` | `libraryRefresh` | `libraryRefresh` (refresh the library item that holds the path; the new title is visible in under a second, decision #22), `pathUpdate` (report the path to `/Library/Media/Updated`; the server shows it only after its `LibraryMonitorDelay`, 60 s by default, so lower that delay on the server or raise `mediaServer.itemWait`), `libraryScan` (full scan) or `none` |
 | `mediaServer.titleLinkTemplate` | `FUKKU_MEDIA_SERVER_TITLE_LINK_TEMPLATE` | (empty) | Link shown after import, e.g. `https://media.example.com/web/#/details?id={itemId}`; empty means no link |
 | `mediaServer.requestTimeout` | `FUKKU_MEDIA_SERVER_REQUEST_TIMEOUT` | `30s` | Timeout of one API request |
+| `mediaServer.itemWait` | `FUKKU_MEDIA_SERVER_ITEM_WAIT` | `2m` | How long the `mediaServerRefresh` step waits for the new title to appear before it gives up on the link (the job still ends `done`) |
+| `mediaServer.itemPollInterval` | `FUKKU_MEDIA_SERVER_ITEM_POLL_INTERVAL` | `2s` | How often the step asks the server whether the title is there |
 
 ## paths
 

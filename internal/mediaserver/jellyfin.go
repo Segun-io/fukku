@@ -1,0 +1,229 @@
+package mediaserver
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"log/slog"
+	"net/http"
+	"net/url"
+	"strings"
+	"time"
+
+	"github.com/segun-io/fukku/internal/config"
+)
+
+const defaultTimeout = 30 * time.Second
+
+// Error is a non-2xx answer from the server. It never carries the API key.
+type Error struct {
+	Method, Path string
+	Status       int
+	Message      string
+}
+
+func (e *Error) Error() string {
+	msg := fmt.Sprintf("jellyfin: %s %s: %d %s", e.Method, e.Path, e.Status, http.StatusText(e.Status))
+	if e.Message != "" {
+		msg += ": " + e.Message
+	}
+	return msg
+}
+
+// Jellyfin is a MediaServer for Jellyfin (probed against 12.4).
+type Jellyfin struct {
+	base    string
+	key     string
+	method  string
+	timeout time.Duration
+	http    *http.Client
+}
+
+var _ MediaServer = (*Jellyfin)(nil)
+
+// NewJellyfin builds the client from the mediaServer settings.
+func NewJellyfin(cfg config.MediaServer) *Jellyfin {
+	t := cfg.RequestTimeout.D()
+	if t <= 0 {
+		t = defaultTimeout
+	}
+	m := cfg.RefreshMethod
+	if m == "" {
+		m = MethodLibraryRefresh
+	}
+	return &Jellyfin{base: strings.TrimRight(cfg.URL, "/"), key: cfg.APIKey.Reveal(), method: m, timeout: t, http: &http.Client{}}
+}
+
+// Version returns the server version (GET /System/Info/Public).
+func (j *Jellyfin) Version(ctx context.Context) (string, error) {
+	var info struct {
+		Version string `json:"Version"`
+	}
+	if err := j.do(ctx, http.MethodGet, "/System/Info/Public", nil, nil, &info); err != nil {
+		return "", err
+	}
+	return info.Version, nil
+}
+
+// Refresh tells the server that paths changed, the way mediaServer.refreshMethod says.
+func (j *Jellyfin) Refresh(ctx context.Context, paths []string) error {
+	switch j.method {
+	case MethodNone:
+		return nil
+	case MethodLibraryScan:
+		return j.do(ctx, http.MethodPost, "/Library/Refresh", nil, nil, nil)
+	case MethodPathUpdate:
+		ups := make([]map[string]string, 0, len(paths))
+		for _, p := range paths {
+			ups = append(ups, map[string]string{"Path": p, "UpdateType": "Created"})
+		}
+		if len(ups) == 0 {
+			return nil
+		}
+		return j.do(ctx, http.MethodPost, "/Library/Media/Updated", nil, map[string]any{"Updates": ups}, nil)
+	case MethodLibraryRefresh:
+		return j.refreshLibraries(ctx, paths)
+	default:
+		return fmt.Errorf("jellyfin: unknown refresh method %q", j.method)
+	}
+}
+
+// refreshLibraries refreshes each library item (Movies, Shows) that holds one of the paths.
+// Jellyfin has no item for a film's folder, so the library item is the parent to refresh.
+// The default metadata and image modes download nothing again.
+func (j *Jellyfin) refreshLibraries(ctx context.Context, paths []string) error {
+	if len(paths) == 0 {
+		return nil
+	}
+	var libs []struct {
+		ItemID    string   `json:"ItemId"`
+		Locations []string `json:"Locations"`
+	}
+	if err := j.do(ctx, http.MethodGet, "/Library/VirtualFolders", nil, nil, &libs); err != nil {
+		return err
+	}
+	var ids []string
+	seen := map[string]bool{}
+	for _, p := range paths {
+		id := ""
+		for _, l := range libs {
+			for _, loc := range l.Locations {
+				if loc = strings.TrimRight(loc, "/"); p == loc || strings.HasPrefix(p, loc+"/") {
+					id = l.ItemID
+				}
+			}
+		}
+		if id == "" {
+			return fmt.Errorf("jellyfin: no library contains %s (check paths.mappings.mediaServer)", p)
+		}
+		if !seen[id] {
+			seen[id] = true
+			ids = append(ids, id)
+		}
+	}
+	q := url.Values{"metadataRefreshMode": {"Default"}, "imageRefreshMode": {"Default"}, "recursive": {"false"}}
+	for _, id := range ids {
+		if err := j.do(ctx, http.MethodPost, "/Items/"+url.PathEscape(id)+"/Refresh", q, nil, nil); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// Find returns the id of the film or episode whose file is path, or of the show whose folder
+// is path, or "" when the server does not list it yet.
+func (j *Jellyfin) Find(ctx context.Context, path string) (string, error) {
+	var res struct {
+		Items []struct {
+			ID   string `json:"Id"`
+			Path string `json:"Path"`
+		} `json:"Items"`
+	}
+	q := url.Values{"Recursive": {"true"}, "IncludeItemTypes": {"Movie,Episode,Series"}, "Path": {path},
+		"Fields": {"Path"}, "EnableImages": {"false"}}
+	if err := j.do(ctx, http.MethodGet, "/Items", q, nil, &res); err != nil {
+		return "", err
+	}
+	for _, it := range res.Items {
+		if it.Path == path {
+			return it.ID, nil
+		}
+	}
+	return "", nil
+}
+
+func (j *Jellyfin) do(ctx context.Context, method, path string, query url.Values, body, out any) error {
+	if j.base == "" {
+		return errors.New("jellyfin: no url configured")
+	}
+	var rdr io.Reader
+	if body != nil {
+		data, err := json.Marshal(body)
+		if err != nil {
+			return fmt.Errorf("jellyfin: %s %s: encode request: %w", method, path, err)
+		}
+		rdr = bytes.NewReader(data)
+	}
+	target := j.base + path
+	if len(query) > 0 {
+		target += "?" + query.Encode()
+	}
+	rctx, cancel := context.WithTimeout(ctx, j.timeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(rctx, method, target, rdr)
+	if err != nil {
+		return fmt.Errorf("jellyfin: %s %s: %s", method, path, j.scrub(err.Error()))
+	}
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Authorization", `MediaBrowser Token="`+j.key+`"`)
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	start := time.Now()
+	resp, err := j.http.Do(req)
+	if err != nil {
+		switch {
+		case ctx.Err() != nil:
+			err = ctx.Err()
+		case errors.Is(rctx.Err(), context.DeadlineExceeded):
+			err = fmt.Errorf("timed out after %s: %w", j.timeout, context.DeadlineExceeded)
+		default:
+			var ue *url.Error
+			if errors.As(err, &ue) {
+				err = ue.Err
+			}
+			err = errors.New(j.scrub(err.Error()))
+		}
+		slog.Debug("media server request failed", "method", method, "path", path, "elapsed", time.Since(start))
+		return fmt.Errorf("jellyfin: %s %s: %w", method, path, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	data, err := io.ReadAll(io.LimitReader(resp.Body, 64<<20))
+	if err != nil {
+		return fmt.Errorf("jellyfin: %s %s: read answer: %s", method, path, j.scrub(err.Error()))
+	}
+	slog.Debug("media server request", "method", method, "path", path, "status", resp.StatusCode, "elapsed", time.Since(start))
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		msg := strings.TrimSpace(string(data))
+		if len(msg) > 300 {
+			msg = msg[:300] + "…"
+		}
+		return &Error{Method: method, Path: path, Status: resp.StatusCode, Message: j.scrub(msg)}
+	}
+	if out != nil && len(bytes.TrimSpace(data)) > 0 {
+		if err := json.Unmarshal(data, out); err != nil {
+			return fmt.Errorf("jellyfin: %s %s: decode answer: %w", method, path, err)
+		}
+	}
+	return nil
+}
+
+func (j *Jellyfin) scrub(s string) string {
+	if j.key == "" {
+		return s
+	}
+	return strings.ReplaceAll(s, j.key, "***")
+}

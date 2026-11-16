@@ -92,6 +92,8 @@ type MediaServer struct {
 	RefreshMethod     string   `yaml:"refreshMethod"`
 	TitleLinkTemplate string   `yaml:"titleLinkTemplate"`
 	RequestTimeout    Duration `yaml:"requestTimeout"`
+	ItemWait          Duration `yaml:"itemWait"`
+	ItemPollInterval  Duration `yaml:"itemPollInterval"`
 }
 
 // PathMapping says that a path Fukku sees under From is seen by another app under To.

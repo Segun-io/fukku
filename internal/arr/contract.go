@@ -151,12 +151,20 @@ type AddSeries struct {
 	Tag              string
 }
 
+// EpisodeFile is a file Sonarr tracks for a show's episodes.
+type EpisodeFile struct {
+	ID   int
+	Path string // as Sonarr sees it
+}
+
 type SeriesManager interface {
 	Importer
 	Lookup(ctx context.Context, term string) ([]Series, error) // a title, or "tvdb:<id>"
 	Series(ctx context.Context, id int) (Series, error)
 	Add(ctx context.Context, s AddSeries) (Series, error) // search off, nothing monitored
 	Episodes(ctx context.Context, seriesID int) ([]Episode, error)
+	// EpisodeFiles lists the files Sonarr tracks for the show (GET /episodefile?seriesId=).
+	EpisodeFiles(ctx context.Context, seriesID int) ([]EpisodeFile, error)
 	Busy(ctx context.Context, seriesID int) (bool, error)
 	SetEpisodesMonitored(ctx context.Context, episodeIDs []int, monitored bool) error
 }

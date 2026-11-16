@@ -168,6 +168,17 @@ func TestSonarrEpisodes(t *testing.T) {
 	}
 }
 
+func TestSonarrEpisodeFiles(t *testing.T) {
+	app, s := newSonarr(t, map[string]reply{"GET /api/v3/episodefile": {body: `[{"id":77,"seriesId":5,"path":"/tv/Show/Season 1/Show - S01E02.mkv","size":1}]`}})
+	files, err := s.EpisodeFiles(ctx, 5)
+	if err != nil || len(files) != 1 || files[0] != (arr.EpisodeFile{ID: 77, Path: "/tv/Show/Season 1/Show - S01E02.mkv"}) {
+		t.Fatalf("EpisodeFiles = %+v, %v", files, err)
+	}
+	if q := app.last().RawQuery; q != "seriesId=5" {
+		t.Errorf("query = %q", q)
+	}
+}
+
 // Sonarr scopes nothing by folder once it has a series id (C6-sonarr), so the proposal never
 // sends seriesId or seasonNumber.
 func TestSonarrProposalNeverSendsATitleOrSeason(t *testing.T) {

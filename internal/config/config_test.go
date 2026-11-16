@@ -203,6 +203,8 @@ func TestValidationErrors(t *testing.T) {
 		"bad extension":      {env: []string{"FUKKU_UPLOAD_VIDEO_EXTENSIONS=mkv"}, role: RoleWorker, want: "upload.videoExtensions"},
 		"bad policy":         {env: []string{"FUKKU_SEASON_DUB_POLICY=yolo"}, role: RoleWorker, want: "seasonDub.policy"},
 		"bad availability":   {env: append([]string{"FUKKU_RADARR_MINIMUM_AVAILABILITY=soon"}, validWeb...), role: RoleWeb, want: "radarr.minimumAvailability"},
+		"bad refresh method": {env: append([]string{"FUKKU_MEDIA_SERVER_REFRESH_METHOD=sometimes"}, validWeb...), role: RoleWeb, want: "mediaServer.refreshMethod"},
+		"zero item wait":     {env: append([]string{"FUKKU_MEDIA_SERVER_ITEM_WAIT=0s"}, validWeb...), role: RoleWeb, want: "mediaServer.itemWait"},
 		"combined mismatch":  {env: []string{"FUKKU_MODE=combined"}, role: RoleWorker, want: "fukku combined"},
 	}
 	for name, c := range cases {
@@ -213,6 +215,18 @@ func TestValidationErrors(t *testing.T) {
 				t.Fatalf("want error mentioning %q, got %v", c.want, err)
 			}
 		})
+	}
+}
+
+func TestRefreshMethodDefaultsToLibraryRefreshAndAcceptsEveryMethod(t *testing.T) {
+	if got := Defaults().MediaServer.RefreshMethod; got != "libraryRefresh" {
+		t.Errorf("default refresh method = %q", got)
+	}
+	for _, m := range []string{"libraryRefresh", "pathUpdate", "libraryScan", "none"} {
+		env := append([]string{"FUKKU_MEDIA_SERVER_REFRESH_METHOD=" + m}, validWeb...)
+		if err := Validate(mustLoad(t, Options{Environ: env}), RoleWeb, ValidateOptions{}); err != nil {
+			t.Errorf("%s: %v", m, err)
+		}
 	}
 }
 

@@ -295,6 +295,7 @@ type FakeSeries struct {
 	Library  []arr.Series
 	Results  []arr.Series // what Lookup returns, whatever the term
 	Eps      map[int][]arr.Episode
+	Files    map[int][]arr.EpisodeFile // by series id: what EpisodeFiles returns
 	Queue    map[int]bool
 	Added    []arr.AddSeries
 	nextID   int
@@ -357,6 +358,12 @@ func (f *FakeSeries) Episodes(_ context.Context, seriesID int) ([]arr.Episode, e
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return append([]arr.Episode(nil), f.Eps[seriesID]...), f.fail("Episodes")
+}
+
+func (f *FakeSeries) EpisodeFiles(_ context.Context, seriesID int) ([]arr.EpisodeFile, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]arr.EpisodeFile(nil), f.Files[seriesID]...), f.fail("EpisodeFiles")
 }
 
 func (f *FakeSeries) Busy(_ context.Context, seriesID int) (bool, error) {
