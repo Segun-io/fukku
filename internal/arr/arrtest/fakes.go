@@ -148,10 +148,20 @@ type FakeMovies struct {
 	nextID int
 }
 
+// Lookup returns Results, whatever the term. A result whose film is in Library (by TMDBID)
+// carries the library's id, as a real lookup does.
 func (f *FakeMovies) Lookup(context.Context, string) ([]arr.Movie, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return append([]arr.Movie(nil), f.Results...), f.fail("Lookup")
+	out := append([]arr.Movie(nil), f.Results...)
+	for i := range out {
+		for _, m := range f.Library {
+			if m.TMDBID == out[i].TMDBID && m.ID != 0 {
+				out[i].ID = m.ID
+			}
+		}
+	}
+	return out, f.fail("Lookup")
 }
 
 func (f *FakeMovies) find(id int) int {
@@ -253,10 +263,20 @@ type FakeSeries struct {
 	nextFile int
 }
 
+// Lookup returns Results, whatever the term. A result whose show is in Library (by TVDBID)
+// carries the library's id, as a real lookup does.
 func (f *FakeSeries) Lookup(context.Context, string) ([]arr.Series, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return append([]arr.Series(nil), f.Results...), f.fail("Lookup")
+	out := append([]arr.Series(nil), f.Results...)
+	for i := range out {
+		for _, s := range f.Library {
+			if s.TVDBID == out[i].TVDBID && s.ID != 0 {
+				out[i].ID = s.ID
+			}
+		}
+	}
+	return out, f.fail("Lookup")
 }
 
 func (f *FakeSeries) Series(_ context.Context, id int) (arr.Series, error) {

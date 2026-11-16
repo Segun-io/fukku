@@ -139,6 +139,7 @@ type Match struct {
 	DefaultSource          string   `yaml:"defaultSource"`
 	DoubleEpisodeRatio     float64  `yaml:"doubleEpisodeRatio"`
 	DoubleEpisodeTolerance float64  `yaml:"doubleEpisodeTolerance"`
+	LookupCacheTTL         Duration `yaml:"lookupCacheTtl"`
 }
 
 type Merge struct {

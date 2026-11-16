@@ -76,6 +76,48 @@ func (f *Fake) SetTarget(ctx context.Context, jobID string, t store.Target) erro
 	return nil
 }
 
+func (f *Fake) ReplaceTarget(ctx context.Context, jobID string, from, to store.State, t *store.Target, c store.Change) (store.Job, error) {
+	if err := f.lock(ctx); err != nil {
+		return store.Job{}, err
+	}
+	defer f.mu.Unlock()
+	if t != nil && t.App == "" {
+		return store.Job{}, errors.New("storetest: a target needs an app")
+	}
+	j, ok := f.jobs[jobID]
+	if !ok {
+		return store.Job{}, store.ErrNotFound
+	}
+	if j.State != from {
+		return store.Job{}, store.ErrConflict
+	}
+	if c.ExpiresAt != nil {
+		return store.Job{}, errors.New("storetest: ReplaceTarget does not change the retention date")
+	}
+	matchStates := map[store.State]bool{store.Probed: true, store.Matched: true, store.AwaitingConfirmation: true}
+	if !matchStates[from] || (to != store.Probed && to != store.Matched) || (to != from && !store.CanTransition(from, to)) {
+		return store.Job{}, fmt.Errorf("%w: %s → %s", store.ErrInvalidTransition, from, to)
+	}
+	if to != from {
+		now := f.clock()
+		j.State, j.UpdatedAt = to, now
+		j.Resume, j.ErrorCode, j.ErrorText = "", "", ""
+		f.events = append(f.events, store.Event{JobID: jobID, At: now, From: from, To: to, Actor: actorOr(c.Actor), Note: c.Note})
+	}
+	delete(f.m2.targets, jobID)
+	delete(f.m2.rows, jobID)
+	if t != nil {
+		nt := *t
+		nt.MatchedAt = norm(nt.MatchedAt)
+		if nt.MatchedAt.IsZero() {
+			nt.MatchedAt = f.clock()
+		}
+		nt.Options = cloneJSON(nt.Options)
+		f.m2.targets[jobID] = nt
+	}
+	return j.Job, nil
+}
+
 func (f *Fake) Target(ctx context.Context, jobID string) (store.Target, error) {
 	if err := f.lock(ctx); err != nil {
 		return store.Target{}, err

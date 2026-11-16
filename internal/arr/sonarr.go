@@ -25,6 +25,7 @@ type seriesJSON struct {
 	TVDBID           int           `json:"tvdbId"`
 	Title            string        `json:"title"`
 	Year             int           `json:"year"`
+	Overview         string        `json:"overview"`
 	OriginalLanguage *languageJSON `json:"originalLanguage"`
 	SeriesType       string        `json:"seriesType"`
 	Path             string        `json:"path"`
@@ -34,7 +35,7 @@ type seriesJSON struct {
 }
 
 func (j seriesJSON) series() Series {
-	s := Series{ID: j.ID, TVDBID: j.TVDBID, Title: j.Title, Year: j.Year, Type: j.SeriesType, Path: j.Path}
+	s := Series{ID: j.ID, TVDBID: j.TVDBID, Title: j.Title, Year: j.Year, Overview: j.Overview, Type: j.SeriesType, Path: j.Path}
 	if j.OriginalLanguage != nil {
 		s.OriginalLanguage = j.OriginalLanguage.Name
 	}

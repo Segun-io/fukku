@@ -82,6 +82,7 @@ func Defaults() Config {
 			DefaultSource:          "WEBDL",
 			DoubleEpisodeRatio:     2.0,
 			DoubleEpisodeTolerance: 0.15,
+			LookupCacheTTL:         Duration(5 * time.Minute),
 		},
 		Merge: Merge{
 			Enabled:                     true,

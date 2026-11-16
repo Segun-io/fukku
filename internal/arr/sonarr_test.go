@@ -51,7 +51,7 @@ func TestSonarrLookup(t *testing.T) {
 	}
 	g := got[0]
 	if g.ID != 0 || g.TVDBID != 170551 || g.Title != "Pioneer One" || g.Year != 2010 || g.OriginalLanguage != "English" ||
-		g.Type != "standard" || len(g.Seasons) != 3 || g.Seasons[1] != 1 {
+		g.Overview != "A reactor." || g.Type != "standard" || len(g.Seasons) != 3 || g.Seasons[1] != 1 {
 		t.Errorf("series = %+v", g)
 	}
 	if got[1].ID != 0 {

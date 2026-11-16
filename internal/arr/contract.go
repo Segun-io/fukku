@@ -93,6 +93,8 @@ type Movie struct {
 	Year             int
 	OriginalLanguage string
 	Monitored        bool
+	Overview         string
+	HasFile          bool       // the app says the film has a file (set on lookup results too)
 	Path             string     // the film's folder, as Radarr sees it
 	File             *MovieFile // the tracked file (movie.movieFile); nil when there is none
 }
@@ -130,6 +132,7 @@ type Series struct {
 	Title            string
 	Year             int
 	OriginalLanguage string
+	Overview         string
 	Type             string // standard, anime, daily
 	Path             string
 	Seasons          []int

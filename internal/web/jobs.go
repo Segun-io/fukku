@@ -121,6 +121,7 @@ type jobDetailJSON struct {
 	Uploads      []uploadJSON       `json:"uploads"`
 	History      []eventJSON        `json:"history"`
 	ManualImport []manualImportJSON `json:"manualImport"`
+	Target       *targetJSON        `json:"target"` // the title the job is matched to (#37)
 }
 
 func ptr[T comparable](v T) *T {
@@ -452,6 +453,12 @@ func (s *Server) getJob(w http.ResponseWriter, r *http.Request) {
 	}
 	for _, e := range history {
 		d.History = append(d.History, eventJSON{At: e.At.UTC(), From: ptr(string(e.From)), To: string(e.To), Actor: e.Actor, Note: e.Note})
+	}
+	if t, err := s.deps.Store.Target(r.Context(), j.ID); err == nil {
+		d.Target = targetView(t)
+	} else if !errors.Is(err, store.ErrNotFound) {
+		s.internalError(w, r, err)
+		return
 	}
 	if j.State == store.Probed {
 		d.ManualImport = s.manualImport(j)

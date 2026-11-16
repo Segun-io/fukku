@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/segun-io/fukku/internal/config"
+	"github.com/segun-io/fukku/internal/flows"
 	"github.com/segun-io/fukku/internal/uploads"
 	"github.com/segun-io/fukku/internal/version"
 )
@@ -25,7 +26,9 @@ type Server struct {
 	ui   fs.FS
 	deps Deps
 	tus  *uploads.Handler // /api/uploads/; nil without a store
-	http *http.Server
+	// matcher serves the match API; it is set when the routes are built (matchRoutes).
+	matcher *flows.Matcher
+	http    *http.Server
 
 	ready readiness
 }

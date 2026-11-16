@@ -202,6 +202,7 @@ func validateShared(p *problems, cfg Config) {
 
 	m := cfg.Match
 	positive(p, "match.runtimeTolerance", int64(m.RuntimeTolerance))
+	nonNegative(p, "match.lookupCacheTtl", int64(m.LookupCacheTTL))
 	if m.PALRatio <= 1 || m.PALTolerance <= 0 || m.PALTolerance >= m.PALRatio-1 {
 		p.add("match.palRatio", "palRatio must be > 1 and palTolerance between 0 and palRatio-1")
 	}

@@ -13,7 +13,8 @@ func (s *Server) routes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /healthz", s.healthz)
 	mux.HandleFunc("GET /readyz", s.readyz)
 	mux.HandleFunc("GET /api/session", s.session)
-	s.jobRoutes(mux) // #11
+	s.jobRoutes(mux)   // #11
+	s.matchRoutes(mux) // #37
 	mux.Handle(uploadsPath, s.uploadsHandler())
 	mux.HandleFunc("/api/", apiNotFound)
 	mux.Handle("/", s.spa())

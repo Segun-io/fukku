@@ -80,6 +80,15 @@ type M2 interface {
 	// title). A job without a target is left alone: it is not an error.
 	ClearTarget(ctx context.Context, jobID string) error
 
+	// ReplaceTarget is the match step's one write, in one transaction: the job must be in
+	// state from (else ErrConflict) and from must be probed, matched or awaiting-confirmation
+	// and to probed or matched (else ErrInvalidTransition); c.ExpiresAt must be nil (an
+	// error otherwise); its target and rows are removed, t is stored when not
+	// nil, and the job moves to to (probed or matched; to == from changes nothing and
+	// records no event, any other move must be allowed by CanTransition). Nothing is
+	// changed when it fails. Returns the job as it is after.
+	ReplaceTarget(ctx context.Context, jobID string, from, to State, t *Target, c Change) (Job, error)
+
 	// PutRows replaces all of the job's rows with rows, in that order, in one
 	// transaction. The JobID of a row is ignored. A row needs an ID, unique within the
 	// slice (else ErrExists), and a FileID of one of the job's files (else ErrNotFound).

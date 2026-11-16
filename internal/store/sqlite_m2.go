@@ -38,6 +38,75 @@ func (s *sqliteStore) SetTarget(ctx context.Context, jobID string, t Target) err
 	if err := jobExists(ctx, tx, jobID); err != nil {
 		return err
 	}
+	if err := s.putTarget(ctx, tx, jobID, t); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (s *sqliteStore) ReplaceTarget(ctx context.Context, jobID string, from, to State, t *Target, c Change) (Job, error) {
+	if t != nil && t.App == "" {
+		return Job{}, errors.New("store: a target needs an app")
+	}
+	tx, err := s.w.BeginTx(ctx, nil)
+	if err != nil {
+		return Job{}, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	cur, err := scanJob(tx.QueryRowContext(ctx, "SELECT "+jobCols+" FROM jobs WHERE id = ?", jobID))
+	if err != nil {
+		return Job{}, err
+	}
+	if cur.State != from {
+		return Job{}, ErrConflict
+	}
+	if c.ExpiresAt != nil {
+		return Job{}, errors.New("store: ReplaceTarget does not change the retention date")
+	}
+	if !matchStates[from] || !replaceStates[to] {
+		return Job{}, fmt.Errorf("%w: %s → %s", ErrInvalidTransition, from, to)
+	}
+	next := cur
+	if to != from {
+		var ev Event
+		if next, ev, err = applyTransition(cur, from, to, c, s.clock()); err != nil {
+			return Job{}, err
+		}
+		if _, err := tx.ExecContext(ctx, "UPDATE jobs SET state = ?, resume = ?, error_code = ?, error_text = ?, updated_at = ? WHERE id = ?",
+			next.State, next.Resume, next.ErrorCode, next.ErrorText, nanos(next.UpdatedAt), jobID); err != nil {
+			return Job{}, err
+		}
+		if _, err := tx.ExecContext(ctx,
+			"INSERT INTO events (job_id, at, from_state, to_state, actor, note) VALUES (?, ?, ?, ?, ?, ?)",
+			ev.JobID, nanos(ev.At), ev.From, ev.To, ev.Actor, ev.Note); err != nil {
+			return Job{}, err
+		}
+	}
+	if _, err := tx.ExecContext(ctx, "DELETE FROM targets WHERE job_id = ?", jobID); err != nil {
+		return Job{}, err
+	}
+	if _, err := tx.ExecContext(ctx, "DELETE FROM import_rows WHERE job_id = ?", jobID); err != nil {
+		return Job{}, err
+	}
+	if t != nil {
+		if err := s.putTarget(ctx, tx, jobID, *t); err != nil {
+			return Job{}, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return Job{}, err
+	}
+	return next, nil
+}
+
+// ReplaceTarget starts from these states and ends in one of the second set: rows exist only
+// from matched on, so a job never waits for confirmation with none.
+var (
+	matchStates   = map[State]bool{Probed: true, Matched: true, AwaitingConfirmation: true}
+	replaceStates = map[State]bool{Probed: true, Matched: true}
+)
+
+func (s *sqliteStore) putTarget(ctx context.Context, tx *sql.Tx, jobID string, t Target) error {
 	t.MatchedAt = normTime(t.MatchedAt)
 	if t.MatchedAt.IsZero() {
 		t.MatchedAt = s.clock()
@@ -50,7 +119,7 @@ func (s *sqliteStore) SetTarget(ctx context.Context, jobID string, t Target) err
 		jobID, t.App, t.TitleID, t.Title, t.Year, report(t.Options), t.MatchedBy, nanos(t.MatchedAt)); err != nil {
 		return err
 	}
-	return tx.Commit()
+	return nil
 }
 
 func (s *sqliteStore) Target(ctx context.Context, jobID string) (Target, error) {

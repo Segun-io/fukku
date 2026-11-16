@@ -1,6 +1,8 @@
 package web
 
 import (
+	"github.com/segun-io/fukku/internal/arr"
+	"github.com/segun-io/fukku/internal/flows"
 	"github.com/segun-io/fukku/internal/spool"
 	"github.com/segun-io/fukku/internal/store"
 )
@@ -12,4 +14,11 @@ type Deps struct {
 	Queue spool.Queue
 	// Store holds jobs, their files, unfinished uploads and the audit log (package store).
 	Store store.Store
+	// Radarr and Sonarr are the clients of the apps, nil for one that is not configured
+	// (the match API, #37).
+	Radarr arr.MovieManager
+	Sonarr arr.SeriesManager
+	// Locks is shared by every step that writes a job's target, rows or state from what it
+	// read (the match step, the proposal step). Nil: the match step has its own.
+	Locks *flows.JobLocks
 }

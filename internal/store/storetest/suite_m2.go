@@ -15,6 +15,7 @@ var m2Tests = []struct {
 	fn   func(t *testing.T, s store.Store)
 }{
 	{"Target", testTarget},
+	{"ReplaceTarget", testReplaceTarget},
 	{"Rows", testRows},
 	{"Import", testImport},
 	{"PostSteps", testPostSteps},
@@ -94,6 +95,85 @@ func testTarget(t *testing.T, s store.Store) {
 	must(s.Target(ctx, other.ID))(t)
 	if rs := must(s.Rows(ctx, other.ID))(t); len(rs) != 1 {
 		t.Fatalf("ClearTarget touched another job's rows: %+v", rs)
+	}
+}
+
+func testReplaceTarget(t *testing.T, s store.Store) {
+	ctx := t.Context()
+	j := drive(t, s, newJob(t, s, "user1").ID, store.Probed)
+	first := store.Target{App: "radarr", TitleID: 1, Title: "One", MatchedBy: "user1"}
+
+	// probed → matched with a target, one event.
+	got := must(s.ReplaceTarget(ctx, j.ID, store.Probed, store.Matched, &first, store.Change{Actor: "user1"}))(t)
+	if got.State != store.Matched {
+		t.Fatalf("job after: %+v", got)
+	}
+	checkStored(t, s, got)
+	if tg := must(s.Target(ctx, j.ID))(t); tg.TitleID != 1 || tg.MatchedAt.IsZero() {
+		t.Fatalf("target %+v", tg)
+	}
+	h := history(t, s, j.ID)
+	if last := h[len(h)-1]; last.From != store.Probed || last.To != store.Matched || last.Actor != "user1" {
+		t.Fatalf("last event %+v", last)
+	}
+
+	// A stale from is ErrConflict and changes nothing.
+	f := addVideo(t, s, j.ID, "a.mkv")
+	if err := s.PutRows(ctx, j.ID, []store.Row{{ID: "r1", FileID: f.ID}}); err != nil {
+		t.Fatal(err)
+	}
+	second := store.Target{App: "sonarr", TitleID: 2, Title: "Two"}
+	if _, err := s.ReplaceTarget(ctx, j.ID, store.Probed, store.Matched, &second, store.Change{}); !errors.Is(err, store.ErrConflict) {
+		t.Fatalf("stale from: %v, want ErrConflict", err)
+	}
+	if tg := must(s.Target(ctx, j.ID))(t); tg.TitleID != 1 || len(must(s.Rows(ctx, j.ID))(t)) != 1 {
+		t.Fatalf("a refused call changed the job: %+v", tg)
+	}
+
+	// matched → matched replaces target and rows, records no event, state unchanged.
+	n := len(history(t, s, j.ID))
+	got = must(s.ReplaceTarget(ctx, j.ID, store.Matched, store.Matched, &second, store.Change{}))(t)
+	if got.State != store.Matched || len(history(t, s, j.ID)) != n {
+		t.Fatalf("re-match: %+v, events %d → %d", got, n, len(history(t, s, j.ID)))
+	}
+	if tg := must(s.Target(ctx, j.ID))(t); tg.TitleID != 2 || len(must(s.Rows(ctx, j.ID))(t)) != 0 {
+		t.Fatalf("re-match left %+v", tg)
+	}
+
+	// awaiting-confirmation → matched, which cannot be the target state, and back to probed.
+	drive(t, s, j.ID, store.AwaitingConfirmation)
+	if _, err := s.ReplaceTarget(ctx, j.ID, store.AwaitingConfirmation, store.AwaitingConfirmation, &first, store.Change{}); !errors.Is(err, store.ErrInvalidTransition) {
+		t.Fatalf("awaiting-confirmation → awaiting-confirmation: %v", err)
+	}
+	must(s.ReplaceTarget(ctx, j.ID, store.AwaitingConfirmation, store.Matched, &first, store.Change{}))(t)
+	must(s.ReplaceTarget(ctx, j.ID, store.Matched, store.Probed, nil, store.Change{}))(t)
+	if _, err := s.Target(ctx, j.ID); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("target after unmatch: %v", err)
+	}
+
+	// Other states are refused, as are a target without an app and an unknown job.
+	if _, err := s.ReplaceTarget(ctx, j.ID, store.Probed, store.Cancelled, nil, store.Change{}); !errors.Is(err, store.ErrInvalidTransition) {
+		t.Fatalf("probed → cancelled: %v", err)
+	}
+	if _, err := s.ReplaceTarget(ctx, j.ID, store.Probed, store.AwaitingConfirmation, &first, store.Change{}); !errors.Is(err, store.ErrInvalidTransition) {
+		t.Fatalf("probed → awaiting-confirmation: %v", err)
+	}
+	soon := time.Now().Add(time.Hour)
+	if _, err := s.ReplaceTarget(ctx, j.ID, store.Probed, store.Matched, &first, store.Change{ExpiresAt: &soon}); err == nil {
+		t.Fatal("a retention date was accepted and lost")
+	}
+	if _, err := s.Target(ctx, j.ID); !errors.Is(err, store.ErrNotFound) || must(s.Job(ctx, j.ID))(t).State != store.Probed {
+		t.Fatal("a refused call changed the job")
+	}
+	imp := drive(t, s, newJob(t, s, "user1").ID, store.Importing)
+	if _, err := s.ReplaceTarget(ctx, imp.ID, store.Importing, store.Matched, &first, store.Change{}); !errors.Is(err, store.ErrInvalidTransition) {
+		t.Fatalf("importing: %v", err)
+	}
+	if _, err := s.ReplaceTarget(ctx, j.ID, store.Probed, store.Matched, &store.Target{}, store.Change{}); err == nil {
+		t.Fatal("a target without an app was accepted")
+	}
+	if _, err := s.ReplaceTarget(ctx, unknownJob, store.Probed, store.Matched, &first, store.Change{}); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("unknown job: %v", err)
 	}
 }
 

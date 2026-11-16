@@ -24,7 +24,9 @@ import (
 
 	"go.yaml.in/yaml/v3"
 
+	"github.com/segun-io/fukku/internal/arr"
 	"github.com/segun-io/fukku/internal/config"
+	"github.com/segun-io/fukku/internal/flows"
 	"github.com/segun-io/fukku/internal/retention"
 	"github.com/segun-io/fukku/internal/runner"
 	"github.com/segun-io/fukku/internal/spool"
@@ -153,7 +155,15 @@ func runWeb(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	// the store closes.
 	ran := make(chan error, 1)
 	go func() { ran <- runner.New(cfg, log, st, q, time.Now).Run(ctx) }()
-	err = web.New(cfg, log, ui.FS(), web.Deps{Queue: q, Store: st}).Run(ctx)
+	// One set of job locks for every step that writes a job from what it read.
+	deps := web.Deps{Queue: q, Store: st, Locks: flows.NewJobLocks()}
+	if cfg.Radarr.URL != "" {
+		deps.Radarr = arr.NewRadarr(cfg.Radarr)
+	}
+	if cfg.Sonarr.URL != "" {
+		deps.Sonarr = arr.NewSonarr(cfg.Sonarr)
+	}
+	err = web.New(cfg, log, ui.FS(), deps).Run(ctx)
 	cancel()
 	<-swept
 	return errors.Join(err, <-ran, st.Close())

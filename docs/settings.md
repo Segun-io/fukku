@@ -170,6 +170,7 @@ same settings.
 | `match.defaultSource` | `FUKKU_MATCH_DEFAULT_SOURCE` | `WEBDL` | Source assumed when the file name has none: `WEBDL`, `WEBRIP`, `BLURAY`, `HDTV` or `DVD` |
 | `match.doubleEpisodeRatio` | `FUKKU_MATCH_DOUBLE_EPISODE_RATIO` | `2` | A file this many times the expected runtime is hinted as a double episode |
 | `match.doubleEpisodeTolerance` | `FUKKU_MATCH_DOUBLE_EPISODE_TOLERANCE` | `0.15` | Relative tolerance around that ratio |
+| `match.lookupCacheTtl` | `FUKKU_MATCH_LOOKUP_CACHE_TTL` | `5m` | How long the title search (`/api/lookup/…`) reuses an answer of Radarr or Sonarr for the same search term. `0` turns the cache off |
 
 ## merge
 
