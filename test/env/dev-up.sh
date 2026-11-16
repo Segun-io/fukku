@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# Start the Fukku containers of the dev stack next to the test environment (make dev-up).
+# Needs `make image` (fukku:dev) and `make env-up`. Idempotent.
+set -euo pipefail
+cd "$(dirname "$0")"
+[ -f .run/.env ] || { echo "the test environment is not up: make env-up" >&2; exit 1; }
+image=${FUKKU_IMAGE:-fukku:dev}
+docker image inspect "$image" >/dev/null 2>&1 || { echo "image $image is missing: make image" >&2; exit 1; }
+
+# The proxy is the .10 host of the subnet (a /24).
+subnet=${FUKKU_DEV_SUBNET:-172.30.77.0/24}
+case "$subnet" in
+  *.*.*.0/24) ;;
+  *) echo "FUKKU_DEV_SUBNET must be a /24 such as 172.30.77.0/24, got $subnet" >&2; exit 1 ;;
+esac
+proxy_ip="${subnet%.0/24}.10"
+
+mkdir -p .run/fukku/data .run/fukku/spool .run/data/intake
+touch .run/data/.mounted
+cat > .run/dev.env <<ENV
+FUKKU_IMAGE=$image
+FUKKU_DEV_SUBNET=$subnet
+FUKKU_DEV_PROXY_IP=$proxy_ip
+ENV
+compose=(docker compose --env-file .run/.env --env-file .run/dev.env -f compose.yaml --profile fukku)
+
+# The proxy is a tiny Go program, built in the dev image like the seeder.
+"${compose[@]}" run --rm --no-deps -e CGO_ENABLED=0 tools go build -o .cache/bin/proxy ./test/env/proxy
+
+"${compose[@]}" up -d --wait fukku-web fukku-worker fukku-proxy
+echo "Fukku is up: UI http://127.0.0.1:18080 (sign in as user1, user2 or admin1 with /__test/login?user=<name>), proxy control API http://127.0.0.1:18081"

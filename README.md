@@ -36,6 +36,25 @@ fukku web --config fukku.yaml                    # the web process
 fukku worker --config fukku.yaml                 # the worker process
 ```
 
+## Try it locally
+
+Fukku runs next to a local Radarr, Sonarr, Bazarr and Jellyfin (fake API keys, 127.0.0.1 only)
+behind a small test reverse proxy that signs you in:
+
+```sh
+make image env-up dev-up      # build the image, start and seed the apps, start Fukku
+# open http://127.0.0.1:18080
+make dev-logs                 # follow the logs
+make dev-down                 # stop Fukku; the test environment keeps running
+```
+
+The proxy offers three users, chosen with a cookie: open
+`http://127.0.0.1:18080/__test/login?user=admin1` (or `user1`, `user2`) first. `user1` is the
+default, `user2` a second ordinary user, `admin1` is in the admin group. Their addresses are
+`<name>@example.com`. If `172.30.77.0/24` is taken on your host, set `FUKKU_DEV_SUBNET` to
+another /24 before `make dev-up`. The full contract of the stack, including the proxy's control
+API for tests, is in [test/env/compose.yaml](test/env/compose.yaml).
+
 ## Development
 
 The host needs Docker (with Compose), make and git. Every other tool is pinned in the
@@ -52,6 +71,7 @@ make env-up           # local Radarr, Sonarr, Bazarr and Jellyfin, seeded with f
 make probes           # behaviour probes that need no internet
 make probes-online    # all probes (adding titles needs the *arr metadata services)
 make compat           # write probe results into docs/compatibility.md
+make dev-up            # run Fukku in the test environment (see "Try it locally")
 make env-reset        # delete the test environment
 ```
 
@@ -66,7 +86,7 @@ time and never committed.
 | `internal/web`, `internal/worker` | the two processes |
 | `ui/` | the React single-page app, embedded in the binary |
 | `test/fixtures` | ffmpeg media and hostile-archive generators |
-| `test/env`, `test/testenv`, `test/probes` | the local integration environment and the behaviour probes |
+| `test/env`, `test/testenv`, `test/probes` | the local integration environment (including the dev stack and its test proxy) and the behaviour probes |
 
 ## Licence
 

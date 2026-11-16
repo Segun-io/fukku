@@ -1,0 +1,30 @@
+# Configuration of the Fukku containers in the dev stack (profile fukku in compose.yaml).
+# Read by both processes, so it holds no secrets: the API keys are given to the web process
+# through its environment. Every setting: docs/settings.md.
+
+server:
+  # What the browser opens; the Origin check compares against it.
+  publicBaseUrl: http://127.0.0.1:18080
+
+auth:
+  mode: proxyHeaders
+  # The test proxy's address on the dev network (compose.yaml overrides it when
+  # FUKKU_DEV_SUBNET is set).
+  trustedProxies: [172.30.77.10]
+  adminGroup: media-admins
+
+radarr:
+  url: http://radarr:7878
+  qualityProfile: Fukku Probe
+  rootFolder: /data/media/movies
+
+sonarr:
+  url: http://sonarr:8989
+  qualityProfile: Fukku Probe
+  rootFolder: /data/media/tv
+
+paths:
+  intakeRoot: /data/intake
+  libraryRoots: [/data/media/movies, /data/media/tv]
+  # Created by `make dev-up`: proves the shared filesystem is mounted.
+  sentinels: [/data/.mounted]

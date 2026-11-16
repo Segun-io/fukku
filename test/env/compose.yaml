@@ -19,6 +19,26 @@ x-servarr: &servarr
     PGID: ${PGID:-1000}
     TZ: Etc/UTC
 
+# Shared by the two Fukku processes (profile fukku, below). Small limits so tests can reach
+# them with small files; the settings are in docs/settings.md. The worker gets no secrets.
+x-fukku-env: &fukku-env
+  FUKKU_CONFIG: /config/fukku.yaml
+  FUKKU_UPLOAD_CHUNK_SIZE: 1MiB
+  FUKKU_UPLOAD_MAX_FILE_SIZE: 256MiB
+  FUKKU_UPLOAD_MAX_IN_FLIGHT: 1GiB
+  FUKKU_UPLOAD_FREE_SPACE_MARGIN: "0"
+  # The proxy's address on the fukku network; dev-up derives it from FUKKU_DEV_SUBNET.
+  FUKKU_AUTH_TRUSTED_PROXIES: ${FUKKU_DEV_PROXY_IP:-172.30.77.10}
+
+x-fukku-hardening: &fukku-hardening
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  tmpfs: ["/tmp:size=64m"]
+  restart: unless-stopped
+  # The user that owns ./.run/data, like Radarr and Sonarr here.
+  user: ${PUID:-1000}:${PGID:-1000}
+
 services:
   radarr:
     <<: *servarr
@@ -91,3 +111,105 @@ services:
       - ../..:/src
       - ./.run/data:/data
       - ./.run/jellyfin/config:/jellyfin-config
+
+  # ---- Fukku itself (profile fukku; `make dev-up`, `make dev-down`) -------------------------
+  #
+  # The test stack contract (issue #30):
+  #   UI and API through the proxy   http://127.0.0.1:18080   (in the network: http://fukku-proxy:8080)
+  #   proxy control API              http://127.0.0.1:18081   (in the network: http://fukku-proxy:8081)
+  #   the web process directly       http://fukku-web:8080    (403 to anyone but the proxy)
+  #   users: user1, user2 (groups users) and admin1 (users,media-admins), <name>@example.com;
+  #   chosen with the cookie fukku_test_user, set by GET /__test/login?user=<name>
+  # The proxy's control API (all POST, JSON): /control/session {"mode": "ok|expired-401|expired-302"},
+  # /control/cut {"afterBytes": N, "times": N}, /control/reset. See test/env/proxy.
+  #
+  # Needs `make image` (fukku:dev) and `make env-up`. fukku-web also joins this file's default
+  # network to reach Radarr and Sonarr; only the proxy's address is trusted.
+
+  fukku-web:
+    <<: *fukku-hardening
+    profiles: [fukku]
+    image: ${FUKKU_IMAGE:-fukku:dev}
+    command: ["web"]
+    environment:
+      <<: *fukku-env
+      # API keys go to the web process only; the worker refuses to start with any.
+      FUKKU_RADARR_API_KEY: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      FUKKU_SONARR_API_KEY: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    volumes:
+      - ./fukku.yaml:/config/fukku.yaml:ro
+      - ./.run/fukku/data:/var/lib/fukku
+      - ./.run/fukku/spool:/spool
+      - ./.run/data:/data
+    networks:
+      default: {}
+      fukku: {}
+    expose: ["8080"]
+
+  fukku-worker:
+    <<: *fukku-hardening
+    profiles: [fukku]
+    image: ${FUKKU_IMAGE:-fukku:dev}
+    command: ["worker"]
+    network_mode: none
+    environment: *fukku-env
+    volumes:
+      - ./fukku.yaml:/config/fukku.yaml:ro
+      - ./.run/fukku/spool:/spool
+      - ./.run/data:/data:ro
+      - ./.run/data/intake:/data/intake
+    healthcheck:
+      test: ["CMD", "fukku", "healthcheck", "--worker"]
+      interval: 10s
+      timeout: 5s
+      start_period: 10s
+    pids_limit: 256
+
+  # The tools container on both networks, to reach the proxy by name from inside the stack
+  # (`docker compose --profile fukku run --rm tools-fukku ...`). `tools` alone cannot see the
+  # proxy, which is on the fukku network only.
+  tools-fukku:
+    extends: tools
+    profiles: [fukku]
+    networks:
+      default: {}
+      fukku: {}
+
+  fukku-proxy:
+    profiles: [fukku]
+    # The test proxy (test/env/proxy): dev-up builds it into .cache/bin, the dev image runs it.
+    image: ${DEV_IMAGE:-fukku-dev:local}
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    user: ${PUID:-1000}:${PGID:-1000}
+    command:
+      - /src/.cache/bin/proxy
+      - -listen=:8080
+      - -control=:8081
+      - -upstream=http://fukku-web:8080
+      - -signin-url=http://127.0.0.1:18080/__test/signin
+    volumes:
+      - ../..:/src:ro
+    healthcheck:
+      test: ["CMD", "/src/.cache/bin/proxy", "-healthcheck=127.0.0.1:8081"]
+      interval: 10s
+      timeout: 5s
+      start_period: 5s
+    depends_on:
+      fukku-web: {condition: service_healthy}
+    networks:
+      fukku:
+        ipv4_address: ${FUKKU_DEV_PROXY_IP:-172.30.77.10}
+    ports:
+      - "127.0.0.1:18080:8080"
+      - "127.0.0.1:18081:8081"
+
+# A private network with a fixed subnet, so auth.trustedProxies can name the proxy's one
+# address. If the range is taken on your host, set FUKKU_DEV_SUBNET (a /24) before dev-up.
+networks:
+  fukku:
+    ipam:
+      config:
+        - subnet: ${FUKKU_DEV_SUBNET:-172.30.77.0/24}

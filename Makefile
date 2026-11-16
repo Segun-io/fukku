@@ -121,6 +121,18 @@ env-reset: ## stop the test environment and delete its data
 	$(ENV_COMPOSE) down -v --remove-orphans
 	docker run --rm -v $(CURDIR)/test/env:/env $(DEV_IMAGE) rm -rf /env/.run
 
+.PHONY: dev-up
+dev-up: ## run Fukku next to the test environment behind a test auth proxy (needs image and env-up)
+	test/env/dev-up.sh
+
+.PHONY: dev-down
+dev-down: ## stop Fukku and its proxy; the test environment keeps running
+	test/env/dev-down.sh
+
+.PHONY: dev-logs
+dev-logs: ## follow the logs of Fukku and its proxy
+	docker compose --env-file test/env/.run/.env --env-file test/env/.run/dev.env -f test/env/compose.yaml --profile fukku logs -f fukku-web fukku-worker fukku-proxy
+
 .PHONY: probes
 probes: $(DEV_DEP) ## run the behaviour probes that need no internet
 	test/env/run-probes.sh offline
