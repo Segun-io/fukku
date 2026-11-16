@@ -93,7 +93,11 @@ describe("the mapping editor", () => {
     open();
     await loaded();
     const row = rowOf(e06);
-    expect(row.getByText(/Languages: Spanish\. Score: -10,000\./)).toBeVisible();
+    expect(
+      row.getByText(
+        /Languages: Spanish\. Score: -10,000; the quality profile asks for at least 0\./,
+      ),
+    ).toBeVisible();
     expect(row.getByText(/Rules that matched: Not original language\./)).toBeVisible();
   });
 
@@ -514,6 +518,45 @@ describe("keyboard and small screens", () => {
 });
 
 describe("a film", () => {
+  it("explains duplicate_film, and shows a language warning from the facts it carries", async () => {
+    server.use(
+      http.get("/api/jobs/:id/proposal", () =>
+        HttpResponse.json({
+          state: "ready",
+          app: "radarr",
+          target: { titleId: 20, title: "Sintel", year: 2010 },
+          rows: ["a", "b"].map((n, i) => ({
+            id: `r${i}`,
+            fileId: i,
+            name: `Sintel.${n}.mkv`,
+            durationMs: 888_000,
+            skip: false,
+            quality: null,
+            languages: [],
+            customFormats: [],
+            customFormatScore: 0,
+            rejections: [],
+            warnings: [
+              { code: "duplicate_film" },
+              { code: "language", customFormats: ["Dub"], score: -50, minFormatScore: 10 },
+            ],
+            importable: false,
+          })),
+          hints: [],
+          qualities: [],
+          languages: [],
+        }),
+      ),
+    );
+    open(mappingFilmJobId);
+    await loaded();
+    expect(screen.getAllByText(/A film has one file/)).toHaveLength(2);
+    expect(
+      screen.getAllByText(/Score: -50; the quality profile asks for at least 10/),
+    ).toHaveLength(2);
+    expect(screen.getAllByText(/Rules that matched: Dub\./)).toHaveLength(2);
+  });
+
   it("shows its file with the quality and the skip, and nothing about seasons", async () => {
     const u = user();
     const sent = record();

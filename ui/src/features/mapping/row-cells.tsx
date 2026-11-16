@@ -4,7 +4,7 @@
 import { CircleAlert, CircleCheck, Clock, TriangleAlert } from "lucide-react";
 import { createContext, type ReactNode, useContext } from "react";
 import { ApiError } from "@/api/client";
-import type { Proposal, ProposalRow, RowEdit } from "@/api/proposal";
+import type { Notice, Proposal, ProposalRow, RowEdit } from "@/api/proposal";
 import { Button } from "@/components/ui/button";
 import { useT } from "@/i18n";
 import { type BulkPending, nextEpisode, type Pending, seasonsOf } from "./state";
@@ -243,7 +243,7 @@ export function NotesCell({ item }: { item: Item }) {
           className="mt-0.5 size-4 shrink-0 text-caution-foreground"
         />
         <span className="grid gap-1.5">
-          <span>{warningText(w.code, row, appName, t, formatNumber)}</span>
+          <span>{warningText(w, row, appName, t, formatNumber)}</span>
           {w.code === "double_episode" && single && next && (
             <Button
               type="button"
@@ -274,28 +274,32 @@ export function NotesCell({ item }: { item: Item }) {
 }
 
 function warningText(
-  code: string,
+  warning: Notice,
   row: ProposalRow,
   app: string,
   t: ReturnType<typeof useT>["t"],
   formatNumber: ReturnType<typeof useT>["formatNumber"],
 ): string {
+  const { code } = warning;
   switch (code) {
     case "double_episode":
     case "runtime_mismatch":
     case "duplicate_episode":
+    case "duplicate_film":
       return t(`mapping.warning.${code}`);
     case "existing_file":
     case "not_offered":
       return t(`mapping.warning.${code}`, { app });
     case "language": {
-      // The facts the row carries: its languages, its score and the formats that matched.
+      // The facts the warning carries (#39); the row's own score stands in if one is missing.
       const facts = t("mapping.warning.language", {
         languages: row.languages.map((l) => l.name).join(", ") || "-",
-        score: formatNumber(row.customFormatScore),
+        score: formatNumber(warning.score ?? row.customFormatScore),
+        min: formatNumber(warning.minFormatScore ?? 0),
       });
-      return row.customFormats.length > 0
-        ? `${facts} ${t("mapping.warning.language.formats", { formats: row.customFormats.join(", ") })}`
+      const formats = warning.customFormats ?? row.customFormats;
+      return formats.length > 0
+        ? `${facts} ${t("mapping.warning.language.formats", { formats: formats.join(", ") })}`
         : facts;
     }
     default:

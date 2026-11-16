@@ -50,6 +50,7 @@ export const seriesEpisodes: SeriesEpisode[] = Object.entries(episodeTitles).fla
     })),
 );
 
+const minFormatScore = 0;
 const english: Ref = { id: 1, name: "English" };
 const spanish: Ref = { id: 3, name: "Spanish" };
 const qualities: Ref[] = [
@@ -180,7 +181,15 @@ function view(p: MockProposal, s: Stored): ProposalRow {
     (o) => o !== s && !o.skip && (o.episodeIds ?? []).some((i) => mine.has(i)),
   );
   if (clash && !s.skip) warnings.push({ code: "duplicate_episode" });
-  if (s.languages.some((l) => l.id !== english.id)) warnings.push({ code: "language" });
+  // #39: a custom-format score below the profile's minimum, with the facts.
+  if (s.customFormatScore < minFormatScore) {
+    warnings.push({
+      code: "language",
+      customFormats: [...s.customFormats],
+      score: s.customFormatScore,
+      minFormatScore,
+    });
+  }
   const row: ProposalRow = {
     id: s.id,
     fileId: s.fileId,

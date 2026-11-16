@@ -485,9 +485,11 @@ const es: Record<keyof typeof en, string> = {
   "mapping.warning.duplicate_episode": "Otro archivo tiene asignado el mismo episodio.",
   "mapping.warning.existing_file":
     "Este episodio ya tiene un archivo en {app}. Todavía no se puede importar, así que el archivo se omite.",
+  "mapping.warning.duplicate_film":
+    "Otro archivo de esta película tampoco está omitido. Una película tiene un solo archivo: omite el que no quieras.",
   "mapping.warning.not_offered": "{app} no ofreció este archivo.",
   "mapping.warning.language":
-    "Puede que el audio no esté en el idioma original. Idiomas: {languages}. Puntuación: {score}.",
+    "Puede que el audio no esté en el idioma original. Idiomas: {languages}. Puntuación: {score}; el perfil de calidad pide al menos {min}.",
   "mapping.warning.language.formats": "Reglas que coinciden: {formats}.",
   "mapping.warning.unknown": "Algo que revisar ({code}).",
   "mapping.hint.dvd_order.title": "El orden de los episodios puede ser otro",

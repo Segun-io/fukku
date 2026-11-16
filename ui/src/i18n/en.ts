@@ -481,9 +481,11 @@ const en = {
   "mapping.warning.duplicate_episode": "Another file is set to the same episode.",
   "mapping.warning.existing_file":
     "This episode already has a file in {app}. It cannot be imported yet, so the file is skipped.",
+  "mapping.warning.duplicate_film":
+    "Another file of this film is not skipped either. A film has one file: skip the one you do not want.",
   "mapping.warning.not_offered": "{app} did not offer this file.",
   "mapping.warning.language":
-    "The audio may not be in the original language. Languages: {languages}. Score: {score}.",
+    "The audio may not be in the original language. Languages: {languages}. Score: {score}; the quality profile asks for at least {min}.",
   "mapping.warning.language.formats": "Rules that matched: {formats}.",
   "mapping.warning.unknown": "Something to check ({code}).",
   "mapping.hint.dvd_order.title": "The episode order may be different",

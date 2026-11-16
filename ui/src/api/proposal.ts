@@ -20,8 +20,17 @@ export type SeriesEpisode = RowEpisode & { seasonNumber: number };
 
 export type Rejection = { reason: string; permanent: boolean };
 
-/** `language` is #39's; the codes the app adds itself are in the contract of #38. */
-export type Notice = { code: string };
+/**
+ * A warning or a hint, by its code (#38: `not_offered`, `existing_file`, `double_episode`,
+ * `runtime_mismatch`, `duplicate_episode`, `duplicate_film`; hint `dvd_order`). `language`
+ * (#39) carries its facts: the matching custom formats, the row's score and the profile's minimum.
+ */
+export type Notice = {
+  code: string;
+  customFormats?: string[];
+  score?: number;
+  minFormatScore?: number;
+};
 
 export type ProposalRow = {
   id: string;
