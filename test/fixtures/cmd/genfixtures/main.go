@@ -58,6 +58,9 @@ func run(ctx context.Context, out string) error {
 	if _, err := fixtures.SeasonZip(ctx, media, "Probe Show", 1, 3, fixtures.Video{Duration: 10 * time.Second, Audio: []fixtures.Audio{{Language: "eng"}}}); err != nil {
 		return err
 	}
+	if _, _, err := fixtures.AwkwardSeason(ctx, media, "Awkward Show", 10*time.Second); err != nil {
+		return err
+	}
 	for _, h := range fixtures.HostileCorpus(fixtures.DefaultLimits) {
 		if _, err := h.Build(hostile); err != nil {
 			return err
