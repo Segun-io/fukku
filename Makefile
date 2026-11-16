@@ -110,8 +110,12 @@ e2e-check: e2e-deps ## lint and type-check the Playwright project
 # 60GiB in make e2e-large. dev-up raises the stack's upload limits to fit it.
 E2E_LARGE_SIZE ?= 5GiB
 E2E_MAX_IN_FLIGHT ?= 128GiB
+# The tests tagged @online (exit-m2.spec.ts) add titles through the *arr metadata services;
+# E2E_ONLINE=0 skips them (CI does on pull requests, as with the probes).
+E2E_ONLINE ?= 1
 
 .PHONY: e2e
+e2e: export FUKKU_E2E_ONLINE = $(E2E_ONLINE)
 e2e: export FUKKU_E2E_LARGE_SIZE = $(E2E_LARGE_SIZE)
 e2e: export FUKKU_DEV_MAX_FILE_SIZE = $(E2E_LARGE_SIZE)
 e2e: export FUKKU_DEV_MAX_IN_FLIGHT = $(E2E_MAX_IN_FLIGHT)

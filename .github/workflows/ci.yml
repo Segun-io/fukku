@@ -90,8 +90,10 @@ jobs:
           sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc
           df -h /
       # Builds the image, starts the test environment and the dev stack, runs the tests in the
-      # pinned Playwright image (browsers are not downloaded).
-      - run: make e2e
+      # pinned Playwright image (browsers are not downloaded). As with the probes, pull requests
+      # skip the tests tagged @online (the M2 exit criteria add titles through the *arr
+      # metadata services); pushes, the schedule and manual runs include them.
+      - run: make e2e E2E_ONLINE=${{ github.event_name == 'pull_request' && '0' || '1' }}
       - name: container logs
         if: failure()
         working-directory: test/env

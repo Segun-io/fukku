@@ -1,6 +1,8 @@
 import { stat } from "node:fs/promises";
 import { expect, test } from "@playwright/test";
 import { files, loginAs, network, session, stack, type TestUser } from "./helpers";
+import { radarr } from "./helpers/apps";
+import { baseURL } from "./helpers/env";
 
 // Self-test of the helpers: each one is used here, so a broken helper fails under its own
 // name before a scenario trips over it. Scenarios live in their own *.spec.ts files.
@@ -78,4 +80,28 @@ test("stack.restart restarts a container and waitReady waits for it", async () =
   await stack.waitReady();
   await stack.restart("fukku-web");
   await stack.waitReady();
+});
+
+test("stack.kill kills fukku-web with SIGKILL; start brings it back, and logs reads it", async () => {
+  const before = Date.now();
+  const { at, start } = await stack.kill("fukku-web");
+  expect(at).toBeGreaterThanOrEqual(before);
+  const down = await fetch(`${baseURL}/healthz`, { signal: AbortSignal.timeout(3000) }).catch(
+    () => null,
+  );
+  expect(down?.ok ?? false, "/healthz while fukku-web is down").toBe(false);
+  await start();
+  await stack.waitReady();
+  // A new process logs its start again.
+  expect(await stack.logs("fukku-web", at)).toContain("runner_started");
+});
+
+test("stack.freezeApp makes the test Radarr answer nothing until it is thawed", async () => {
+  const thaw = await stack.freezeApp("radarr");
+  try {
+    await expect(radarr.ping()).rejects.toThrow();
+  } finally {
+    await thaw();
+  }
+  await expect(radarr.ping()).resolves.toBeTruthy();
 });

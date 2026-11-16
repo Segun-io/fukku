@@ -49,14 +49,49 @@ browser). `playwright-report/index.html` is the HTML report.
 | `network.cutUploads({afterBytes, times})`, `network.reset()` | the next upload PATCH requests are cut after that many body bytes; clear all |
 | `stack.restart("fukku-web" \| "fukku-worker")`, `stack.waitReady()` | restart a container; wait until both are healthy and `/healthz` answers |
 | `files.sparse(name, bytes)` | a file that is one big hole, in the runner's `/files`; returns its path |
+| `stack.kill("fukku-web" \| "fukku-worker")` | SIGKILL, as a crash (no shutdown code runs); returns the time and a `start()` |
+| `stack.freezeApp("radarr" \| "sonarr")` | `docker pause` of a test app: it accepts connections and answers nothing; returns the thaw function |
+| `stack.restartApp(app, ping)` | restart a test app and wait until `ping` answers |
+| `stack.logs(service, sinceMs)` | what a Fukku container logged since then |
 
 Tests without a browser use `helpers/api.ts` (`new Api("user1")`: create a job, upload with tus,
-submit, wait for the final state), `helpers/data.ts` (list `/data`, take the sentinel away) and
-`stack.inspect` / `stack.exec` (look into and run commands in the Fukku containers).
+submit, wait for the final state; match, proposal, confirm), `helpers/data.ts` (list `/data`,
+take the sentinel away), `helpers/apps.ts` (look at the test Radarr, Sonarr, Bazarr and
+Jellyfin, and remove the titles a test added) and `stack.inspect` / `stack.exec` (look into and
+run commands in the Fukku containers).
 
 `exit-stack.spec.ts` is the M1 exit criteria that need the stack but no browser (issue #33): the
 hostile corpus end to end, good uploads, the manual-import fallback against the test Radarr,
 untrusted addresses, the missing sentinel and the worker's isolation.
+
+## The M2 exit criteria (`exit-m2.spec.ts`, tagged `@online`)
+
+Plan §15, issue #47, against the test Radarr, Sonarr, Bazarr and Jellyfin (the dev stack hands
+subtitles to Bazarr and refreshes Jellyfin, `test/env/fukku.yaml`):
+
+| Test | What it shows |
+| --- | --- |
+| `1+4` | Through the upload, match, mapping and confirmation pages: a film arrives by rename (same inode as in the job), Radarr tracks one file whose `movieFile.size` is the size on disk, Jellyfin lists it within a minute of the import (decision #22), the job is `done` with the title link, and Bazarr wrote the uploaded subtitle (its history, decision #23) |
+| `2+4` | Through the pages: the awkward season of `fixtures.AwkwardSeasonOf` (#46) for Pioneer One. The editor shows Sonarr's reading, the double-episode hint and the language warning on the dub; the double and the misnumbered file are fixed in the editor, and the seventh file (Pioneer One's first season has six episodes) is skipped. Then every episode the archive holds has its own file (same inode), the double is one file for two episodes, episode 5 has none, the dub needed its "Import anyway" tick (and the server refuses it without one), `/episodefile` sizes are the sizes on disk, Bazarr wrote the episode's subtitle, and Sonarr lists the one ManualImport with its files |
+| `3a`-`3e` | `fukku-web` killed while importing a film: before the command is submitted (Radarr frozen on Fukku's first call), as soon as the submission started, after the command finished but before Fukku saw it, during post-processing, and with Radarr restarted while Fukku is down. Each ends `done` with one file and one ManualImport of the job's folder |
+
+They add titles through the apps' public metadata services, so they run only with
+`FUKKU_E2E_ONLINE=1`: `make e2e` sets it (`E2E_ONLINE=0` skips them), CI sets it where the
+online probes run (pushes, the schedule, manual runs) and not on pull requests. When the
+metadata service is down (the app's own lookup times out or says so) they skip, as the probes
+do; `FUKKU_E2E_SIMULATE_METADATA_OUTAGE=1` shows that without the internet. Run them alone with
+`make e2e ARGS='exit-m2.spec.ts'`, or `FUKKU_E2E_ONLINE=1 test/e2e/run.sh exit-m2.spec.ts` on a
+running stack.
+
+- The titles are the probes' free ones (Blender films, a Creative Commons web series). Each
+  test removes the film or show it used from the app (with its files) and from Jellyfin, before
+  and after, so a run starts from a library without them.
+- The files come from `make e2e-fixtures` (`m2/`, with a `manifest.json` that names the titles
+  and the season's correct mapping). They have the titles' real runtimes at a small size and
+  5 frames per second, about 1 MB per minute, and are generated once and kept while the
+  generator's version is the same.
+- `1+4` and `2+4` confirm on the confirmation page (#44), and check the request it sends;
+  `3a`-`3e` start their imports through `POST /api/jobs/{id}/confirm`.
 
 `helpers.spec.ts` tests each helper. Tests share one proxy, so they run one at a time, and
 each one that changes proxy state should call `network.reset()` and `session.restore()` in

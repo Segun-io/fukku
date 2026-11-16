@@ -23,6 +23,18 @@ sonarr:
   qualityProfile: Fukku Probe
   rootFolder: /data/media/tv
 
+# The post-processing steps of M2 (issue #47's exit criteria run them against the test Bazarr
+# and Jellyfin). Both see the library filesystem at the same /data paths as Fukku.
+subtitles:
+  provider: bazarr
+  url: http://bazarr:6767
+
+mediaServer:
+  provider: jellyfin
+  url: http://jellyfin:8096
+  # The test Jellyfin as the host publishes it (compose.yaml).
+  titleLinkTemplate: http://127.0.0.1:18096/web/#/details?id={itemId}
+
 paths:
   intakeRoot: /data/intake
   libraryRoots: [/data/media/movies, /data/media/tv]

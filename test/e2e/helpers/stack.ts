@@ -1,5 +1,5 @@
 import http from "node:http";
-import { baseURL, composeProject, dockerSocket, type Service } from "./env";
+import { type AppService, baseURL, composeProject, dockerSocket, type Service } from "./env";
 
 // Restarting a container needs the container runtime. The runner talks to the Engine API on
 // the host's socket directly (mounted in the test profile only), so it needs no docker client.
@@ -29,7 +29,7 @@ function engine<T>(method: string, apiPath: string, body?: unknown): Promise<T |
   });
 }
 
-async function containerId(service: Service): Promise<string> {
+async function containerId(service: Service | AppService): Promise<string> {
   const filters = encodeURIComponent(
     JSON.stringify({
       label: [
@@ -148,6 +148,76 @@ export const stack = {
   async restart(service: Service): Promise<void> {
     const id = await containerId(service);
     await engine("POST", `/containers/${id}/restart?t=10`);
+  },
+
+  /**
+   * Kill a Fukku container with SIGKILL, as a crash would (no shutdown code runs). Returns
+   * when the process is gone, with the time of that (Date.now()) and a function that starts
+   * the container again. (The restart policy does not start a killed container by itself.)
+   */
+  async kill(service: Service): Promise<{ at: number; start: () => Promise<void> }> {
+    const id = await containerId(service);
+    await engine("POST", `/containers/${id}/kill?signal=KILL`);
+    for (let i = 0; ; i++) {
+      const info = await engine<{ State: { Running: boolean } }>("GET", `/containers/${id}/json`);
+      if (!info?.State.Running) break;
+      if (i >= 100) throw new Error(`${service} still runs 10 s after SIGKILL`);
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    const at = Date.now();
+    return { at, start: () => engine("POST", `/containers/${id}/start`).then(() => {}) };
+  },
+
+  /**
+   * Freeze one of the test environment's apps (`docker pause`): it accepts connections but
+   * answers nothing until `unpause`, like an app that hangs. Returns the thaw function.
+   */
+  async freezeApp(app: AppService): Promise<() => Promise<void>> {
+    const id = await containerId(app);
+    await engine("POST", `/containers/${id}/pause`);
+    return () => engine("POST", `/containers/${id}/unpause`).then(() => {});
+  },
+
+  /** What a Fukku container logged since a time (ms since the epoch). */
+  async logs(service: Service, sinceMs: number): Promise<string> {
+    const id = await containerId(service);
+    const since = Math.floor(sinceMs / 1000);
+    const raw = await new Promise<Buffer>((resolve, reject) => {
+      const req = http.request(
+        {
+          socketPath: dockerSocket,
+          path: `/containers/${id}/logs?stdout=1&stderr=1&since=${since}`,
+          method: "GET",
+        },
+        (res) => {
+          const chunks: Buffer[] = [];
+          res.on("data", (c: Buffer) => chunks.push(c));
+          res.on("end", () => resolve(Buffer.concat(chunks)));
+        },
+      );
+      req.on("error", reject);
+      req.end();
+    });
+    const { stdout, stderr } = frames(raw);
+    return stdout + stderr;
+  },
+
+  /** Restart one of the test environment's apps (Radarr or Sonarr) and wait for its API. */
+  async restartApp(app: AppService, ping: () => Promise<unknown>, timeoutMs = 180_000) {
+    const id = await containerId(app);
+    await engine("POST", `/containers/${id}/restart?t=30`);
+    const deadline = Date.now() + timeoutMs;
+    let last = "";
+    while (Date.now() < deadline) {
+      try {
+        await ping();
+        return;
+      } catch (err) {
+        last = String(err);
+      }
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+    throw new Error(`${app} did not answer within ${timeoutMs} ms of its restart (${last})`);
   },
 
   /**

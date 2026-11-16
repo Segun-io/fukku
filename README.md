@@ -71,7 +71,9 @@ API for tests, is in [test/env/compose.yaml](test/env/compose.yaml).
 Browser tests (Playwright, in a pinned image) run against this stack with `make e2e`; see
 [test/e2e/README.md](test/e2e/README.md). They include a 5 GiB upload that survives a reload,
 a restart and dropped connections; `make e2e-large` runs it at 60 GiB (by hand, it needs about
-65 GiB free under `test/env/.run`).
+65 GiB free under `test/env/.run`). The M2 exit criteria (a film and a season imported through
+the test Radarr and Sonarr, kills of `fukku-web` while importing) add titles through the apps'
+metadata services, so they need the internet; `make e2e E2E_ONLINE=0` skips them.
 
 ## Development
 
