@@ -5,7 +5,13 @@
 #   /data/media/movies   Radarr root folder, Jellyfin "Movies" library
 #   /data/media/tv       Sonarr root folder, Jellyfin "Shows" library
 #   /data/intake         where probes put files for Manual Import
+#   /data/blackhole      the blackhole download clients of Radarr and Sonarr (seeded):
+#                        <app>/nzb receives a grabbed release's NZB, <app>/watch is where a
+#                        finished "download" would appear
 # so moves are renames and imports can be hardlinks, as in a real deployment.
+#
+# The indexer is a fake (test/env/indexer, built from this repository): it offers the
+# releases a probe gives it and nothing else, and never connects anywhere.
 #
 # Versions are pinned by tag and digest. When you bump one, run `make probes-online` and
 # update docs/compatibility.md.
@@ -101,6 +107,28 @@ services:
       - ./.run/data:/data
     ports: ["127.0.0.1:18096:8096"]
 
+  # The fake Newznab indexer (test/env/indexer): up.sh builds it into .cache/bin, the dev image
+  # runs it. Radarr and Sonarr reach it as http://indexer:8080; the probes set its releases
+  # through its control API with the same fixed fake key.
+  indexer:
+    hostname: indexer
+    image: ${DEV_IMAGE:-fukku-dev:local}
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    user: ${PUID:-1000}:${PGID:-1000}
+    command: ["/src/.cache/bin/indexer", "-listen=:8080"]
+    environment:
+      FUKKU_INDEXER_KEY: "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+    volumes:
+      - ../..:/src:ro
+    healthcheck:
+      test: ["CMD", "/src/.cache/bin/indexer", "-healthcheck=127.0.0.1:8080"]
+      interval: 10s
+      timeout: 5s
+      start_period: 5s
+
   # Runs the seeder and the probes inside the dev image, on this network, with the same
   # /data view as the apps. Not started by `up`; used through `run`.
   tools:
@@ -118,6 +146,8 @@ services:
       FUKKU_TEST_JELLYFIN_URL: http://jellyfin:8096
       FUKKU_TEST_JELLYFIN_KEY: "dddddddddddddddddddddddddddddddd"
       FUKKU_TEST_JELLYFIN_DB: /jellyfin-config/data/jellyfin.db
+      FUKKU_TEST_INDEXER_URL: http://indexer:8080
+      FUKKU_TEST_INDEXER_KEY: "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
       FUKKU_TEST_DATA: /data
       FUKKU_TEST_RESULTS: /src/test/env/.run/results
     volumes:

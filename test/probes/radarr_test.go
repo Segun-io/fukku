@@ -199,44 +199,6 @@ func TestB5SubtitlesFollowRename(t *testing.T) {
 	}
 }
 
-// B6: a better release without the dub would be accepted over a merged file.
-// C3: the monitoring editor works.
-func TestB6UpgradeWouldDropDub(t *testing.T) {
-	p := newProbe(t, "B6", "With upgrades allowed, a better release without the dub replaces a merged file",
-		"A merged file (original + dub) can be replaced by a better release that lacks the dub; unmonitoring is the protection",
-		true, "radarr")
-	p.alsoSkips(specC3)
-	movie := addFilm(p, elephantsDream)
-	id := testenv.ID(movie)
-	importFilm(p, movie, elephantsDream, elephantsDream.dotted()+".1080p.WEB-DL", "eng", "spa")
-	dir := p.fresh(intake("B6-upgrade"))
-	better := filepath.Join(dir, elephantsDream.dotted()+".1080p.BluRay.x264.mkv")
-	p.video(better, long(elephantsDream.minutes, "eng"))
-	item := itemFor(proposalForMovie(p, dir, id), better)
-	p.evidence("betterReleaseProposal", summary(item))
-	accepted := !hasRejection(rejections(item), "upgrade", "cutoff")
-	p.observe("a Bluray-1080p release without the dub, over the merged WEBDL-1080p: rejections %v (accepted as an upgrade: %v)", rejections(item), accepted)
-
-	c3 := specC3.probe(t)
-	c3.must(env.Radarr.Put(c3.ctx, "/movie/editor", M{"movieIds": []int{id}, "monitored": false}, nil), "movie editor")
-	var m M
-	c3.must(env.Radarr.Get(c3.ctx, fmt.Sprintf("/movie/%d", id), &m), "get movie")
-	c3.observe("monitored after the editor call: %v", m["monitored"])
-	if m["monitored"] == false {
-		c3.confirm()
-	} else {
-		c3.differ("the movie is still monitored")
-	}
-
-	item = itemFor(proposalForMovie(p, dir, id), better)
-	p.observe("after unmonitoring, Manual Import still offers it with rejections %v (Manual Import ignores monitoring)", rejections(item))
-	if !accepted {
-		p.differ("the better release is rejected; merged files are not at risk from upgrades")
-		return
-	}
-	p.partial("the risk is shown through Manual Import's upgrade decision; that an unmonitored title is skipped by RSS and search needs an indexer and is not probed")
-}
-
 // B7 (Radarr side) and C2: language handling on import, and the reprocess endpoint.
 func TestB7RadarrLanguageOnImport(t *testing.T) {
 	p := newProbe(t, "B7-radarr", "Radarr's profile language does not reject imports; custom formats are scored",
@@ -657,16 +619,6 @@ func TestB3eVersionsOutsideTheFilmFolder(t *testing.T) {
 	p.must(env.Jellyfin.ScanAndWait(p.ctx, scanTimeout), "library scan")
 	state("after the film is deleted and a library scan")
 	p.observed()
-}
-
-// B3f: an upgrade grabbed by search or RSS. It needs an indexer and a download client; the
-// fake indexer is issue #24.
-func TestB3fUpgradeBySearch(t *testing.T) {
-	p := newProbe(t, "B3f", "Radarr: an upgrade grabbed by search or RSS, with a label file", claimB3x, false, "radarr")
-	p.r.Verdict = Skipped
-	p.r.Reason = "needs a fake indexer and download client (#24)"
-	p.observe("skipped: a grab by search or RSS needs an indexer and a download client, and the fake indexer of #24 has not landed; B3 and B3e record what an upgrade imported through Manual Import does to the label file, which uses the same import service but is not the same path")
-	t.Skip("needs a fake indexer (#24)")
 }
 
 func runTimeOf(f M) any {

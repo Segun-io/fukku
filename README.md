@@ -76,7 +76,8 @@ make build            # bin/fukku, with the UI built in
 make image            # the product image, as fukku:dev
 make fixtures         # look at the generated test media and hostile archives
 
-make env-up           # local Radarr, Sonarr, Bazarr and Jellyfin, seeded with fake keys
+make env-up           # local Radarr, Sonarr, Bazarr and Jellyfin, seeded with fake keys, a fake
+                      # indexer and blackhole download clients
 make probes           # behaviour probes that need no internet
 make probes-online    # all probes (adding titles needs the *arr metadata services)
 make compat           # write probe results into docs/compatibility.md
@@ -87,7 +88,10 @@ make env-reset        # delete the test environment
 
 The test environment uses fixed fake API keys and runs only on 127.0.0.1. The probes refuse
 to talk to anything but its services. Test videos and hostile archives are generated at test
-time and never committed.
+time and never committed. The indexer is a fake built from this repository
+([test/env/indexer](test/env/indexer)): it offers only the generated releases a probe gives it,
+and a grab ends as an NZB file in a blackhole folder under `test/env/.run`; nothing is
+downloaded.
 
 | Path | What |
 | --- | --- |
@@ -101,7 +105,7 @@ time and never committed.
 | `internal/extract`, `internal/safename` | safe zip extraction in the worker; the file-name cleaner |
 | `ui/` | the React single-page app, embedded in the binary |
 | `test/fixtures` | ffmpeg media and hostile-archive generators |
-| `test/env`, `test/testenv`, `test/probes` | the local integration environment (including the dev stack and its test proxy) and the behaviour probes |
+| `test/env`, `test/testenv`, `test/probes` | the local integration environment (including the dev stack, its test proxy and the fake indexer) and the behaviour probes |
 
 ## Licence
 

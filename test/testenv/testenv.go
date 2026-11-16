@@ -1,5 +1,6 @@
 // Package testenv talks to the local integration environment (test/env): Radarr, Sonarr,
-// Bazarr and Jellyfin started from pinned images, with fixed fake API keys. It is used by the
+// Bazarr and Jellyfin started from pinned images, and the fake indexer built from this
+// repository, with fixed fake API keys. It is used by the
 // seeder and the behaviour probes; it must never be pointed at a real instance.
 package testenv
 
@@ -22,6 +23,7 @@ type Env struct {
 	Radarr, Sonarr *Arr
 	Bazarr         *Client
 	Jellyfin       *Jellyfin
+	Indexer        *Indexer
 	JellyfinDB     string // path of jellyfin.db
 	Data           string // the shared library filesystem, /data
 	Results        string // where probes write their results
@@ -39,7 +41,7 @@ func FromEnv() (*Env, error) {
 	vals := map[string]string{}
 	var errs []error
 	for _, k := range []string{"RADARR_URL", "RADARR_KEY", "SONARR_URL", "SONARR_KEY", "BAZARR_URL", "BAZARR_KEY",
-		"JELLYFIN_URL", "JELLYFIN_KEY", "JELLYFIN_DB", "DATA", "RESULTS"} {
+		"JELLYFIN_URL", "JELLYFIN_KEY", "JELLYFIN_DB", "INDEXER_URL", "INDEXER_KEY", "DATA", "RESULTS"} {
 		v, err := get("FUKKU_TEST_" + k)
 		errs = append(errs, err)
 		vals[k] = v
@@ -47,7 +49,7 @@ func FromEnv() (*Env, error) {
 	if err := errors.Join(errs...); err != nil {
 		return nil, err
 	}
-	for _, k := range []string{"RADARR_URL", "SONARR_URL", "BAZARR_URL", "JELLYFIN_URL"} {
+	for _, k := range []string{"RADARR_URL", "SONARR_URL", "BAZARR_URL", "JELLYFIN_URL", "INDEXER_URL"} {
 		if err := mustBeLocal(vals[k]); err != nil {
 			return nil, err
 		}
@@ -57,6 +59,7 @@ func FromEnv() (*Env, error) {
 		Sonarr:     &Arr{Client: newClient(vals["SONARR_URL"], "X-Api-Key", vals["SONARR_KEY"]), Name: "sonarr"},
 		Bazarr:     newClient(vals["BAZARR_URL"], "X-API-KEY", vals["BAZARR_KEY"]),
 		Jellyfin:   &Jellyfin{Client: newClient(vals["JELLYFIN_URL"], "Authorization", `MediaBrowser Token="`+vals["JELLYFIN_KEY"]+`"`), Key: vals["JELLYFIN_KEY"]},
+		Indexer:    &Indexer{Client: newClient(vals["INDEXER_URL"], "X-Api-Key", vals["INDEXER_KEY"]), Key: vals["INDEXER_KEY"]},
 		JellyfinDB: vals["JELLYFIN_DB"],
 		Data:       vals["DATA"],
 		Results:    vals["RESULTS"],
@@ -71,7 +74,7 @@ func mustBeLocal(raw string) error {
 		return err
 	}
 	switch u.Hostname() {
-	case "radarr", "sonarr", "bazarr", "jellyfin", "127.0.0.1", "localhost":
+	case "radarr", "sonarr", "bazarr", "jellyfin", "indexer", "127.0.0.1", "localhost":
 		return nil
 	}
 	return fmt.Errorf("refusing %s: the test tools only talk to the local test environment", raw)

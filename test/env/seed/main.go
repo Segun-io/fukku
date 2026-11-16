@@ -6,7 +6,9 @@
 //
 // The settings mirror the first adopter's (plan §4) where they matter to the probes:
 // renaming on, importExtraFiles off, no recycle bin, upgrades allowed, a "not original
-// language" custom format, Jellyfin real-time monitoring off and no internet metadata.
+// language" custom format, Jellyfin real-time monitoring off and no internet metadata. Radarr
+// and Sonarr also get the fake indexer (test/env/indexer) and a blackhole download client, with
+// the scheduled RSS sync off, so a grab happens only when a probe asks for one.
 package main
 
 import (
@@ -34,6 +36,12 @@ const (
 	bazarrKey = "cccccccccccccccccccccccccccccccc"
 	radarrKey = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	sonarrKey = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+)
+
+// Names of the seeded indexer and download client in Radarr and Sonarr.
+const (
+	IndexerName        = "Fukku Fake Indexer"
+	DownloadClientName = "Fukku Blackhole"
 )
 
 // Naming used by the probes. The film format is Radarr's default style, which B1 says
@@ -161,6 +169,17 @@ func apps(ctx context.Context) error {
 	}
 	if err := seedArr(ctx, env.Sonarr, "/data/media/tv", -10000); err != nil {
 		return fmt.Errorf("sonarr: %w", err)
+	}
+	for _, a := range []struct {
+		arr  *testenv.Arr
+		cats []int
+	}{
+		{env.Radarr, []int{testenv.CategoryMovies, testenv.CategoryMoviesHD}},
+		{env.Sonarr, []int{testenv.CategoryTV, testenv.CategoryTVHD}},
+	} {
+		if err := seedGrabbing(ctx, a.arr, env.Indexer, a.cats); err != nil {
+			return fmt.Errorf("%s indexer and download client: %w", a.arr.Name, err)
+		}
 	}
 
 	var bz struct {
@@ -311,6 +330,85 @@ func seedArr(ctx context.Context, a *testenv.Arr, root string, notOriginalScore 
 	}
 	delete(profile, "id")
 	return a.Post(ctx, "/qualityprofile", profile, nil)
+}
+
+// seedGrabbing gives an *arr app the fake indexer and a blackhole download client, and turns
+// the scheduled RSS sync off: the probes run RssSync themselves, so nothing is grabbed behind
+// their back. The apps reach the indexer by its compose service name.
+func seedGrabbing(ctx context.Context, a *testenv.Arr, ix *testenv.Indexer, cats []int) error {
+	var cfg M
+	if err := a.Get(ctx, "/config/indexer", &cfg); err != nil {
+		return err
+	}
+	cfg["rssSyncInterval"] = 0
+	if err := a.Put(ctx, "/config/indexer", cfg, nil); err != nil {
+		return err
+	}
+
+	hole := testenv.BlackholeAt("/data", a.Name)
+	if err := upsertProvider(ctx, a, "/downloadclient", "UsenetBlackhole", DownloadClientName, M{
+		"nzbFolder": hole.NZB, "watchFolder": hole.Watch,
+	}, M{"enable": true, "priority": 1, "removeCompletedDownloads": false, "removeFailedDownloads": false}); err != nil {
+		return fmt.Errorf("download client: %w", err)
+	}
+	// The app tests an indexer before saving it and refuses one that returns nothing, and the
+	// fake offers nothing until a probe gives it releases: offer a placeholder for the test.
+	if _, err := ix.Offer(ctx, testenv.Release{Title: "Fukku.Indexer.Placeholder.1900.480p.WEB-DL-FUKKU", Category: cats[len(cats)-1], Size: 1 << 20}); err != nil {
+		return fmt.Errorf("fake indexer: %w", err)
+	}
+	defer func() { _ = ix.Clear(context.WithoutCancel(ctx)) }()
+	return upsertProvider(ctx, a, "/indexer", "Newznab", IndexerName, M{
+		"baseUrl": "http://indexer:8080", "apiPath": "/api", "apiKey": ix.Key, "categories": cats,
+	}, M{"enableRss": true, "enableAutomaticSearch": true, "enableInteractiveSearch": true, "priority": 25})
+}
+
+// upsertProvider creates or updates an indexer or download client from the app's schema for
+// implementation, with the named fields and top-level settings.
+func upsertProvider(ctx context.Context, a *testenv.Arr, path, implementation, name string, fields, settings M) error {
+	var schemas []M
+	if err := a.Get(ctx, path+"/schema", &schemas); err != nil {
+		return err
+	}
+	var body M
+	for _, s := range schemas {
+		if s["implementation"] == implementation {
+			body = s
+			break
+		}
+	}
+	if body == nil {
+		return fmt.Errorf("no %s in %s/schema", implementation, path)
+	}
+	existing, err := a.FindByName(ctx, path, name)
+	if err != nil {
+		return err
+	}
+	body["name"] = name
+	body["tags"] = []int{}
+	for k, v := range settings {
+		body[k] = v
+	}
+	raw, _ := body["fields"].([]any)
+	set := map[string]bool{}
+	for _, f := range raw {
+		if fm, ok := f.(M); ok {
+			if v, ok := fields[fmt.Sprint(fm["name"])]; ok {
+				fm["value"] = v
+				set[fmt.Sprint(fm["name"])] = true
+			}
+		}
+	}
+	for k := range fields {
+		if !set[k] {
+			return fmt.Errorf("%s has no field %q", implementation, k)
+		}
+	}
+	if existing != nil {
+		body["id"] = testenv.ID(existing)
+		return a.Put(ctx, fmt.Sprintf("%s/%d", path, testenv.ID(existing)), body, nil)
+	}
+	delete(body, "id")
+	return a.Post(ctx, path, body, nil)
 }
 
 // seedBazarrLanguages enables English and Spanish and a default profile for new titles;
