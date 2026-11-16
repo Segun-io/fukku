@@ -1,7 +1,6 @@
 package web
 
 import (
-	"errors"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -124,8 +123,8 @@ func TestMetricsScrape(t *testing.T) {
 	m.ObserveTask(spool.Result{Kind: spool.KindProbe, Status: spool.StatusOK, Started: at, Finished: at.Add(2 * time.Second)})
 	m.ObserveTask(spool.Result{Kind: spool.KindExtract, Status: spool.StatusError, Error: &spool.Error{Code: "timeout"},
 		Started: at, Finished: at.Add(1000 * time.Second)})
-	m.ObserveImport("radarr", nil)
-	m.ObserveImport("sonarr", errors.New("boom"))
+	m.ObserveImport("radarr", metrics.ImportImported)
+	m.ObserveImport("sonarr", metrics.ImportFailed)
 
 	rec := scrape(t, s, "127.0.0.1:40000", "-")
 	if rec.Code != http.StatusOK || !strings.HasPrefix(rec.Header().Get("Content-Type"), "text/plain; version=0.0.4") {
@@ -146,8 +145,8 @@ func TestMetricsScrape(t *testing.T) {
 		`fukku_task_duration_seconds_count{kind="extract",outcome="timeout"}`:            1,
 		`fukku_task_duration_seconds_bucket{kind="extract",outcome="timeout",le="600"}`:  0,
 		`fukku_task_duration_seconds_bucket{kind="extract",outcome="timeout",le="1800"}`: 1,
-		`fukku_imports_total{app="radarr",outcome="ok"}`:                                 1,
-		`fukku_imports_total{app="sonarr",outcome="error"}`:                              1,
+		`fukku_imports_total{app="radarr",outcome="imported"}`:                           1,
+		`fukku_imports_total{app="sonarr",outcome="failed"}`:                             1,
 		`fukku_ready{check="database"}`:                                                  1,
 		`fukku_ready{check="workerHeartbeat"}`:                                           1,
 	} {

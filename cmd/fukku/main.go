@@ -162,14 +162,15 @@ func runWeb(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 		deps.Metrics = metrics.New()
 	}
 	if cfg.Radarr.URL != "" {
-		deps.Radarr = metrics.Radarr(arr.NewRadarr(cfg.Radarr), deps.Metrics)
+		deps.Radarr = arr.NewRadarr(cfg.Radarr)
 	}
 	if cfg.Sonarr.URL != "" {
-		deps.Sonarr = metrics.Sonarr(arr.NewSonarr(cfg.Sonarr), deps.Metrics)
+		deps.Sonarr = arr.NewSonarr(cfg.Sonarr)
 	}
 	deps.Proposals = flows.NewProposals(cfg, log, st, deps.Radarr, deps.Sonarr, deps.Locks)
 	// The import engine (#40) and its post-processing steps, in the order they run.
 	deps.Imports = flows.NewEngine(deps.Proposals)
+	deps.Imports.SetMetrics(deps.Metrics)
 	// Subtitles first, so that the media server's scan finds them next to the video.
 	deps.Imports.AddPostStep(subtitleStep(cfg, st))
 	deps.Imports.AddPostStep(mediaServerStep(cfg, deps.Radarr, deps.Sonarr))

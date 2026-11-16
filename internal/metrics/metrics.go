@@ -7,7 +7,6 @@
 package metrics
 
 import (
-	"context"
 	"fmt"
 	"io"
 	"math"
@@ -17,7 +16,6 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/segun-io/fukku/internal/arr"
 	"github.com/segun-io/fukku/internal/spool"
 )
 
@@ -85,14 +83,18 @@ func (s *Set) ObserveTask(res spool.Result) {
 	h.sum += d
 }
 
-// ObserveImport counts one import command sent to an app ("radarr" or "sonarr"), ok or error.
-func (s *Set) ObserveImport(app string, err error) {
+// Import outcomes: the import command was sent to the app, every file arrived, or the job
+// failed in the import.
+const (
+	ImportSubmitted = "submitted"
+	ImportImported  = "imported"
+	ImportFailed    = "failed"
+)
+
+// ObserveImport counts one step of the import engine for an app ("radarr" or "sonarr").
+func (s *Set) ObserveImport(app, outcome string) {
 	if s == nil {
 		return
-	}
-	outcome := "ok"
-	if err != nil {
-		outcome = "error"
 	}
 	s.mu.Lock()
 	s.imports[[2]string{app, outcome}]++
@@ -123,7 +125,7 @@ func (s *Set) Write(w *Writer) {
 		w.Sample("fukku_task_duration_seconds_sum", h.sum, base...)
 		w.Sample("fukku_task_duration_seconds_count", float64(cum), base...)
 	}
-	w.Family("fukku_imports_total", "counter", "Imports started in Radarr or Sonarr, by app and outcome.")
+	w.Family("fukku_imports_total", "counter", "Imports by app and outcome (submitted, imported, failed).")
 	for _, k := range sortedKeys(s.imports) {
 		w.Sample("fukku_imports_total", float64(s.imports[k]), "app", k[0], "outcome", k[1])
 	}
@@ -187,32 +189,4 @@ func formatFloat(f float64) string {
 		return "+Inf"
 	}
 	return strconv.FormatFloat(f, 'g', -1, 64)
-}
-
-// Radarr returns m with its imports counted in s.
-func Radarr(m arr.MovieManager, s *Set) arr.MovieManager { return radarr{m, s} }
-
-// Sonarr returns m with its imports counted in s.
-func Sonarr(m arr.SeriesManager, s *Set) arr.SeriesManager { return sonarr{m, s} }
-
-type radarr struct {
-	arr.MovieManager
-	s *Set
-}
-
-func (r radarr) Import(ctx context.Context, rows []arr.Row, mode string) (int, error) {
-	id, err := r.MovieManager.Import(ctx, rows, mode)
-	r.s.ObserveImport("radarr", err)
-	return id, err
-}
-
-type sonarr struct {
-	arr.SeriesManager
-	s *Set
-}
-
-func (r sonarr) Import(ctx context.Context, rows []arr.Row, mode string) (int, error) {
-	id, err := r.SeriesManager.Import(ctx, rows, mode)
-	r.s.ObserveImport("sonarr", err)
-	return id, err
 }

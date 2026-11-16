@@ -18,7 +18,7 @@ func TestEscaping(t *testing.T) {
 func TestNilSet(t *testing.T) {
 	var s *Set
 	s.AddBytesReceived(1)
-	s.ObserveImport("radarr", nil)
+	s.ObserveImport("radarr", ImportImported)
 	var b bytes.Buffer
 	s.Write(NewWriter(&b))
 	if !strings.Contains(b.String(), "fukku_upload_received_bytes_total 0") {
