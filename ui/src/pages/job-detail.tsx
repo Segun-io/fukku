@@ -94,6 +94,9 @@ function JobView({ job }: { job: JobDetail }) {
   const timelineSteps = jobPath.indexOf(standing) < m1Steps.length ? m1Steps : jobPath;
 
   const explained = job.error && (job.state === "failed" || job.state === "stalled");
+  // Importing, or stalled there: the app's import command may still be running.
+  const importMayRun =
+    standing === "importing" && (job.state === "importing" || job.state === "stalled");
   const errorText = explained ? jobErrorText(job.error?.code ?? "") : null;
 
   const items: FileListItem[] = job.files.map((f) => ({
@@ -147,7 +150,7 @@ function JobView({ job }: { job: JobDetail }) {
             {t("job.expires", { date: formatDate(job.expiresAt) })}
           </p>
         )}
-        <JobActions job={job} />
+        <JobActions job={job} importMayRun={importMayRun} />
       </header>
 
       <MatchSection job={job} className={job.state === "probed" ? "border-t pt-8" : section} />

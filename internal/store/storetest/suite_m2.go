@@ -324,6 +324,19 @@ func testImport(t *testing.T, s store.Store) {
 	if got = must(s.Import(ctx, j.ID))(t); !sameJSON(got.Baseline, `{"movieFileId":12}`) {
 		t.Fatalf("baseline %s", got.Baseline)
 	}
+	// Where the refusals are counted from is stored and replaced like the rest.
+	if err := s.PutImport(ctx, store.Import{JobID: j.ID, CommandID: 77, SubmittedAt: sub, Baseline: json.RawMessage(`{"movieFileId":12}`), RefusalsFrom: 9}); err != nil {
+		t.Fatal(err)
+	}
+	if got = must(s.Import(ctx, j.ID))(t); got.RefusalsFrom != 9 || got.CommandID != 77 || !sameJSON(got.Baseline, `{"movieFileId":12}`) {
+		t.Fatalf("import with RefusalsFrom %+v", got)
+	}
+	if err := s.PutImport(ctx, store.Import{JobID: j.ID, CommandID: 77, SubmittedAt: sub}); err != nil {
+		t.Fatal(err)
+	}
+	if got = must(s.Import(ctx, j.ID))(t); got.RefusalsFrom != 0 {
+		t.Fatalf("RefusalsFrom not replaced: %+v", got)
+	}
 	if err := s.PutImport(ctx, store.Import{JobID: unknownJob}); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("import of an unknown job: %v, want ErrNotFound", err)
 	}

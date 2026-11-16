@@ -313,6 +313,8 @@ const es: Record<keyof typeof en, string> = {
   "job.confirm.cancel.title": "¿Cancelar este envío?",
   "job.confirm.cancel.warning":
     "Los archivos de este envío se borran del servidor. No se puede deshacer.",
+  "job.confirm.cancel.importWarning":
+    "La importación puede seguir en marcha en la aplicación: aún puede terminar y poner los archivos en la biblioteca. Revisa el título en la aplicación después.",
   "job.confirm.retry.title": "¿Intentar este envío de nuevo?",
   "job.confirm.delete.title": "¿Borrar este envío?",
   "job.confirm.delete.warning": "El envío y sus archivos se borran para siempre.",

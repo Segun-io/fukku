@@ -31,6 +31,7 @@ func Run(t *testing.T, open func(t *testing.T) store.Store) {
 		{"StallAndResume", testStallAndResume},
 		{"ErrorCodeRequired", testErrorCodeRequired},
 		{"FailedLeavesOnlyForResumeOrCancel", testFailedExits},
+		{"CancelImporting", testCancelImporting},
 		{"Events", testEvents},
 		{"ExpiresAt", testExpiresAt},
 		{"Jobs", testJobs},
@@ -319,6 +320,36 @@ func testErrorCodeRequired(t *testing.T, s store.Store) {
 		}
 	}
 	checkStored(t, s, j)
+}
+
+// testCancelImporting: an admin may give up on an import whose command never ends
+// (#74): importing → cancelled is recorded with its actor and note, and it is final.
+func testCancelImporting(t *testing.T, s store.Store) {
+	ctx := t.Context()
+	j := drive(t, s, newJob(t, s, "user1").ID, store.Importing)
+	before := len(history(t, s, j.ID))
+	got := must(s.Transition(ctx, j.ID, store.Importing, store.Cancelled, store.Change{Actor: "admin1", Note: "abandoned"}))(t)
+	if got.State != store.Cancelled || got.Resume != "" || got.ErrorCode != "" || got.Attempt != j.Attempt {
+		t.Fatalf("cancelled import %+v", got)
+	}
+	checkStored(t, s, got)
+	h := history(t, s, j.ID)
+	if len(h) != before+1 {
+		t.Fatalf("history has %d events, want %d", len(h), before+1)
+	}
+	if last := h[len(h)-1]; last.From != store.Importing || last.To != store.Cancelled || last.Actor != "admin1" || last.Note != "abandoned" {
+		t.Fatalf("event %+v", last)
+	}
+	if _, err := s.Transition(ctx, j.ID, store.Cancelled, store.Importing, store.Change{}); !errors.Is(err, store.ErrInvalidTransition) {
+		t.Fatalf("cancelled → importing: %v, want ErrInvalidTransition", err)
+	}
+	// The other states after the confirmation are still not cancelled directly.
+	for _, from := range []store.State{store.Imported, store.PostProcessing, store.Done} {
+		k := drive(t, s, newJob(t, s, "user1").ID, from)
+		if _, err := s.Transition(ctx, k.ID, from, store.Cancelled, store.Change{Actor: "admin1"}); !errors.Is(err, store.ErrInvalidTransition) {
+			t.Fatalf("%s → cancelled: %v, want ErrInvalidTransition", from, err)
+		}
+	}
 }
 
 func testFailedExits(t *testing.T, s store.Store) {

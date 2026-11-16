@@ -31,11 +31,13 @@ type Server struct {
 	http    *http.Server
 
 	ready readiness
+	// now is the clock of the job API's rules that depend on time (a stuck import).
+	now func() time.Time
 }
 
 // New builds the server. ui is the built single-page app.
 func New(cfg config.Config, log *slog.Logger, ui fs.FS, deps Deps) *Server {
-	s := &Server{cfg: cfg, log: log, ui: ui, deps: deps}
+	s := &Server{cfg: cfg, log: log, ui: ui, deps: deps, now: time.Now}
 	if deps.Store != nil {
 		h, err := uploads.New(uploads.Options{Config: cfg, Log: log, Store: deps.Store})
 		if err != nil {
