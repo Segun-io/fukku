@@ -341,3 +341,32 @@ func TestConfirmRefusesFlow2(t *testing.T) {
 		t.Errorf("job %s", j.State)
 	}
 }
+
+// A probe of a file whose size is not the tracked file's (Radarr replaced the file under
+// the same name between the match and the probe) is not used: the job fails, and nothing
+// is stored.
+func TestFlow2StaleProbeFailsTheJob(t *testing.T) {
+	stale := libProbe(filmMinutes)
+	stale.Size = 4001 // the tracked file has 4000 bytes
+	x := newFlow2Env(t)
+	j := x.matched(x.flow2Job(filmMinutes))
+	x.worker(media.LibraryProbeOutput{Path: x.record(j).Library.Path, OK: true, Media: stale})
+	j = x.matched(j)
+	if j.State != store.Failed || j.ErrorCode != CodeLibraryUnreadable || !strings.Contains(j.ErrorText, "changed since the match") {
+		t.Fatalf("job %s %s %q", j.State, j.ErrorCode, j.ErrorText)
+	}
+	if x.record(j).Library.Probe != nil {
+		t.Error("the stale probe was stored")
+	}
+	x.noLeftovers(j)
+
+	// A probe stored for another file (older data) fails the same way.
+	x = newFlow2Env(t)
+	j = x.flow2Job(filmMinutes)
+	rec := x.record(j)
+	rec.Library.Probe = stale
+	x.setRecord(j, &rec)
+	if j = x.matched(j); j.State != store.Failed || j.ErrorCode != CodeLibraryUnreadable {
+		t.Fatalf("stored: job %s %s", j.State, j.ErrorCode)
+	}
+}

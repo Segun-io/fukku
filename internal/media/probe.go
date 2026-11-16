@@ -37,6 +37,10 @@ const (
 	// Demuxers of the accepted containers only: a playlist or concat script renamed to .mkv
 	// is then not parsed as one, and cannot make ffprobe read other files or URLs.
 	formatWhitelist = "matroska,webm,mov,mp4,avi,mpegts"
+
+	// maxDurationMs caps any duration read from a file (about 100 years), so a hostile or
+	// corrupt value cannot overflow the int64 conversion. Real files are far below it.
+	maxDurationMs = 100 * 365 * 24 * 3600 * 1000
 	// Only the inherited descriptor may be opened: no other file, no URL.
 	protocolWhitelist = "fd"
 )
@@ -48,15 +52,19 @@ type Options struct {
 	VideoExt    []string      // upload.videoExtensions
 	SubtitleExt []string      // upload.subtitleExtensions
 	FFprobe     string        // binary; empty means "ffprobe" (tests pass a fake)
+	// LibraryFormats are the demuxers library probes may use (worker.libraryFormats); empty
+	// means the upload whitelist.
+	LibraryFormats []string
 }
 
 // OptionsFrom takes the probe options from the configuration.
 func OptionsFrom(cfg config.Config) Options {
 	return Options{
-		Timeout:     time.Duration(cfg.Worker.ProbeTimeout),
-		Nice:        cfg.Worker.Nice,
-		VideoExt:    cfg.Upload.VideoExtensions,
-		SubtitleExt: cfg.Upload.SubtitleExtensions,
+		Timeout:        time.Duration(cfg.Worker.ProbeTimeout),
+		Nice:           cfg.Worker.Nice,
+		VideoExt:       cfg.Upload.VideoExtensions,
+		SubtitleExt:    cfg.Upload.SubtitleExtensions,
+		LibraryFormats: cfg.Worker.LibraryFormats,
 	}
 }
 
@@ -82,7 +90,7 @@ func Run(ctx context.Context, job *os.Root, args ProbeArgs, opt Options) (ProbeO
 		}
 		var err error
 		if pf.Kind == "video" {
-			err = probeVideo(ctx, job, &pf, opt)
+			err = probeVideo(ctx, job, &pf, opt, formatWhitelist)
 		} else {
 			checkSubtitle(job, &pf)
 		}
@@ -168,7 +176,7 @@ func (l *limitedBuffer) Write(p []byte) (int, error) {
 	return l.buf.Write(p)
 }
 
-func probeVideo(ctx context.Context, job *os.Root, pf *ProbedFile, opt Options) error {
+func probeVideo(ctx context.Context, job *os.Root, pf *ProbedFile, opt Options, formats string) error {
 	f, size := openRegular(job, pf.Path)
 	if f == nil {
 		pf.Refusal = RefusalUnreadable
@@ -181,7 +189,7 @@ func probeVideo(ctx context.Context, job *os.Root, pf *ProbedFile, opt Options) 
 		return err // a broken install is an error, never a refusal of the upload
 	}
 	probeArgs := []string{"-v", "error", "-print_format", "json", "-show_format", "-show_streams",
-		"-format_whitelist", formatWhitelist, "-protocol_whitelist", protocolWhitelist, "-fd", "3", "-i", "fd:"}
+		"-format_whitelist", formats, "-protocol_whitelist", protocolWhitelist, "-fd", "3", "-i", "fd:"}
 	name := bin
 	if opt.Nice > 0 {
 		probeArgs = append([]string{"-n", strconv.Itoa(opt.Nice), bin}, probeArgs...)
@@ -273,7 +281,7 @@ func (r rawProbe) toProbe(size int64) Probe {
 		Subtitles: []SubtitleTrack{},
 	}
 	if d, err := strconv.ParseFloat(r.Format.Duration, 64); err == nil && d > 0 && !math.IsInf(d, 0) {
-		m.DurationMs = int64(math.Round(d * 1000))
+		m.DurationMs = capMs(d * 1000)
 	}
 	m.BitRate, _ = strconv.ParseInt(r.Format.BitRate, 10, 64)
 	for _, s := range r.Streams {
@@ -316,13 +324,22 @@ func streamDuration(d string, tags map[string]string) int64 {
 	return 0
 }
 
+// capMs converts milliseconds to int64, at most maxDurationMs: a float beyond the int64
+// range has no defined conversion.
+func capMs(ms float64) int64 {
+	if !(ms < maxDurationMs) { // also true for NaN
+		return maxDurationMs
+	}
+	return int64(math.Round(ms))
+}
+
 // secondsMs reads a number of seconds ("20.020000"); 0 for anything else.
 func secondsMs(s string) int64 {
 	f, err := strconv.ParseFloat(s, 64)
 	if err != nil || f <= 0 || math.IsInf(f, 0) || math.IsNaN(f) {
 		return 0
 	}
-	return int64(math.Round(f * 1000))
+	return capMs(f * 1000)
 }
 
 // clockMs reads "HH:MM:SS.fraction"; 0 for anything else.
@@ -334,10 +351,10 @@ func clockMs(s string) int64 {
 	h, err1 := strconv.Atoi(parts[0])
 	m, err2 := strconv.Atoi(parts[1])
 	sec, err3 := strconv.ParseFloat(parts[2], 64)
-	if err1 != nil || err2 != nil || err3 != nil || h < 0 || m < 0 || m > 59 || sec < 0 || sec >= 60 {
+	if err1 != nil || err2 != nil || err3 != nil || h < 0 || m < 0 || m > 59 || math.IsNaN(sec) || sec < 0 || sec >= 60 {
 		return 0
 	}
-	return int64(math.Round((float64(h)*3600 + float64(m)*60 + sec) * 1000))
+	return capMs((float64(h)*3600 + float64(m)*60 + sec) * 1000)
 }
 
 func frameRate(vals ...string) string {

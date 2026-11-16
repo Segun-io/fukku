@@ -654,3 +654,33 @@ func TestReportedCommands(t *testing.T) {
 		t.Errorf("reported %v", got)
 	}
 }
+
+// A film that got a file after the match (Radarr's RSS sync of a monitored film, say) is
+// not confirmed as flow 1: the confirmation asks the app again and answers flow2. An app
+// that does not answer is arr_unavailable; a film still without a file confirms.
+func TestConfirmRefusesAFileThatAppearedAfterTheMatch(t *testing.T) {
+	x := newImportEnv(t)
+	j := x.filmJob()
+
+	x.movies.Err = map[string]error{"Movie": errRefused}
+	if _, err := x.eng.Confirm(x.ctx, "user1", "", j, ConfirmRequest{}); Code(err) != CodeArrUnavailable {
+		t.Fatalf("app down: %v", err)
+	}
+	x.movies.Err = nil
+
+	x.movies.Library[0].File = libFile()
+	x.movies.Library[0].HasFile = true
+	_, err := x.eng.Confirm(x.ctx, "user1", "", j, ConfirmRequest{})
+	var fe *Error
+	if !errors.As(err, &fe) || fe.Code != CodeFlow2 {
+		t.Fatalf("confirm: %v, want %s", err, CodeFlow2)
+	}
+	if j = x.jobNow(j); j.State != store.AwaitingConfirmation {
+		t.Errorf("job %s", j.State)
+	}
+
+	x.movies.Library[0].File, x.movies.Library[0].HasFile = nil, false
+	if j = x.confirm(j); j.State == store.AwaitingConfirmation {
+		t.Errorf("without a file: job %s", j.State)
+	}
+}

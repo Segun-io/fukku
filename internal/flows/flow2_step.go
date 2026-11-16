@@ -55,6 +55,9 @@ func (p *Proposals) flow2(ctx context.Context, job store.Job, t store.Target, re
 		if err := p.queue.Ack(ctx, id); err != nil {
 			return err
 		}
+		if err := staleProbe(rec, *rec.Library.Probe); err != nil {
+			return p.move(ctx, job, &t, store.Failed, store.Change{ErrorCode: CodeLibraryUnreadable, ErrorText: err.Error()})
+		}
 		return p.flow2Ready(ctx, job, t, *rec.Library.Probe)
 	}
 	res, ok, err := p.queue.Result(ctx, id)
@@ -128,6 +131,9 @@ func (p *Proposals) useLibraryProbe(ctx context.Context, job store.Job, t store.
 		}
 		return fail(CodeLibraryUnreadable, fmt.Sprintf("the worker could not probe the library file %q: %s", out.Path, why))
 	}
+	if err := staleProbe(rec, *out.Media); err != nil {
+		return fail(CodeLibraryUnreadable, err.Error())
+	}
 	stored, err := p.storeLibraryProbe(ctx, job, t, rec, *out.Media)
 	if err != nil || !stored {
 		return err // not stored: the job changed meanwhile, and the next pass sees how
@@ -136,6 +142,18 @@ func (p *Proposals) useLibraryProbe(ctx context.Context, job store.Job, t store.
 		return err
 	}
 	return p.flow2Ready(ctx, job, t, *out.Media)
+}
+
+// staleProbe is an error when the probe cannot be of the file Radarr tracked at the match:
+// the size differs, so a file was replaced under the same name between the match and the
+// probe (or the stored probe's). The job fails and a retry matches the film again. A
+// tracked size of 0 (unknown) is not compared.
+func staleProbe(rec Flow2, probe media.Probe) error {
+	if want := rec.Library.Size; want > 0 && probe.Size != want {
+		return fmt.Errorf("the library file %q changed since the match (tracked size %d, probed size %d): match the film again",
+			rec.Library.Path, want, probe.Size)
+	}
+	return nil
 }
 
 // storeLibraryProbe writes the probe into the target's flow 2 record, under the job's lock

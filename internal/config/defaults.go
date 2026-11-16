@@ -132,6 +132,7 @@ func Defaults() Config {
 			SpoolDir:          "/spool",
 			PollInterval:      Duration(time.Second),
 			ProbeTimeout:      Duration(60 * time.Second),
+			LibraryFormats:    []string{"matroska", "webm", "mov", "mp4", "avi", "mpegts", "mpeg", "asf", "flv", "ogg"},
 			TaskTimeout:       Duration(6 * time.Hour),
 			Nice:              10,
 			HeartbeatInterval: Duration(15 * time.Second),

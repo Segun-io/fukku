@@ -50,7 +50,7 @@ type Overridden struct {
 // they were judged (an edit meanwhile makes it judge again), and the transition checks
 // that the job still has the same title.
 //
-// Refusals: wrong_state, flow2 (the film already has a file: flow 2, #52), bad_request (an
+// Refusals: wrong_state, flow2 (the film already has a file, at the match or since: flow 2, #52), bad_request (an
 // override names no row of the job),
 // storage_unavailable (the filesystem checks fail), incomplete_rows (rows without a title
 // or episodes: edit or skip them), needs_override (Rows lists them), nothing_to_import;
@@ -73,6 +73,17 @@ func (e *Engine) confirm(ctx context.Context, user, email, jobID string, req Con
 	if _, ok := Flow2Of(s.t); ok {
 		// Importing the upload would replace the film's file: flow 2 merges or adds a version.
 		return Confirmation{}, refuse(CodeFlow2, "The film already has a file in the library: this job can merge the new language into it or keep it as a second version, not import it.")
+	}
+	if s.t.App == AppRadarr {
+		// A flow 1 job was matched to a film without a file; one may have appeared since
+		// (Radarr's RSS sync of a monitored film, say), and importing would replace it.
+		m, err := e.p.radarr.Movie(ctx, s.t.TitleID)
+		if err != nil {
+			return Confirmation{}, appFailure(s.t.App, err)
+		}
+		if m.File != nil {
+			return Confirmation{}, refuse(CodeFlow2, "The film has a file in the library now: this job can merge the new language into it or keep it as a second version, not import it. Match the film again.")
+		}
 	}
 	for _, id := range req.Overrides {
 		if s.find(id) < 0 {

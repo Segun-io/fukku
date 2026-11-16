@@ -6,6 +6,7 @@ import (
 	"net/netip"
 	"net/url"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 )
@@ -258,6 +259,16 @@ func validateShared(p *problems, cfg Config) {
 	absPath(p, "worker.spoolDir", w.SpoolDir)
 	positive(p, "worker.pollInterval", int64(w.PollInterval))
 	positive(p, "worker.probeTimeout", int64(w.ProbeTimeout))
+	if len(w.LibraryFormats) == 0 {
+		p.add("worker.libraryFormats", "must name at least one demuxer")
+	}
+	for _, f := range w.LibraryFormats {
+		if !demuxerName.MatchString(f) {
+			p.add("worker.libraryFormats", "%q is not a demuxer name (lower-case letters, digits, _ and +)", f)
+		} else if slices.Contains(networkDemuxers, f) {
+			p.add("worker.libraryFormats", "%q reads playlists or network streams and is not allowed", f)
+		}
+	}
 	positive(p, "worker.taskTimeout", int64(w.TaskTimeout))
 	if w.Nice < 0 || w.Nice > 19 {
 		p.add("worker.nice", "must be between 0 and 19")
@@ -359,3 +370,10 @@ func isWindowsAbs(p string) bool {
 func envFor(key string) string {
 	return envName(strings.Split(key, "."))
 }
+
+var demuxerName = regexp.MustCompile(`^[a-z0-9_+]+$`)
+
+// networkDemuxers are demuxers that follow references to other files or URLs (playlists,
+// scripts, streaming protocols). The worker also allows only the "fd" protocol, but they
+// have no place in a whitelist of container formats.
+var networkDemuxers = []string{"hls", "applehttp", "dash", "concat", "rtsp", "rtp", "sdp", "mpegtsraw_http", "ffconcat", "smoothstreaming", "rtmp"}

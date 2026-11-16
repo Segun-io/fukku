@@ -68,7 +68,11 @@ func RunLibrary(ctx context.Context, roots []string, args LibraryProbeArgs, opt 
 	}
 	defer func() { _ = lib.Close() }()
 	pf := ProbedFile{Path: rel, Kind: "video"}
-	if err := probeVideo(ctx, lib, &pf, opt); err != nil {
+	formats := formatWhitelist
+	if len(opt.LibraryFormats) > 0 {
+		formats = strings.Join(opt.LibraryFormats, ",")
+	}
+	if err := probeVideo(ctx, lib, &pf, opt, formats); err != nil {
 		return LibraryProbeOutput{}, err
 	}
 	out.OK, out.Refusal, out.Media = pf.OK, pf.Refusal, pf.Media

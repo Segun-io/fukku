@@ -25,3 +25,28 @@ func TestStreamDuration(t *testing.T) {
 		}
 	}
 }
+
+// Durations beyond the int64 range are capped, not converted undefined.
+func TestHugeDurationsAreCapped(t *testing.T) {
+	for _, s := range []string{"1e300", "9.3e15", "1.7976931348623157e308"} {
+		if got := secondsMs(s); got != maxDurationMs {
+			t.Errorf("secondsMs(%q) = %d, want the cap %d", s, got, int64(maxDurationMs))
+		}
+	}
+	for _, s := range []string{"99999999999:00:00.0", "2147483647:59:59.9"} {
+		if got := clockMs(s); got != maxDurationMs {
+			t.Errorf("clockMs(%q) = %d, want the cap", s, got)
+		}
+	}
+	if got := clockMs("00:00:NaN"); got != 0 {
+		t.Errorf("clockMs NaN = %d", got)
+	}
+	raw := rawProbe{}
+	raw.Format.Duration = "1e300"
+	if m := raw.toProbe(1); m.DurationMs != maxDurationMs {
+		t.Errorf("format duration %d", m.DurationMs)
+	}
+	if got := secondsMs("20.020000"); got != 20020 {
+		t.Errorf("ordinary duration %d", got)
+	}
+}
