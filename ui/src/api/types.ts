@@ -167,9 +167,11 @@ export type Job = {
 export type JobFileKind = "video" | "subtitle" | "archive";
 export type JobFileStatus = "pending" | "ok" | "refused";
 
+/** The extract output of #3 as the API passes it on: `refused` is left out when empty and
+ * `skipped` is null when nothing was skipped. */
 export type ArchiveExtraction = {
-  refused: string | null;
-  skipped: { name: string; reason: string }[];
+  refused?: string | null;
+  skipped?: { name: string; reason: string }[] | null;
 };
 
 export type JobFile = {

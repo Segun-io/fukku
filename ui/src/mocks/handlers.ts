@@ -6,10 +6,20 @@ import type { Job, JobAction, JobState } from "@/api/types";
 import { jobs as fixtureJobs, jobDetail, session } from "./fixtures";
 
 let jobs: Job[] = structuredClone(fixtureJobs);
+let admin = false;
 
 export function resetMocks() {
   jobs = structuredClone(fixtureJobs);
+  admin = false;
 }
+
+/** Makes the mock user an administrator: sees every job, `mine=true` limits the list. */
+export function setMockAdmin(value: boolean) {
+  admin = value;
+}
+
+/** The mock API's rule (#11): a user sees their own jobs, an admin everyone's. */
+const visible = (job: Job) => admin || job.owner === session.user.name;
 
 function failure(status: number, code: string, message: string) {
   return HttpResponse.json({ error: { code, message } }, { status });
@@ -34,14 +44,18 @@ function move(job: Job, state: JobState): Job {
 export const handlers = [
   http.get("/healthz", () => HttpResponse.json({ status: "ok", version: session.version })),
 
-  http.get("/api/session", () => HttpResponse.json(session)),
+  http.get("/api/session", () =>
+    HttpResponse.json({ ...session, user: { ...session.user, admin } }),
+  ),
 
   http.get("/api/jobs", ({ request }) => {
     const q = new URL(request.url).searchParams;
     const states = q.getAll("state");
     const offset = Number(q.get("offset") ?? 0);
     const limit = Number(q.get("limit") ?? 50);
+    const mine = q.get("mine") === "true";
     const list = jobs
+      .filter((j) => visible(j) && (!mine || j.owner === session.user.name))
       .filter((j) => states.length === 0 || states.includes(j.state))
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
       .slice(offset, offset + limit);
@@ -69,12 +83,12 @@ export const handlers = [
   }),
 
   http.get("/api/jobs/:id", ({ params }) => {
-    const job = jobs.find((j) => j.id === params.id);
+    const job = jobs.find((j) => j.id === params.id && visible(j));
     return job ? HttpResponse.json(jobDetail(job)) : notFound();
   }),
 
   http.post("/api/jobs/:id/submit", ({ params }) => {
-    const job = jobs.find((j) => j.id === params.id);
+    const job = jobs.find((j) => j.id === params.id && visible(j));
     if (!job) return notFound();
     if (job.state !== "uploading") return failure(409, "wrong_state", "The job is not uploading.");
     if (job.fileCount === 0) return failure(409, "no_files", "The job has no files.");
@@ -82,7 +96,7 @@ export const handlers = [
   }),
 
   http.post("/api/jobs/:id/cancel", ({ params }) => {
-    const job = jobs.find((j) => j.id === params.id);
+    const job = jobs.find((j) => j.id === params.id && visible(j));
     if (!job) return notFound();
     if (!job.actions.includes("cancel")) {
       return failure(409, "wrong_state", "The job cannot be cancelled now.");
@@ -91,7 +105,7 @@ export const handlers = [
   }),
 
   http.post("/api/jobs/:id/retry", ({ params }) => {
-    const job = jobs.find((j) => j.id === params.id);
+    const job = jobs.find((j) => j.id === params.id && visible(j));
     if (!job) return notFound();
     if (job.state !== "failed") return failure(409, "wrong_state", "The job has not failed.");
     job.error = null;
@@ -100,7 +114,7 @@ export const handlers = [
   }),
 
   http.delete("/api/jobs/:id", ({ params }) => {
-    const job = jobs.find((j) => j.id === params.id);
+    const job = jobs.find((j) => j.id === params.id && visible(j));
     if (!job) return notFound();
     if (!job.actions.includes("delete")) return failure(409, "job_active", "The job is active.");
     jobs = jobs.filter((j) => j !== job);

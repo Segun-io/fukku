@@ -45,12 +45,12 @@ describe("translate", () => {
   });
 
   it("picks the plural form and formats the count", () => {
-    expect(translate("en", "jobs.count", { count: 1 })).toBe("1 job");
-    expect(translate("en", "jobs.count", { count: 1500 })).toBe("1,500 jobs");
-    expect(translate("es", "jobs.count", { count: 1 })).toBe("1 trabajo");
-    expect(translate("es", "jobs.count", { count: 0 })).toBe("0 trabajos");
+    expect(translate("en", "jobs.count", { count: 1 })).toBe("1 upload");
+    expect(translate("en", "jobs.count", { count: 1500 })).toBe("1,500 uploads");
+    expect(translate("es", "jobs.count", { count: 1 })).toBe("1 envío");
+    expect(translate("es", "jobs.count", { count: 0 })).toBe("0 envíos");
     // Spanish has a "many" category (1 000 000); it falls back to "other".
-    expect(translate("es", "jobs.count", { count: 1_000_000 })).toContain("trabajos");
+    expect(translate("es", "jobs.count", { count: 1_000_000 })).toContain("envíos");
   });
 });
 

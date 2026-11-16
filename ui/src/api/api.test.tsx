@@ -116,7 +116,7 @@ describe("query hooks", () => {
   it("useSession and useJobs read the mock API", async () => {
     render(<Probe />, { wrapper });
     expect(await screen.findByText("user: user1")).toBeInTheDocument();
-    expect(await screen.findByText("jobs: 1")).toBeInTheDocument();
+    expect(await screen.findByText("jobs: 2")).toBeInTheDocument();
   });
 
   it("an error answer reaches the hook as an ApiError with its code", async () => {

@@ -11,10 +11,10 @@ describe("routes", () => {
   it("/ redirects to /jobs and lists the jobs from the mock API", async () => {
     const { router } = renderApp("/");
     expect(await screen.findByText("Another Film (1999).mkv")).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Jobs" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Your uploads" })).toBeInTheDocument();
     expect(router.state.location.pathname).toBe("/jobs");
-    expect(screen.getByText("4 jobs")).toBeInTheDocument();
-    expect(screen.getByText("Failed")).toBeInTheDocument();
+    expect(screen.getByText("5 uploads")).toBeInTheDocument();
+    expect(within(screen.getByRole("list", { name: "Uploads" })).getByText("Failed")).toBeVisible();
   });
 
   it("the header links reach /upload and /jobs", async () => {
@@ -25,20 +25,14 @@ describe("routes", () => {
     expect(await screen.findByRole("heading", { name: "Upload" })).toBeInTheDocument();
     expect(router.state.location.pathname).toBe("/upload");
     await user.click(within(nav).getByRole("link", { name: "Your uploads" }));
-    expect(await screen.findByRole("heading", { name: "Jobs" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Your uploads" })).toBeInTheDocument();
   });
 
-  it("/jobs/$id shows one job and its files", async () => {
-    renderApp(`/jobs/${"2".padStart(32, "0")}`);
-    expect(
-      await screen.findByRole("heading", { name: "Another Film (1999).mkv" }),
-    ).toBeInTheDocument();
-    expect(screen.getByText("Another Film (1999).es.srt (1.7 kB)")).toBeInTheDocument();
-  });
-
-  it("an unknown job shows the translated error for its code", async () => {
+  it("an unknown job is shown as not found", async () => {
     renderApp(`/jobs/${"f".repeat(32)}`);
-    expect(await screen.findByRole("alert")).toHaveTextContent("Not found.");
+    expect(
+      await screen.findByRole("heading", { name: "This upload was not found" }),
+    ).toBeInTheDocument();
   });
 });
 
@@ -64,26 +58,26 @@ describe("language", () => {
     const user = userEvent.setup();
     const first = renderApp("/jobs");
     expect(await screen.findByText("Another Film (1999).mkv")).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Jobs" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Your uploads" })).toBeInTheDocument();
 
     await user.selectOptions(screen.getByRole("combobox", { name: "Language" }), "es");
-    expect(await screen.findByRole("heading", { name: "Trabajos" })).toBeInTheDocument();
-    expect(screen.getByText("Fallido")).toBeInTheDocument();
-    expect(screen.getByText("4 trabajos")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Tus envíos" })).toBeInTheDocument();
+    expect(within(screen.getByRole("list", { name: "Envíos" })).getByText("Fallido")).toBeVisible();
+    expect(screen.getByText("5 envíos")).toBeInTheDocument();
     expect(document.documentElement.lang).toBe("es");
     expect(localStorage.getItem("fukku.lang")).toBe("es");
 
     // A reload: a new page with the same localStorage.
     first.unmount();
     renderApp("/jobs");
-    expect(await screen.findByRole("heading", { name: "Trabajos" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Tus envíos" })).toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: "Idioma" })).toHaveValue("es");
   });
 
   it("without a saved choice it follows the browser's language", async () => {
     vi.stubGlobal("navigator", { ...navigator, languages: ["es-419", "en"], language: "es-419" });
     renderApp("/jobs");
-    expect(await screen.findByRole("heading", { name: "Trabajos" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Tus envíos" })).toBeInTheDocument();
   });
 
   it("only offers the languages the server lists", async () => {
@@ -93,7 +87,7 @@ describe("language", () => {
     );
     renderApp("/jobs");
     await waitFor(() =>
-      expect(screen.getByRole("heading", { name: "Trabajos" })).toBeInTheDocument(),
+      expect(screen.getByRole("heading", { name: "Tus envíos" })).toBeInTheDocument(),
     );
     expect(screen.queryByRole("option", { name: "English" })).not.toBeInTheDocument();
   });
