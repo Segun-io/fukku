@@ -93,6 +93,20 @@ type M2 interface {
 	// transaction. The JobID of a row is ignored. A row needs an ID, unique within the
 	// slice (else ErrExists), and a FileID of one of the job's files (else ErrNotFound).
 	PutRows(ctx context.Context, jobID string, rows []Row) error
+	// PutProposal is the proposal's write, in one transaction: the job must be in state
+	// from and still have the target t (same App, TitleID and MatchedAt), else ErrConflict
+	// (also when it has none). from must be matched or awaiting-confirmation and to
+	// awaiting-confirmation, else ErrInvalidTransition; c.ExpiresAt must be nil. The rows
+	// replace all of the job's rows (PutRows' rules) and the job moves to to (to == from
+	// changes nothing else and records no event). Nothing is changed when it fails. Returns
+	// the job as it is after. A re-match (ReplaceTarget) between the proposal's read of the
+	// target and this write makes it fail instead of storing the old title's rows.
+	PutProposal(ctx context.Context, jobID string, from, to State, t Target, rows []Row, c Change) (Job, error)
+	// TransitionFor is Transition, done only while the job still has the target t (same
+	// App, TitleID and MatchedAt; else ErrConflict, also when it has none), in the same
+	// transaction. A step that worked for one title moves the job with it, so that its
+	// failure cannot land on a title the user chose meanwhile.
+	TransitionFor(ctx context.Context, jobID string, t Target, from, to State, c Change) (Job, error)
 	// Rows returns the job's rows in the order PutRows was given them.
 	Rows(ctx context.Context, jobID string) ([]Row, error)
 	// UpdateRow replaces Skip, Edit, Proposal, Override and Result of the row

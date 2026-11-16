@@ -3,6 +3,7 @@ package storetest
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -16,6 +17,8 @@ var m2Tests = []struct {
 }{
 	{"Target", testTarget},
 	{"ReplaceTarget", testReplaceTarget},
+	{"PutProposal", testPutProposal},
+	{"TransitionFor", testTransitionFor},
 	{"Rows", testRows},
 	{"Import", testImport},
 	{"PostSteps", testPostSteps},
@@ -442,5 +445,166 @@ func testDeleteJobM2(t *testing.T, s store.Store) {
 	must(s.Import(ctx, keep.ID))(t)
 	if len(must(s.Rows(ctx, keep.ID))(t)) != 1 || len(must(s.PostSteps(ctx, keep.ID))(t)) != 1 {
 		t.Fatal("deleting one job touched another")
+	}
+}
+
+func testPutProposal(t *testing.T, s store.Store) {
+	ctx := t.Context()
+	j := drive(t, s, newJob(t, s, "user1").ID, store.Probed)
+	a, b := addVideo(t, s, j.ID, "a.mkv"), addVideo(t, s, j.ID, "b.mkv")
+	if _, err := s.PutProposal(ctx, j.ID, store.Matched, store.AwaitingConfirmation, store.Target{App: "radarr", TitleID: 1}, nil, store.Change{}); !errors.Is(err, store.ErrConflict) {
+		t.Fatalf("a probed job: %v, want ErrConflict", err)
+	}
+	must(s.ReplaceTarget(ctx, j.ID, store.Probed, store.Matched, &store.Target{App: "radarr", TitleID: 1, Title: "One"}, store.Change{Actor: "user1"}))(t)
+	tg := must(s.Target(ctx, j.ID))(t)
+	rows := []store.Row{{ID: "r1", FileID: a.ID, Proposal: json.RawMessage(`{"MovieID":1}`)}, {ID: "r2", FileID: b.ID, Skip: true}}
+
+	// Refused calls change nothing.
+	for name, call := range map[string]func() error{
+		"another title": func() error {
+			_, err := s.PutProposal(ctx, j.ID, store.Matched, store.AwaitingConfirmation, store.Target{App: "radarr", TitleID: 2, MatchedAt: tg.MatchedAt}, rows, store.Change{})
+			return want(err, store.ErrConflict)
+		},
+		"another match of the same title": func() error {
+			_, err := s.PutProposal(ctx, j.ID, store.Matched, store.AwaitingConfirmation, store.Target{App: "radarr", TitleID: 1, MatchedAt: tg.MatchedAt.Add(time.Second)}, rows, store.Change{})
+			return want(err, store.ErrConflict)
+		},
+		"another app": func() error {
+			_, err := s.PutProposal(ctx, j.ID, store.Matched, store.AwaitingConfirmation, store.Target{App: "sonarr", TitleID: 1, MatchedAt: tg.MatchedAt}, rows, store.Change{})
+			return want(err, store.ErrConflict)
+		},
+		"a stale from": func() error {
+			_, err := s.PutProposal(ctx, j.ID, store.AwaitingConfirmation, store.AwaitingConfirmation, tg, rows, store.Change{})
+			return want(err, store.ErrConflict)
+		},
+		"to matched": func() error {
+			_, err := s.PutProposal(ctx, j.ID, store.Matched, store.Matched, tg, rows, store.Change{})
+			return want(err, store.ErrInvalidTransition)
+		},
+		"a file of no job": func() error {
+			_, err := s.PutProposal(ctx, j.ID, store.Matched, store.AwaitingConfirmation, tg, []store.Row{{ID: "r9", FileID: 99999}}, store.Change{})
+			return want(err, store.ErrNotFound)
+		},
+		"a row twice": func() error {
+			_, err := s.PutProposal(ctx, j.ID, store.Matched, store.AwaitingConfirmation, tg, []store.Row{rows[0], rows[0]}, store.Change{})
+			return want(err, store.ErrExists)
+		},
+		"a retention date": func() error {
+			soon := time.Now().Add(time.Hour)
+			if _, err := s.PutProposal(ctx, j.ID, store.Matched, store.AwaitingConfirmation, tg, rows, store.Change{ExpiresAt: &soon}); err == nil {
+				return errors.New("accepted")
+			}
+			return nil
+		},
+	} {
+		if err := call(); err != nil {
+			t.Errorf("%s: %v", name, err)
+		}
+		if got := must(s.Job(ctx, j.ID))(t); got.State != store.Matched || len(must(s.Rows(ctx, j.ID))(t)) != 0 {
+			t.Fatalf("%s changed the job: %s, rows %v", name, got.State, must(s.Rows(ctx, j.ID))(t))
+		}
+	}
+
+	// matched → awaiting-confirmation with the rows, one event.
+	events := len(history(t, s, j.ID))
+	got := must(s.PutProposal(ctx, j.ID, store.Matched, store.AwaitingConfirmation, tg, rows, store.Change{Note: "2 rows"}))(t)
+	if got.State != store.AwaitingConfirmation {
+		t.Fatalf("job after: %+v", got)
+	}
+	checkStored(t, s, got)
+	h := history(t, s, j.ID)
+	if len(h) != events+1 || h[len(h)-1].From != store.Matched || h[len(h)-1].To != store.AwaitingConfirmation || h[len(h)-1].Note != "2 rows" {
+		t.Fatalf("history %+v", h)
+	}
+	if rs := must(s.Rows(ctx, j.ID))(t); len(rs) != 2 || rs[0].ID != "r1" || !sameJSON(rs[0].Proposal, `{"MovieID":1}`) || !rs[1].Skip {
+		t.Fatalf("rows %+v", rs)
+	}
+
+	// awaiting-confirmation to itself replaces the rows and records nothing.
+	must(s.PutProposal(ctx, j.ID, store.AwaitingConfirmation, store.AwaitingConfirmation, tg, rows[1:], store.Change{}))(t)
+	if rs := must(s.Rows(ctx, j.ID))(t); len(rs) != 1 || rs[0].ID != "r2" || len(history(t, s, j.ID)) != events+1 {
+		t.Fatalf("rows %+v", rs)
+	}
+
+	// A re-match between the read of the target and the write: refused, no old rows.
+	must(s.ReplaceTarget(ctx, j.ID, store.AwaitingConfirmation, store.Matched, &store.Target{App: "radarr", TitleID: 3}, store.Change{}))(t)
+	if _, err := s.PutProposal(ctx, j.ID, store.Matched, store.AwaitingConfirmation, tg, rows, store.Change{}); !errors.Is(err, store.ErrConflict) {
+		t.Fatalf("after a re-match: %v, want ErrConflict", err)
+	}
+	if len(must(s.Rows(ctx, j.ID))(t)) != 0 || must(s.Job(ctx, j.ID))(t).State != store.Matched {
+		t.Fatal("the old title's rows were stored")
+	}
+	if _, err := s.PutProposal(ctx, unknownJob, store.Matched, store.AwaitingConfirmation, tg, nil, store.Change{}); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("unknown job: %v", err)
+	}
+}
+
+func want(err, target error) error {
+	if !errors.Is(err, target) {
+		return fmt.Errorf("got %w, want %w", err, target)
+	}
+	return nil
+}
+
+func testTransitionFor(t *testing.T, s store.Store) {
+	ctx := t.Context()
+	j := drive(t, s, newJob(t, s, "user1").ID, store.Probed)
+	fail := store.Change{Actor: "system", ErrorCode: "proposal_failed", ErrorText: "refused"}
+	if _, err := s.TransitionFor(ctx, j.ID, store.Target{App: "radarr", TitleID: 1}, store.Probed, store.Failed, fail); !errors.Is(err, store.ErrConflict) {
+		t.Fatalf("a job without a target: %v, want ErrConflict", err)
+	}
+	must(s.ReplaceTarget(ctx, j.ID, store.Probed, store.Matched, &store.Target{App: "radarr", TitleID: 1, Title: "One"}, store.Change{Actor: "user1"}))(t)
+	tg := must(s.Target(ctx, j.ID))(t)
+	events := len(history(t, s, j.ID))
+
+	// Another title, app or match: refused, nothing changes.
+	for name, other := range map[string]store.Target{
+		"another title":                   {App: "radarr", TitleID: 2, MatchedAt: tg.MatchedAt},
+		"another app":                     {App: "sonarr", TitleID: 1, MatchedAt: tg.MatchedAt},
+		"another match of the same title": {App: "radarr", TitleID: 1, MatchedAt: tg.MatchedAt.Add(time.Second)},
+	} {
+		if _, err := s.TransitionFor(ctx, j.ID, other, store.Matched, store.Failed, fail); !errors.Is(err, store.ErrConflict) {
+			t.Errorf("%s: %v, want ErrConflict", name, err)
+		}
+	}
+	if got := must(s.Job(ctx, j.ID))(t); got.State != store.Matched || got.ErrorCode != "" || len(history(t, s, j.ID)) != events {
+		t.Fatalf("a refused call changed the job: %+v", got)
+	}
+
+	// Transition's own rules still hold.
+	if _, err := s.TransitionFor(ctx, j.ID, tg, store.Probed, store.Matched, store.Change{}); !errors.Is(err, store.ErrConflict) {
+		t.Errorf("a stale from: %v, want ErrConflict", err)
+	}
+	if _, err := s.TransitionFor(ctx, j.ID, tg, store.Matched, store.Done, store.Change{}); !errors.Is(err, store.ErrInvalidTransition) {
+		t.Errorf("matched → done: %v, want ErrInvalidTransition", err)
+	}
+	if _, err := s.TransitionFor(ctx, j.ID, tg, store.Matched, store.Stalled, store.Change{}); !errors.Is(err, store.ErrInvalidTransition) {
+		t.Errorf("stalled without a code: %v, want ErrInvalidTransition", err)
+	}
+
+	// The same title: the move happens, with Transition's bookkeeping.
+	got := must(s.TransitionFor(ctx, j.ID, tg, store.Matched, store.Stalled, store.Change{Actor: "system", ErrorCode: "arr_unavailable", ErrorText: "down"}))(t)
+	if got.State != store.Stalled || got.Resume != store.Matched || got.ErrorCode != "arr_unavailable" {
+		t.Fatalf("job after: %+v", got)
+	}
+	checkStored(t, s, got)
+	if h := history(t, s, j.ID); len(h) != events+1 || h[len(h)-1].To != store.Stalled {
+		t.Fatalf("history %+v", h)
+	}
+	got = must(s.TransitionFor(ctx, j.ID, tg, store.Stalled, store.Matched, store.Change{Actor: "system"}))(t)
+	if got.State != store.Matched || got.ErrorCode != "" {
+		t.Fatalf("resumed: %+v", got)
+	}
+
+	// After a re-match the step's failure for the old title is refused.
+	must(s.ReplaceTarget(ctx, j.ID, store.Matched, store.Matched, &store.Target{App: "radarr", TitleID: 2}, store.Change{Actor: "user1"}))(t)
+	if _, err := s.TransitionFor(ctx, j.ID, tg, store.Matched, store.Failed, fail); !errors.Is(err, store.ErrConflict) {
+		t.Fatalf("after a re-match: %v, want ErrConflict", err)
+	}
+	if got := must(s.Job(ctx, j.ID))(t); got.State != store.Matched || got.ErrorCode != "" {
+		t.Fatalf("the new title's job failed: %+v", got)
+	}
+	if _, err := s.TransitionFor(ctx, unknownJob, tg, store.Matched, store.Failed, fail); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("unknown job: %v", err)
 	}
 }

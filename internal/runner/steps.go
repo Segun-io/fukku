@@ -400,7 +400,15 @@ func (r *Runner) stalled(ctx context.Context, job store.Job) error {
 		}
 		note = "there is free space again"
 	default:
-		return nil // stalled on something else: M2 handles it
+		res, ok := r.resumes[job.ErrorCode]
+		if !ok {
+			return nil // nothing registered for this code
+		}
+		ready, err := res.ready(ctx, job)
+		if err != nil || !ready {
+			return err
+		}
+		note = res.note
 	}
 	_, err := r.move(ctx, job, job.Resume, store.Change{Note: note})
 	return err

@@ -152,6 +152,64 @@ func (f *Fake) PutRows(ctx context.Context, jobID string, rows []store.Row) erro
 	if _, ok := f.jobs[jobID]; !ok {
 		return store.ErrNotFound
 	}
+	return f.putRows(jobID, rows)
+}
+
+func (f *Fake) PutProposal(ctx context.Context, jobID string, from, to store.State, t store.Target, rows []store.Row, c store.Change) (store.Job, error) {
+	if err := f.lock(ctx); err != nil {
+		return store.Job{}, err
+	}
+	defer f.mu.Unlock()
+	if c.ExpiresAt != nil {
+		return store.Job{}, errors.New("storetest: PutProposal does not change the retention date")
+	}
+	if (from != store.Matched && from != store.AwaitingConfirmation) || to != store.AwaitingConfirmation {
+		return store.Job{}, fmt.Errorf("%w: %s → %s", store.ErrInvalidTransition, from, to)
+	}
+	j, ok := f.jobs[jobID]
+	if !ok {
+		return store.Job{}, store.ErrNotFound
+	}
+	if j.State != from {
+		return store.Job{}, store.ErrConflict
+	}
+	if !f.hasTarget(jobID, t) {
+		return store.Job{}, store.ErrConflict
+	}
+	if err := f.putRows(jobID, rows); err != nil {
+		return store.Job{}, err
+	}
+	if to != from {
+		now := f.clock()
+		j.State, j.UpdatedAt = to, now
+		j.Resume, j.ErrorCode, j.ErrorText = "", "", ""
+		f.events = append(f.events, store.Event{JobID: jobID, At: now, From: from, To: to, Actor: actorOr(c.Actor), Note: c.Note})
+	}
+	return j.Job, nil
+}
+
+func (f *Fake) TransitionFor(ctx context.Context, jobID string, t store.Target, from, to store.State, c store.Change) (store.Job, error) {
+	if err := f.lock(ctx); err != nil {
+		return store.Job{}, err
+	}
+	defer f.mu.Unlock()
+	if _, ok := f.jobs[jobID]; !ok {
+		return store.Job{}, store.ErrNotFound
+	}
+	if !f.hasTarget(jobID, t) {
+		return store.Job{}, store.ErrConflict
+	}
+	return f.transition(jobID, from, to, c)
+}
+
+// hasTarget reports whether the job's target is t (app, title id, matched at); f.mu is held.
+func (f *Fake) hasTarget(jobID string, t store.Target) bool {
+	cur, ok := f.m2.targets[jobID]
+	return ok && cur.App == t.App && cur.TitleID == t.TitleID && cur.MatchedAt.Equal(norm(t.MatchedAt))
+}
+
+// putRows replaces the job's rows; f.mu is held. On an error nothing is changed.
+func (f *Fake) putRows(jobID string, rows []store.Row) error {
 	seen := map[string]bool{}
 	out := make([]store.Row, 0, len(rows))
 	for _, r := range rows {

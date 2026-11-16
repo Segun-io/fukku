@@ -37,6 +37,11 @@ type Server struct {
 	DataDir           string   `yaml:"dataDir"`
 	JobStuckAfter     Duration `yaml:"jobStuckAfter"`
 	ReadinessCacheTTL Duration `yaml:"readinessCacheTtl"`
+	// ArrStallBackoff: how long a job stalled because an app did not answer waits before it
+	// tries again, doubled on each further stall (at most 16 times).
+	ArrStallBackoff Duration `yaml:"arrStallBackoff"`
+	// ArrStallLimit: after this many stalls in a row in one state, the job fails instead.
+	ArrStallLimit int `yaml:"arrStallLimit"`
 }
 
 type Auth struct {
@@ -146,6 +151,12 @@ type Match struct {
 	DoubleEpisodeRatio     float64  `yaml:"doubleEpisodeRatio"`
 	DoubleEpisodeTolerance float64  `yaml:"doubleEpisodeTolerance"`
 	LookupCacheTTL         Duration `yaml:"lookupCacheTtl"`
+	// RuntimeMismatchTolerance: a file further than this (relative) from its episodes'
+	// expected runtime is hinted as a runtime mismatch.
+	RuntimeMismatchTolerance float64 `yaml:"runtimeMismatchTolerance"`
+	// DVDOrderShare: when more than this share of the rows that can be compared are
+	// runtime mismatches, the proposal hints at DVD order.
+	DVDOrderShare float64 `yaml:"dvdOrderShare"`
 }
 
 type Merge struct {

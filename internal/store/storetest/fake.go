@@ -160,6 +160,11 @@ func (f *Fake) Transition(ctx context.Context, id string, from, to store.State, 
 		return store.Job{}, err
 	}
 	defer f.mu.Unlock()
+	return f.transition(id, from, to, c)
+}
+
+// transition is Transition with f.mu held.
+func (f *Fake) transition(id string, from, to store.State, c store.Change) (store.Job, error) {
 	j, ok := f.jobs[id]
 	if !ok {
 		return store.Job{}, store.ErrNotFound

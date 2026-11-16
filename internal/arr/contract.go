@@ -64,6 +64,11 @@ type Importer interface {
 	Status(ctx context.Context) (Status, error)
 	Profiles(ctx context.Context) ([]Profile, error)
 	RootFolders(ctx context.Context) ([]RootFolder, error)
+	// Qualities lists every quality the app knows (GET /qualitydefinition), in the app's
+	// order: what a quality picker offers.
+	Qualities(ctx context.Context) ([]Quality, error)
+	// Languages lists every language the app knows (GET /language).
+	Languages(ctx context.Context) ([]Language, error)
 	// Proposal lists the files under folder (a path as the app sees it):
 	// GET /manualimport?folder=&filterExistingFiles=false. It never sends a title id: with
 	// one, both apps ignore the folder and scan the title's own (probes C6, C6-sonarr).

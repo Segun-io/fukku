@@ -34,6 +34,11 @@ type base struct {
 	Proposed map[string][]arr.Row // by folder
 	// Verdicts maps a file path to the rejections Recheck reports for it (none by default).
 	Verdicts map[string][]arr.Rejection
+	Quals    []arr.Quality  // what Qualities returns
+	Langs    []arr.Language // what Languages returns
+
+	folders  []string    // the folder of every Proposal call
+	rechecks [][]arr.Row // the rows of every Recheck call
 
 	cmds     []arr.Command
 	imported map[int][]arr.Row // rows of each import command
@@ -68,9 +73,41 @@ func (b *base) RootFolders(context.Context) ([]arr.RootFolder, error) {
 	return append([]arr.RootFolder(nil), b.Roots...), b.fail("RootFolders")
 }
 
+func (b *base) Qualities(context.Context) ([]arr.Quality, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return append([]arr.Quality(nil), b.Quals...), b.fail("Qualities")
+}
+
+func (b *base) Languages(context.Context) ([]arr.Language, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return append([]arr.Language(nil), b.Langs...), b.fail("Languages")
+}
+
+// ProposalCalls returns the folder of every Proposal call so far, failed ones included.
+// Proposal takes nothing else: no title id can reach the app.
+func (b *base) ProposalCalls() []string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return append([]string(nil), b.folders...)
+}
+
+// RecheckCalls returns the rows of every Recheck call so far, failed ones included.
+func (b *base) RecheckCalls() [][]arr.Row {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	out := make([][]arr.Row, len(b.rechecks))
+	for i, rows := range b.rechecks {
+		out[i] = append([]arr.Row(nil), rows...)
+	}
+	return out
+}
+
 func (b *base) Proposal(_ context.Context, folder string) ([]arr.Row, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	b.folders = append(b.folders, folder)
 	if err := b.fail("Proposal"); err != nil {
 		return nil, err
 	}
@@ -80,6 +117,7 @@ func (b *base) Proposal(_ context.Context, folder string) ([]arr.Row, error) {
 func (b *base) Recheck(_ context.Context, rows []arr.Row) ([]arr.Row, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	b.rechecks = append(b.rechecks, append([]arr.Row(nil), rows...))
 	if err := b.fail("Recheck"); err != nil {
 		return nil, err
 	}

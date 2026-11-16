@@ -21,4 +21,7 @@ type Deps struct {
 	// Locks is shared by every step that writes a job's target, rows or state from what it
 	// read (the match step, the proposal step). Nil: the match step has its own.
 	Locks *flows.JobLocks
+	// Proposals is the proposal flow (#38), shared with the job runner, which runs its
+	// matched step. Nil: no proposal routes.
+	Proposals *flows.Proposals
 }

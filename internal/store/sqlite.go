@@ -288,6 +288,18 @@ func (s *sqliteStore) Transition(ctx context.Context, id string, from, to State,
 		return Job{}, err
 	}
 	defer func() { _ = tx.Rollback() }()
+	next, err := s.transitionTx(ctx, tx, id, from, to, c)
+	if err != nil {
+		return Job{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return Job{}, err
+	}
+	return next, nil
+}
+
+// transitionTx is Transition inside tx.
+func (s *sqliteStore) transitionTx(ctx context.Context, tx *sql.Tx, id string, from, to State, c Change) (Job, error) {
 	cur, err := scanJob(tx.QueryRowContext(ctx, "SELECT "+jobCols+" FROM jobs WHERE id = ?", id))
 	if err != nil {
 		return Job{}, err
@@ -312,9 +324,6 @@ func (s *sqliteStore) Transition(ctx context.Context, id string, from, to State,
 	if _, err := tx.ExecContext(ctx,
 		"INSERT INTO events (job_id, at, from_state, to_state, actor, note) VALUES (?, ?, ?, ?, ?, ?)",
 		ev.JobID, nanos(ev.At), ev.From, ev.To, ev.Actor, ev.Note); err != nil {
-		return Job{}, err
-	}
-	if err := tx.Commit(); err != nil {
 		return Job{}, err
 	}
 	return next, nil

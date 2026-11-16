@@ -53,6 +53,8 @@ type Runner struct {
 	q     spool.Queue
 	now   func() time.Time
 	steps map[store.State]Step
+	// resumes holds, by error code, when a job stalled with that code may go on (ResumeWhen).
+	resumes map[string]resume
 
 	freeSpace func(dir string) (int64, error) // bytes free on dir's filesystem; replaced in tests
 
@@ -79,6 +81,25 @@ func New(cfg config.Config, log *slog.Logger, st store.Store, q spool.Queue, now
 // Handle registers the step for jobs in a state. M2 registers matched, importing,
 // imported and post-processing. Call it before Run.
 func (r *Runner) Handle(state store.State, s Step) { r.steps[state] = s }
+
+// Ready reports whether a stalled job may go back to its Resume state. Like a step it must
+// not wait: it looks (asks an app whether it answers, say) and returns.
+type Ready func(ctx context.Context, job store.Job) (bool, error)
+
+type resume struct {
+	note  string
+	ready Ready
+}
+
+// ResumeWhen registers, for jobs stalled with the error code, the check that lets them go
+// back to their Resume state, and the note recorded with that transition. M2 registers
+// arr_unavailable. Call it before Run.
+func (r *Runner) ResumeWhen(code, note string, ready Ready) {
+	if r.resumes == nil {
+		r.resumes = map[string]resume{}
+	}
+	r.resumes[code] = resume{note: note, ready: ready}
+}
 
 // Run makes a pass at once and then every worker.pollInterval, until ctx is cancelled.
 func (r *Runner) Run(ctx context.Context) error {

@@ -151,11 +151,9 @@ func runWeb(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 		defer close(swept)
 		_ = retention.New(cfg, st, q, log, nil).Run(ctx)
 	}()
-	// The job runner (#29) drives jobs next to the HTTP server and stops with it, before
-	// the store closes.
-	ran := make(chan error, 1)
-	go func() { ran <- runner.New(cfg, log, st, q, time.Now).Run(ctx) }()
-	// One set of job locks for every step that writes a job from what it read.
+	// One set of app clients and of job locks for every step that writes a job from what
+	// it read: the match API (#37) and the proposal (#38), whose matched step the runner
+	// runs.
 	deps := web.Deps{Queue: q, Store: st, Locks: flows.NewJobLocks()}
 	if cfg.Radarr.URL != "" {
 		deps.Radarr = arr.NewRadarr(cfg.Radarr)
@@ -163,6 +161,14 @@ func runWeb(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	if cfg.Sonarr.URL != "" {
 		deps.Sonarr = arr.NewSonarr(cfg.Sonarr)
 	}
+	deps.Proposals = flows.NewProposals(cfg, log, st, deps.Radarr, deps.Sonarr, deps.Locks)
+	// The job runner (#29) drives jobs next to the HTTP server and stops with it, before
+	// the store closes.
+	rn := runner.New(cfg, log, st, q, time.Now)
+	rn.Handle(store.Matched, deps.Proposals.Matched)
+	rn.ResumeWhen(flows.CodeArrUnavailable, "the app answers again", deps.Proposals.AppAnswers)
+	ran := make(chan error, 1)
+	go func() { ran <- rn.Run(ctx) }()
 	err = web.New(cfg, log, ui.FS(), deps).Run(ctx)
 	cancel()
 	<-swept

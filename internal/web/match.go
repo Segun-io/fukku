@@ -47,7 +47,7 @@ func (s *Server) matchError(w http.ResponseWriter, r *http.Request, err error) {
 	switch code {
 	case flows.CodeBadRequest:
 		status = http.StatusBadRequest
-	case flows.CodeAppNotConfigured, flows.CodeTitleNotFound:
+	case flows.CodeAppNotConfigured, flows.CodeTitleNotFound, flows.CodeNotFound:
 		status = http.StatusNotFound
 	case flows.CodeWrongState, flows.CodeAlreadyInLibrary, flows.CodeTitleInUse, flows.CodeTitleBusy:
 		status = http.StatusConflict

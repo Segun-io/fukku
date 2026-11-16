@@ -510,7 +510,7 @@ func TestUnreachableAppErrorHasNoKey(t *testing.T) {
 	srv.Close()
 	r := arr.NewRadarr(cfg(url, time.Second))
 	_, err := r.Status(ctx)
-	if err == nil || strings.Contains(err.Error(), testKey) {
+	if err == nil || strings.Contains(err.Error(), testKey) || !errors.Is(err, arr.ErrUnreachable) {
 		t.Errorf("err = %v", err)
 	}
 }
@@ -561,5 +561,22 @@ func TestKeyAppearsInNoLogLineAndNoError(t *testing.T) {
 	// The configuration prints without the key too.
 	if s := (config.Arr{APIKey: testKey}).APIKey.String(); strings.Contains(s, testKey) {
 		t.Errorf("Secret prints the key: %s", s)
+	}
+}
+
+func TestQualitiesAndLanguages(t *testing.T) {
+	_, r := newApp(t, map[string]reply{
+		"GET /api/v3/qualitydefinition": {body: `[
+			{"id": 1, "quality": {"id": 0, "name": "Unknown", "source": "unknown", "resolution": 0}, "title": "Unknown", "weight": 1},
+			{"id": 9, "quality": {"id": 3, "name": "WEBDL-1080p", "source": "webdl", "resolution": 1080}, "title": "WEBDL-1080p", "weight": 15}]`},
+		"GET /api/v3/language": {body: `[{"id": 1, "name": "English", "nameLower": "english"}, {"id": 3, "name": "Spanish", "nameLower": "spanish"}]`},
+	})
+	qs, err := r.Qualities(ctx)
+	if err != nil || len(qs) != 2 || qs[1] != (arr.Quality{ID: 3, Name: "WEBDL-1080p"}) {
+		t.Errorf("Qualities = %+v, %v", qs, err)
+	}
+	ls, err := r.Languages(ctx)
+	if err != nil || len(ls) != 2 || ls[1] != (arr.Language{ID: 3, Name: "Spanish"}) {
+		t.Errorf("Languages = %+v, %v", ls, err)
 	}
 }

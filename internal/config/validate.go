@@ -76,6 +76,8 @@ func validateWeb(p *problems, cfg Config, opts ValidateOptions) {
 	absPath(p, "server.dataDir", s.DataDir)
 	positive(p, "server.jobStuckAfter", int64(s.JobStuckAfter))
 	nonNegative(p, "server.readinessCacheTtl", int64(s.ReadinessCacheTTL))
+	positive(p, "server.arrStallBackoff", int64(s.ArrStallBackoff))
+	positive(p, "server.arrStallLimit", int64(s.ArrStallLimit))
 
 	a := cfg.Auth
 	oneOf(p, "auth.mode", a.Mode, "proxyHeaders", "oidc", "none")
@@ -214,6 +216,12 @@ func validateShared(p *problems, cfg Config) {
 	oneOf(p, "match.defaultSource", m.DefaultSource, "WEBDL", "WEBRIP", "BLURAY", "HDTV", "DVD")
 	if m.DoubleEpisodeRatio <= 1 || m.DoubleEpisodeTolerance <= 0 || m.DoubleEpisodeTolerance >= 1 {
 		p.add("match.doubleEpisodeRatio", "doubleEpisodeRatio must be > 1 and doubleEpisodeTolerance between 0 and 1")
+	}
+	if m.RuntimeMismatchTolerance <= 0 || m.RuntimeMismatchTolerance >= 1 {
+		p.add("match.runtimeMismatchTolerance", "must be between 0 and 1")
+	}
+	if m.DVDOrderShare <= 0 || m.DVDOrderShare >= 1 {
+		p.add("match.dvdOrderShare", "must be between 0 and 1")
 	}
 
 	mg := cfg.Merge

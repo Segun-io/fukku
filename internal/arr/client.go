@@ -18,6 +18,11 @@ import (
 
 const defaultTimeout = 30 * time.Second
 
+// ErrUnreachable is in the chain of an error when the request did not reach the app or
+// got no answer (connection refused, name not found, connection reset). A timeout is
+// context.DeadlineExceeded instead; an answer with an error status is an *Error.
+var ErrUnreachable = errors.New("app unreachable")
+
 // Error is a non-2xx answer from the app. It carries the status and the app's own message;
 // it never carries the API key.
 type Error struct {
@@ -108,7 +113,7 @@ func (c *client) do(ctx context.Context, method, path string, query url.Values, 
 			if errors.As(err, &ue) {
 				err = ue.Err
 			}
-			err = errors.New(c.scrub(err.Error()))
+			err = fmt.Errorf("%w: %s", ErrUnreachable, c.scrub(err.Error()))
 		}
 		slog.Debug("arr request failed", "app", c.app, "method", method, "path", path, "elapsed", time.Since(start))
 		return fmt.Errorf("%s: %s %s: %w", c.app, method, path, err)

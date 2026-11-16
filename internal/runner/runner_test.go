@@ -18,6 +18,7 @@ import (
 	"github.com/segun-io/fukku/internal/media"
 	"github.com/segun-io/fukku/internal/spool"
 	"github.com/segun-io/fukku/internal/store"
+	"github.com/segun-io/fukku/internal/store/storetest"
 )
 
 func wantState(t *testing.T, j store.Job, state store.State, code string) {
@@ -302,6 +303,48 @@ func TestStalled(t *testing.T) {
 	e2.w.hold = func(spool.Task) bool { return true }
 	j2 := e2.newJob(video("a.mkv"))
 	wantState(t, e2.run(j2.ID, store.Stalled), store.Stalled, CodeWorkerUnavailable)
+}
+
+// A job stalled with a code registered through ResumeWhen goes back to its Resume state
+// once the check says so; a code nobody registered leaves it stalled.
+func TestResumeWhen(t *testing.T) {
+	e := newEnv(t)
+	e.beat(0)
+	answers := false
+	var asked []string
+	e.r.ResumeWhen("arr_unavailable", "the app answers again", func(_ context.Context, j store.Job) (bool, error) {
+		asked = append(asked, j.ID)
+		return answers, nil
+	})
+	stall := func(code string) store.Job {
+		j, err := e.st.CreateJob(e.ctx, "user1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := storetest.Drive(e.ctx, e.st, j.ID, store.Matched); err != nil {
+			t.Fatal(err)
+		}
+		j, err = e.st.Transition(e.ctx, j.ID, store.Matched, store.Stalled, store.Change{Actor: "system", ErrorCode: code, ErrorText: "down"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return j
+	}
+	j := stall("arr_unavailable")
+	other := stall("something_else")
+	e.r.pass(e.ctx)
+	wantState(t, e.job(j.ID), store.Stalled, "arr_unavailable")
+	answers = true
+	e.r.pass(e.ctx)
+	wantState(t, e.job(j.ID), store.Matched, "")
+	wantState(t, e.job(other.ID), store.Stalled, "something_else")
+	if !slices.Contains(asked, j.ID) || slices.Contains(asked, other.ID) {
+		t.Errorf("asked about %v", asked)
+	}
+	h, err := e.st.History(e.ctx, j.ID)
+	if err != nil || h[len(h)-1].Note != "the app answers again" {
+		t.Errorf("history %+v, %v", h, err)
+	}
 }
 
 // A result that is there while the heartbeat is old is used: only waiting stalls.

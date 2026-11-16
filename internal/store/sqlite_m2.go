@@ -170,6 +170,106 @@ func (s *sqliteStore) PutRows(ctx context.Context, jobID string, rows []Row) err
 	if err := jobExists(ctx, tx, jobID); err != nil {
 		return err
 	}
+	if err := putRows(ctx, tx, jobID, rows); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// proposalStates are where PutProposal starts and where it ends.
+var proposalStates = map[State]bool{Matched: true, AwaitingConfirmation: true}
+
+func (s *sqliteStore) PutProposal(ctx context.Context, jobID string, from, to State, t Target, rows []Row, c Change) (Job, error) {
+	if c.ExpiresAt != nil {
+		return Job{}, errors.New("store: PutProposal does not change the retention date")
+	}
+	if !proposalStates[from] || to != AwaitingConfirmation {
+		return Job{}, fmt.Errorf("%w: %s → %s", ErrInvalidTransition, from, to)
+	}
+	tx, err := s.w.BeginTx(ctx, nil)
+	if err != nil {
+		return Job{}, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	cur, err := scanJob(tx.QueryRowContext(ctx, "SELECT "+jobCols+" FROM jobs WHERE id = ?", jobID))
+	if err != nil {
+		return Job{}, err
+	}
+	if cur.State != from {
+		return Job{}, ErrConflict
+	}
+	if err := hasTarget(ctx, tx, jobID, t); err != nil {
+		return Job{}, err
+	}
+	next := cur
+	if to != from {
+		var ev Event
+		if next, ev, err = applyTransition(cur, from, to, c, s.clock()); err != nil {
+			return Job{}, err
+		}
+		if _, err := tx.ExecContext(ctx, "UPDATE jobs SET state = ?, resume = ?, error_code = ?, error_text = ?, updated_at = ? WHERE id = ?",
+			next.State, next.Resume, next.ErrorCode, next.ErrorText, nanos(next.UpdatedAt), jobID); err != nil {
+			return Job{}, err
+		}
+		if _, err := tx.ExecContext(ctx,
+			"INSERT INTO events (job_id, at, from_state, to_state, actor, note) VALUES (?, ?, ?, ?, ?, ?)",
+			ev.JobID, nanos(ev.At), ev.From, ev.To, ev.Actor, ev.Note); err != nil {
+			return Job{}, err
+		}
+	}
+	if err := putRows(ctx, tx, jobID, rows); err != nil {
+		return Job{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return Job{}, err
+	}
+	return next, nil
+}
+
+func (s *sqliteStore) TransitionFor(ctx context.Context, jobID string, t Target, from, to State, c Change) (Job, error) {
+	tx, err := s.w.BeginTx(ctx, nil)
+	if err != nil {
+		return Job{}, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if err := jobExists(ctx, tx, jobID); err != nil {
+		return Job{}, err
+	}
+	if err := hasTarget(ctx, tx, jobID, t); err != nil {
+		return Job{}, err
+	}
+	next, err := s.transitionTx(ctx, tx, jobID, from, to, c)
+	if err != nil {
+		return Job{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return Job{}, err
+	}
+	return next, nil
+}
+
+// hasTarget fails with ErrConflict unless the job's target is t (app, title id, matched at).
+func hasTarget(ctx context.Context, tx *sql.Tx, jobID string, t Target) error {
+	var (
+		app     string
+		titleID int
+		at      sql.NullInt64
+	)
+	err := tx.QueryRowContext(ctx, "SELECT app, title_id, matched_at FROM targets WHERE job_id = ?", jobID).Scan(&app, &titleID, &at)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrConflict
+	}
+	if err != nil {
+		return err
+	}
+	if app != t.App || titleID != t.TitleID || !fromNanos(at).Equal(normTime(t.MatchedAt)) {
+		return ErrConflict
+	}
+	return nil
+}
+
+// putRows replaces the job's rows inside tx.
+func putRows(ctx context.Context, tx *sql.Tx, jobID string, rows []Row) error {
 	if _, err := tx.ExecContext(ctx, "DELETE FROM import_rows WHERE job_id = ?", jobID); err != nil {
 		return err
 	}
@@ -196,7 +296,7 @@ func (s *sqliteStore) PutRows(ctx context.Context, jobID string, rows []Row) err
 			return err
 		}
 	}
-	return tx.Commit()
+	return nil
 }
 
 func (s *sqliteStore) Rows(ctx context.Context, jobID string) ([]Row, error) {

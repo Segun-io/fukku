@@ -52,6 +52,30 @@ func (c *client) RootFolders(ctx context.Context) ([]RootFolder, error) {
 	return fs, nil
 }
 
+func (c *client) Qualities(ctx context.Context) ([]Quality, error) {
+	var out []qualityJSON
+	if err := c.get(ctx, "/qualitydefinition", nil, &out); err != nil {
+		return nil, err
+	}
+	qs := make([]Quality, 0, len(out))
+	for _, q := range out {
+		qs = append(qs, Quality{ID: q.Quality.ID, Name: q.Quality.Name})
+	}
+	return qs, nil
+}
+
+func (c *client) Languages(ctx context.Context) ([]Language, error) {
+	var out []languageJSON
+	if err := c.get(ctx, "/language", nil, &out); err != nil {
+		return nil, err
+	}
+	ls := make([]Language, 0, len(out))
+	for _, l := range out {
+		ls = append(ls, Language(l))
+	}
+	return ls, nil
+}
+
 // Proposal never sends a title id: with one, both apps ignore the folder (probes C6).
 func (c *client) Proposal(ctx context.Context, folder string) ([]Row, error) {
 	q := url.Values{"folder": {folder}, "filterExistingFiles": {"false"}}

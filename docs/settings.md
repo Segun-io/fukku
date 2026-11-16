@@ -43,6 +43,8 @@ redacted. A test keeps this table and the code in step.
 | `server.dataDir` | `FUKKU_SERVER_DATA_DIR` | `/var/lib/fukku` | Database (`fukku.db`) and local state. Must be local disk, never network storage (SQLite). The web process refuses to start when it is not writable, when another process has it open (lock file `fukku.lock`), or when it is on a network filesystem. That check is best effort, by filesystem type, on Linux: NFS, SMB/CIFS, AFS, Coda, NCP, Ceph, 9p (also WSL's Windows drives), GPFS and Lustre are refused; FUSE is allowed, since it is mostly local. Backup: [backup.md](backup.md) |
 | `server.jobStuckAfter` | `FUKKU_SERVER_JOB_STUCK_AFTER` | `1h` | A failed or stalled job older than this logs `job_stuck` once a minute |
 | `server.readinessCacheTtl` | `FUKKU_SERVER_READINESS_CACHE_TTL` | `15s` | How long `/readyz` reuses the answer of the Radarr and Sonarr checks, so polling does not hit them every time. `0` turns the cache off |
+| `server.arrStallBackoff` | `FUKKU_SERVER_ARR_STALL_BACKOFF` | `30s` | A job stalled with `arr_unavailable` (Radarr or Sonarr did not answer: no connection, a timeout, a 5xx, 401, 403 or 429) tries again once the app answers its status call and this long has passed; the wait doubles with each further stall, up to 16 times |
+| `server.arrStallLimit` | `FUKKU_SERVER_ARR_STALL_LIMIT` | `5` | After this many stalls in a row in one state (the app answers its status call but keeps failing the real one, e.g. a proposal scan that times out), the job fails instead, so it does not cycle for ever; the user can retry it |
 
 ## auth
 
@@ -176,6 +178,8 @@ same settings.
 | `match.doubleEpisodeRatio` | `FUKKU_MATCH_DOUBLE_EPISODE_RATIO` | `2` | A file this many times the expected runtime is hinted as a double episode |
 | `match.doubleEpisodeTolerance` | `FUKKU_MATCH_DOUBLE_EPISODE_TOLERANCE` | `0.15` | Relative tolerance around that ratio |
 | `match.lookupCacheTtl` | `FUKKU_MATCH_LOOKUP_CACHE_TTL` | `5m` | How long the title search (`/api/lookup/…`) reuses an answer of Radarr or Sonarr for the same search term. `0` turns the cache off |
+| `match.runtimeMismatchTolerance` | `FUKKU_MATCH_RUNTIME_MISMATCH_TOLERANCE` | `0.25` | A file whose duration is further than this, relative, from its episodes' expected runtime gets the warning `runtime_mismatch` (unless it looks like a double episode). Sonarr's runtimes are whole minutes and often rounded, so keep some room |
+| `match.dvdOrderShare` | `FUKKU_MATCH_DVD_ORDER_SHARE` | `0.5` | When more than this share of a season's comparable rows (at least two) are runtime mismatches, the proposal hints that the files may be in DVD order (Sonarr knows aired order only) |
 
 ## merge
 
