@@ -28,6 +28,7 @@ import (
 	"github.com/segun-io/fukku/internal/config"
 	"github.com/segun-io/fukku/internal/flows"
 	"github.com/segun-io/fukku/internal/mediaserver"
+	"github.com/segun-io/fukku/internal/metrics"
 	"github.com/segun-io/fukku/internal/retention"
 	"github.com/segun-io/fukku/internal/runner"
 	"github.com/segun-io/fukku/internal/spool"
@@ -157,11 +158,14 @@ func runWeb(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	// it read: the match API (#37) and the proposal (#38), whose matched step the runner
 	// runs.
 	deps := web.Deps{Queue: q, Store: st, Locks: flows.NewJobLocks()}
+	if cfg.Server.Metrics {
+		deps.Metrics = metrics.New()
+	}
 	if cfg.Radarr.URL != "" {
-		deps.Radarr = arr.NewRadarr(cfg.Radarr)
+		deps.Radarr = metrics.Radarr(arr.NewRadarr(cfg.Radarr), deps.Metrics)
 	}
 	if cfg.Sonarr.URL != "" {
-		deps.Sonarr = arr.NewSonarr(cfg.Sonarr)
+		deps.Sonarr = metrics.Sonarr(arr.NewSonarr(cfg.Sonarr), deps.Metrics)
 	}
 	deps.Proposals = flows.NewProposals(cfg, log, st, deps.Radarr, deps.Sonarr, deps.Locks)
 	// The import engine (#40) and its post-processing steps, in the order they run.
@@ -172,6 +176,7 @@ func runWeb(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	// The job runner (#29) drives jobs next to the HTTP server and stops with it, before
 	// the store closes.
 	rn := runner.New(cfg, log, st, q, time.Now)
+	rn.SetMetrics(deps.Metrics)
 	rn.Handle(store.Matched, deps.Proposals.Matched)
 	rn.Handle(store.Importing, deps.Imports.Importing)
 	rn.Handle(store.Imported, deps.Imports.Imported)

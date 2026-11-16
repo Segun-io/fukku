@@ -3,6 +3,7 @@ package web
 import (
 	"github.com/segun-io/fukku/internal/arr"
 	"github.com/segun-io/fukku/internal/flows"
+	"github.com/segun-io/fukku/internal/metrics"
 	"github.com/segun-io/fukku/internal/spool"
 	"github.com/segun-io/fukku/internal/store"
 )
@@ -28,4 +29,7 @@ type Deps struct {
 	// runner, which runs its importing, imported and post-processing steps. Nil: no
 	// confirmation route, and JobDetail has no import or result.
 	Imports *flows.Engine
+	// Metrics are the counters the process updates (package metrics); nil: none are kept.
+	// /metrics is served only when server.metrics is on.
+	Metrics *metrics.Set
 }
