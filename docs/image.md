@@ -10,7 +10,7 @@ dated snapshot, the user is `10001:10001`, and `fukku healthcheck` is the health
 | --- | --- |
 | `fukku` | built from this repository (Go, static, UI embedded) |
 | `ffmpeg`, `ffprobe` | built from the upstream 7.1.5 source tarball (pinned by SHA-256; the release is signed by the FFmpeg release key, fingerprint `FCF9 86EA 15E6 E293 A564 4F10 B432 2F04 D676 58D8`, checked when the pin was chosen), with libx264, libdav1d (AV1) and zlib from the Debian snapshot; libx264 and libdav1d are shared libraries installed in the runtime stage, because Debian ships no static libdav1d |
-| `mkvmerge` | Debian `mkvtoolnix`, snapshot |
+| `mkvmerge` | Debian `mkvtoolnix` 92.0 (`92.0-1+deb13u1`, pinned in the runtime image and in the development image), snapshot |
 | `tini`, `ca-certificates` | Debian, snapshot |
 
 The ffmpeg build enables every demuxer, decoder, parser and filter, so probing and decoding

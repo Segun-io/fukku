@@ -139,7 +139,7 @@ same settings.
 | Setting | Environment | Default | Description |
 | --- | --- | --- | --- |
 | `paths.intakeRoot` | `FUKKU_PATHS_INTAKE_ROOT` | `/data/intake` | Where uploads (`.incoming/`) and jobs (`jobs/`) live. Must be on the library filesystem when `importMode=move` |
-| `paths.libraryRoots` | `FUKKU_PATHS_LIBRARY_ROOTS` | (empty) | Library root folders as Fukku sees them; used for the same-filesystem check, for second versions, and by the worker to read a film's library file in flow 2 (the runtime comparison): the worker reads a library file only when its path, as `paths.mappings.radarr` maps Radarr's, is a clean path inside one of these roots, and only through a read-only handle confined to that root (no `..`, no link out of it). With none set, a flow 2 job fails with `library_unreadable` |
+| `paths.libraryRoots` | `FUKKU_PATHS_LIBRARY_ROOTS` | (empty) | Library root folders as Fukku sees them; used for the same-filesystem check, for second versions, and by the worker to read a film's library file in flow 2 (the runtime comparison): the worker reads a library file only when its path, as `paths.mappings.radarr` maps Radarr's, is a clean path inside one of these roots, and only through a read-only handle confined to that root (no `..`, no link out of it). A merge (flow 2a) reads the library file the same way and never writes it: its output is a new file in the job directory. With none set, a flow 2 job fails with `library_unreadable` |
 | `paths.mappings.radarr` | `FUKKU_PATHS_MAPPINGS_RADARR` | (empty) | How Radarr sees Fukku's paths; empty means the same paths |
 | `paths.mappings.sonarr` | `FUKKU_PATHS_MAPPINGS_SONARR` | (empty) | How Sonarr sees Fukku's paths |
 | `paths.mappings.subtitles` | `FUKKU_PATHS_MAPPINGS_SUBTITLES` | (empty) | How the subtitle manager sees Fukku's paths |
@@ -155,7 +155,7 @@ same settings.
 | `upload.maxFileSize` | `FUKKU_UPLOAD_MAX_FILE_SIZE` | `80GiB` | Largest single file |
 | `upload.maxInFlight` | `FUKKU_UPLOAD_MAX_IN_FLIGHT` | `300GiB` | Total size of all unfinished uploads |
 | `upload.maxParallelPerUser` | `FUKKU_UPLOAD_MAX_PARALLEL_PER_USER` | `3` | Uploads one user may run at once |
-| `upload.freeSpaceMargin` | `FUKKU_UPLOAD_FREE_SPACE_MARGIN` | `100GiB` | Refuse an upload when free space is below its size plus this; an extraction stops when free space falls below this (measured on Linux, where the worker runs; elsewhere the extraction check always passes) |
+| `upload.freeSpaceMargin` | `FUKKU_UPLOAD_FREE_SPACE_MARGIN` | `100GiB` | Refuse an upload when free space is below its size plus this; an extraction stops when free space falls below this, and a merge does not start unless the job's filesystem has room for about the library file plus the added tracks, plus this (measured on Linux, where the worker runs; elsewhere the extraction and merge checks always pass) |
 | `upload.videoExtensions` | `FUKKU_UPLOAD_VIDEO_EXTENSIONS` | `.mkv, .mp4, .m4v, .avi, .mov, .ts, .webm` | Accepted video files |
 | `upload.subtitleExtensions` | `FUKKU_UPLOAD_SUBTITLE_EXTENSIONS` | `.srt, .ass, .ssa` | Accepted subtitle files |
 | `upload.archiveExtensions` | `FUKKU_UPLOAD_ARCHIVE_EXTENSIONS` | `.zip` | Accepted archives |
@@ -183,7 +183,7 @@ same settings.
 
 | Setting | Environment | Default | Description |
 | --- | --- | --- | --- |
-| `match.runtimeTolerance` | `FUKKU_MATCH_RUNTIME_TOLERANCE` | `500ms` | Flow 2: an upload whose duration is within this of the library file's (inclusive) is the same cut, and a merge is offered. Both durations are the worker's ffprobe of the video stream (of the container when a file does not give one), never the app's rounded runtime |
+| `match.runtimeTolerance` | `FUKKU_MATCH_RUNTIME_TOLERANCE` | `500ms` | Flow 2: an upload whose duration is within this of the library file's (inclusive) is the same cut, and a merge is offered. Both durations are the worker's ffprobe of the video stream (of the container when a file does not give one), never the app's rounded runtime. A merge (flow 2a) uses the same tolerance for each added audio track: after the offset it must start and end within this of the picture, or the merge is refused as a cut-short dub |
 | `match.palRatio` | `FUKKU_MATCH_PAL_RATIO` | `1.0427` | Flow 2: duration ratio (longer over shorter) of a PAL speed-up (25 / 23.976); such an upload is offered as a second version, and anything that is neither the same cut nor a PAL speed-up as a different cut |
 | `match.palTolerance` | `FUKKU_MATCH_PAL_TOLERANCE` | `0.002` | Tolerance around the PAL ratio |
 | `match.defaultSource` | `FUKKU_MATCH_DEFAULT_SOURCE` | `WEBDL` | Source assumed when the file name has none: `WEBDL`, `WEBRIP`, `BLURAY`, `HDTV` or `DVD` |
@@ -204,9 +204,9 @@ same settings.
 | `merge.previewHeight` | `FUKKU_MERGE_PREVIEW_HEIGHT` | `360` | Height of the clips in pixels (even, 144 to 2160); smaller videos are not scaled up. Higher costs the worker more CPU per clip |
 | `merge.previewVideoBitrate` | `FUKKU_MERGE_PREVIEW_VIDEO_BITRATE` | `800` | Cap of the clips' video bit rate, in kbit/s (100 to 20000); the audio is AAC at 96 kbit/s. A clip that grows past twice what the rates allow, plus 1 MiB, is stopped and refused (`too_large`) |
 | `merge.previewTimeout` | `FUKKU_MERGE_PREVIEW_TIMEOUT` | `5m` | Deadline of rendering one clip (the worker's ffmpeg run, at `worker.nice`); ffmpeg is killed at it and the preview fails with `timeout`. Decoding a large library file (4K HEVC, say) on a small CPU is the slow part |
-| `merge.languageTag` | `FUKKU_MERGE_LANGUAGE_TAG` | `es-419` | Default language tag (BCP 47) of added tracks |
-| `merge.trackName` | `FUKKU_MERGE_TRACK_NAME` | `Español (Latino)` | Default name of added audio tracks |
-| `merge.keepOriginalDefault` | `FUKKU_MERGE_KEEP_ORIGINAL_DEFAULT` | `true` | The original audio stays the default track |
+| `merge.languageTag` | `FUKKU_MERGE_LANGUAGE_TAG` | `es-419` | Default language tag of the tracks a merge adds; a merge task may name another. It must be BCP 47 in canonical form, the one mkvmerge keeps: `es-419`, `pt-BR`, `he` (not `iw`), `yue` (not `zh-yue`), never `en_US`; the error names the canonical form. The merge is verified only when every added track carries it |
+| `merge.trackName` | `FUKKU_MERGE_TRACK_NAME` | `Español (Latino)` | Default name of the tracks a merge adds (audio and subtitles); a merge task may name another. At most 256 bytes, no control characters; empty adds them unnamed |
+| `merge.keepOriginalDefault` | `FUKKU_MERGE_KEEP_ORIGINAL_DEFAULT` | `true` | The original audio stays the default track: the library file's default flags are kept (a file in another container than Matroska states none, so its first video and audio track are made the default unless ffprobe reports others) and no added track is default. `false` makes the first added audio track the default instead, and the library file's audio tracks lose the flag. A merge task may choose otherwise |
 | `merge.unmonitorAfterMerge` | `FUKKU_MERGE_UNMONITOR_AFTER_MERGE` | `true` | Unmonitor the title after a merge, so an upgrade without the dub cannot replace it (B6) |
 | `merge.unmonitorAfterDubOnlyImport` | `FUKKU_MERGE_UNMONITOR_AFTER_DUB_ONLY_IMPORT` | `true` | Same after importing a file that only has the dub |
 
@@ -234,7 +234,7 @@ same settings.
 | `worker.concurrency` | `FUKKU_WORKER_CONCURRENCY` | `1` | Tasks the worker runs at once |
 | `worker.spoolDir` | `FUKKU_WORKER_SPOOL_DIR` | `/spool` | Local directory shared by web and worker for task and result files |
 | `worker.pollInterval` | `FUKKU_WORKER_POLL_INTERVAL` | `1s` | How often the worker looks for new tasks and cancel requests, and the web process for results |
-| `worker.probeTimeout` | `FUKKU_WORKER_PROBE_TIMEOUT` | `1m` | Deadline of one ffprobe run |
+| `worker.probeTimeout` | `FUKKU_WORKER_PROBE_TIMEOUT` | `1m` | Deadline of one ffprobe run, and of one mkvmerge identification of a file in a merge |
 | `worker.libraryFormats` | `FUKKU_WORKER_LIBRARY_FORMATS` | `matroska, webm, mov, mp4, avi, mpegts, mpeg, asf, flv, ogg` | Demuxers the worker may use on a film's library file in flow 2: the library probe (ffprobe) and the sync-check clips (ffmpeg, `merge.preview*`) (it is a file Radarr already imported, so it may be in an older container such as `.mpg`, `.wmv` or `.flv`; uploads always use the narrower fixed list of the `upload.videoExtensions` containers). Names are ffprobe demuxer names (`ffprobe -demuxers`): lower-case letters, digits, `_`, `+`. Playlist and streaming demuxers (`hls`, `dash`, `concat`, `rtsp`, `sdp`, ...) are refused, and the worker opens no network protocol whatever is listed. A library file in a format not listed fails the job with `library_unreadable` |
 | `worker.taskTimeout` | `FUKKU_WORKER_TASK_TIMEOUT` | `6h` | Deadline of one task (extraction, merge) |
 | `worker.nice` | `FUKKU_WORKER_NICE` | `10` | CPU priority of the tools the worker runs (0–19) |

@@ -183,18 +183,55 @@ func probeVideo(ctx context.Context, job *os.Root, pf *ProbedFile, opt Options, 
 		return nil
 	}
 	defer func() { _ = f.Close() }()
+	return probeOpen(ctx, f, size, pf, opt, formats)
+}
 
+// probeOpen probes the open file f: the content check of probeVideo.
+func probeOpen(ctx context.Context, f *os.File, size int64, pf *ProbedFile, opt Options, formats string) error {
+	out, refusal, err := runFFprobe(ctx, f, opt, formats, "-show_format", "-show_streams")
+	if err != nil || refusal != "" {
+		pf.Refusal = refusal
+		return err
+	}
+	var raw rawProbe
+	if err := json.Unmarshal(out, &raw); err != nil {
+		pf.Refusal = RefusalNoVideoStream
+		return nil
+	}
+	m := raw.toProbe(size)
+	switch {
+	case len(m.Video) == 0:
+		pf.Refusal = RefusalNoVideoStream
+	case m.DurationMs <= 0:
+		pf.Refusal = RefusalNoDuration
+	default:
+		pf.OK = true
+		pf.Media = &m
+	}
+	return nil
+}
+
+// runFFprobe runs ffprobe on the open file f (as descriptor 3, the only thing it may open)
+// with the demuxers in formats, within opt.Timeout, and returns its JSON output. A file
+// ffprobe cannot read gives the refusal no_video_stream, a run past the timeout timeout;
+// an error means ffprobe could not be run at all (or ctx ended).
+func runFFprobe(ctx context.Context, f *os.File, opt Options, formats string, show ...string) ([]byte, string, error) {
 	bin, err := lookBinary(opt.FFprobe, "ffprobe")
 	if err != nil {
-		return err // a broken install is an error, never a refusal of the upload
+		return nil, "", err // a broken install is an error, never a refusal of the upload
 	}
-	probeArgs := []string{"-v", "error", "-print_format", "json", "-show_format", "-show_streams",
-		"-format_whitelist", formats, "-protocol_whitelist", protocolWhitelist, "-fd", "3", "-i", "fd:"}
+	// ffprobe shares f's file offset and starts reading where it stands: at the start, not
+	// where an earlier run on the same descriptor left it.
+	if _, err := f.Seek(0, io.SeekStart); err != nil {
+		return nil, "", err
+	}
+	probeArgs := append([]string{"-v", "error", "-print_format", "json"}, show...)
+	probeArgs = append(probeArgs, "-format_whitelist", formats, "-protocol_whitelist", protocolWhitelist, "-fd", "3", "-i", "fd:")
 	name := bin
 	if opt.Nice > 0 {
 		probeArgs = append([]string{"-n", strconv.Itoa(opt.Nice), bin}, probeArgs...)
 		if name, err = lookBinary("", "nice"); err != nil {
-			return err
+			return nil, "", err
 		}
 	}
 
@@ -214,41 +251,23 @@ func probeVideo(ctx context.Context, job *os.Root, pf *ProbedFile, opt Options, 
 		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 	}
 	if perr := ctx.Err(); perr != nil {
-		return perr
+		return nil, "", perr
 	}
 	if errors.Is(fctx.Err(), context.DeadlineExceeded) {
-		pf.Refusal = RefusalTimeout
-		return nil
+		return nil, RefusalTimeout, nil
 	}
 	if err != nil {
 		var ee *exec.ExitError
 		if errors.As(err, &ee) && (ee.ExitCode() == 126 || ee.ExitCode() == 127) {
 			// nice or the shell could not run ffprobe: not a verdict on the file
-			return fmt.Errorf("ffprobe could not be run (exit %d)", ee.ExitCode())
+			return nil, "", fmt.Errorf("ffprobe could not be run (exit %d)", ee.ExitCode())
 		}
 		if ee != nil || errors.Is(err, errOutputTooLarge) {
-			pf.Refusal = RefusalNoVideoStream
-			return nil
+			return nil, RefusalNoVideoStream, nil
 		}
-		return err // ffprobe could not be started: the task cannot run
+		return nil, "", err // ffprobe could not be started: the task cannot run
 	}
-
-	var raw rawProbe
-	if err := json.Unmarshal(stdout.buf.Bytes(), &raw); err != nil {
-		pf.Refusal = RefusalNoVideoStream
-		return nil
-	}
-	m := raw.toProbe(size)
-	switch {
-	case len(m.Video) == 0:
-		pf.Refusal = RefusalNoVideoStream
-	case m.DurationMs <= 0:
-		pf.Refusal = RefusalNoDuration
-	default:
-		pf.OK = true
-		pf.Media = &m
-	}
-	return nil
+	return stdout.buf.Bytes(), "", nil
 }
 
 type rawProbe struct {

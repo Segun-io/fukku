@@ -4,12 +4,14 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 
 	"github.com/segun-io/fukku/internal/config"
 	"github.com/segun-io/fukku/internal/extract"
 	"github.com/segun-io/fukku/internal/media"
+	"github.com/segun-io/fukku/internal/merge"
 	"github.com/segun-io/fukku/internal/spool"
 )
 
@@ -40,6 +42,9 @@ func TestHandlers(t *testing.T) {
 		{spool.KindExtract, `{"archive":"archives/x.zip","dest":"archives/x.zip"}`}, // dest contains the archive
 		{spool.KindLibraryProbe, `{"path":1}`},
 		{spool.KindLibraryProbe, `{"path":"/x","paths":[]}`},
+		{spool.KindMerge, `{"library":"/x","upload":"files/a.mkv","tracks":[1],"dest":"files/m","extra":1}`},
+		{spool.KindMerge, `{"library":"/x","upload":"files/a.mkv","tracks":[],"dest":"files/m"}`}, // merge.ErrBadArgs
+		{spool.KindMerge, `{"library":"/x","upload":"files/a.mkv","tracks":[1],"dest":"files"}`},
 	} {
 		_, err := h[tc.kind](t.Context(), root, json.RawMessage(tc.args))
 		if !errors.Is(err, ErrBadTask) {
@@ -100,5 +105,33 @@ func TestLibraryProbeHandler(t *testing.T) {
 	args, _ := json.Marshal(media.LibraryProbeArgs{Path: filepath.Join(job, "film.mkv")})
 	if out, _ := h(t.Context(), root, args); out.(media.LibraryProbeOutput).Refusal != media.RefusalOutsideLibrary {
 		t.Errorf("roots changed afterwards: %+v", out)
+	}
+}
+
+// The merge reads the library file only inside the worker's own paths.libraryRoots, as
+// they were when Handlers was called, and refuses anything else before it runs mkvmerge.
+func TestMergeHandler(t *testing.T) {
+	if _, err := exec.LookPath("mkvmerge"); err != nil {
+		t.Skip("mkvmerge not installed (run the tests with make test)")
+	}
+	lib, job := t.TempDir(), t.TempDir()
+	root, err := os.OpenRoot(job)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = root.Close() }()
+	cfg := config.Defaults()
+	cfg.Paths.LibraryRoots = []string{lib}
+	h := Handlers(cfg)[spool.KindMerge]
+	cfg.Paths.LibraryRoots[0] = job
+	for _, p := range []string{filepath.Join(job, "film.mkv"), lib + "/../" + filepath.Base(job) + "/film.mkv"} {
+		args, _ := json.Marshal(merge.Args{Library: p, Upload: "files/a.mkv", Tracks: []int{1}, Dest: "files/merged"})
+		out, err := h(t.Context(), root, args)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if mo, ok := out.(merge.Output); !ok || mo.OK || mo.Refusal != merge.RefusalOutsideLibrary {
+			t.Errorf("%s: %+v", p, out)
+		}
 	}
 }
