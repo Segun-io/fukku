@@ -57,10 +57,70 @@ func TestMigrateFromEmpty(t *testing.T) {
 	if v := scalar[int](t, s.w, "PRAGMA user_version"); v != len(ms) {
 		t.Fatalf("schema version %d, want %d", v, len(ms))
 	}
-	for _, table := range []string{"jobs", "files", "uploads", "events", "audit"} {
+	if !strings.Contains(logs, "msg=store_migrated version=2") || len(ms) != 2 {
+		t.Fatalf("want both migrations applied (%d files):\n%s", len(ms), logs)
+	}
+	for _, table := range []string{"jobs", "files", "uploads", "events", "audit", "targets", "import_rows", "imports", "post_steps"} {
 		if n := scalar[int](t, s.r, "SELECT count(*) FROM sqlite_schema WHERE type = 'table' AND name = '"+table+"'"); n != 1 {
 			t.Fatalf("table %s missing", table)
 		}
+	}
+}
+
+// A database made by M1 (schema 0001 only) keeps its jobs and files when this binary opens
+// it, gets 0002, and then takes the M2 data.
+func TestMigrateFromM1(t *testing.T) {
+	ctx := t.Context()
+	dir := t.TempDir()
+	path := filepath.Join(dir, FileName)
+	db := rawDB(t, path)
+	b, err := migrations.FS.ReadFile("0001_init.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	applied, err := migrate(ctx, db, fstest.MapFS{"0001_init.sql": {Data: b}})
+	if err != nil || len(applied) != 1 {
+		t.Fatalf("applied %v, err %v", applied, err)
+	}
+	const id = "0123456789abcdef0123456789abcdef"
+	for _, q := range []string{
+		"INSERT INTO jobs (id, owner, state, created_at, updated_at) VALUES ('" + id + "', 'user1', 'probed', 1, 2)",
+		"INSERT INTO files (job_id, path, kind, size, status) VALUES ('" + id + "', 'files/a.mkv', 'video', 5, 'ok')",
+	} {
+		if _, err := db.ExecContext(ctx, q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	s, logs := openLogged(t, dir)
+	if strings.Contains(logs, "version=1") || !strings.Contains(logs, "msg=store_migrated version=2") {
+		t.Fatalf("want only 0002 applied:\n%s", logs)
+	}
+	if v := scalar[int](t, s.w, "PRAGMA user_version"); v != 2 {
+		t.Fatalf("schema version %d, want 2", v)
+	}
+	j, err := s.Job(ctx, id)
+	if err != nil || j.Owner != "user1" || j.State != Probed {
+		t.Fatalf("job after migrating: %+v, %v", j, err)
+	}
+	files, err := s.Files(ctx, id)
+	if err != nil || len(files) != 1 || files[0].Path != "files/a.mkv" {
+		t.Fatalf("files after migrating: %+v, %v", files, err)
+	}
+	if err := s.SetTarget(ctx, id, Target{App: "radarr", TitleID: 1, Title: "x"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.PutRows(ctx, id, []Row{{ID: "r1", FileID: files[0].ID}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DeleteJob(ctx, id); err != nil {
+		t.Fatal(err)
+	}
+	if n := scalar[int](t, s.r, "SELECT (SELECT count(*) FROM targets) + (SELECT count(*) FROM import_rows)"); n != 0 {
+		t.Fatalf("%d M2 rows left after DeleteJob", n)
 	}
 }
 

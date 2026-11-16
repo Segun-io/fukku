@@ -1,0 +1,273 @@
+package store
+
+import (
+	"context"
+	"database/sql"
+	"encoding/json"
+	"errors"
+	"fmt"
+)
+
+// The M2 additions (contract_m2.go). Writes go through the one write connection.
+
+func rawJSON(b []byte) json.RawMessage {
+	if len(b) == 0 {
+		return nil
+	}
+	return json.RawMessage(b)
+}
+
+func boolInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}
+
+// ---- target ---------------------------------------------------------------------------
+
+func (s *sqliteStore) SetTarget(ctx context.Context, jobID string, t Target) error {
+	if t.App == "" {
+		return errors.New("store: a target needs an app")
+	}
+	tx, err := s.w.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if err := jobExists(ctx, tx, jobID); err != nil {
+		return err
+	}
+	t.MatchedAt = normTime(t.MatchedAt)
+	if t.MatchedAt.IsZero() {
+		t.MatchedAt = s.clock()
+	}
+	if _, err := tx.ExecContext(ctx,
+		`INSERT INTO targets (job_id, app, title_id, title, year, options, matched_by, matched_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		 ON CONFLICT (job_id) DO UPDATE SET app = excluded.app, title_id = excluded.title_id, title = excluded.title,
+		   year = excluded.year, options = excluded.options, matched_by = excluded.matched_by, matched_at = excluded.matched_at`,
+		jobID, t.App, t.TitleID, t.Title, t.Year, report(t.Options), t.MatchedBy, nanos(t.MatchedAt)); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (s *sqliteStore) Target(ctx context.Context, jobID string) (Target, error) {
+	var (
+		t       Target
+		options []byte
+		at      sql.NullInt64
+	)
+	err := s.r.QueryRowContext(ctx,
+		"SELECT app, title_id, title, year, options, matched_by, matched_at FROM targets WHERE job_id = ?", jobID).
+		Scan(&t.App, &t.TitleID, &t.Title, &t.Year, &options, &t.MatchedBy, &at)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Target{}, ErrNotFound
+	}
+	if err != nil {
+		return Target{}, err
+	}
+	t.Options, t.MatchedAt = rawJSON(options), fromNanos(at)
+	return t, nil
+}
+
+func (s *sqliteStore) ClearTarget(ctx context.Context, jobID string) error {
+	tx, err := s.w.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if err := jobExists(ctx, tx, jobID); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, "DELETE FROM targets WHERE job_id = ?", jobID); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, "DELETE FROM import_rows WHERE job_id = ?", jobID); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// ---- rows -----------------------------------------------------------------------------
+
+func (s *sqliteStore) PutRows(ctx context.Context, jobID string, rows []Row) error {
+	tx, err := s.w.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if err := jobExists(ctx, tx, jobID); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, "DELETE FROM import_rows WHERE job_id = ?", jobID); err != nil {
+		return err
+	}
+	for pos, r := range rows {
+		if r.ID == "" {
+			return errors.New("store: a row needs an id")
+		}
+		var one int
+		err := tx.QueryRowContext(ctx, "SELECT 1 FROM files WHERE id = ? AND job_id = ?", r.FileID, jobID).Scan(&one)
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("%w: row %q: file %d", ErrNotFound, r.ID, r.FileID)
+		}
+		if err != nil {
+			return err
+		}
+		_, err = tx.ExecContext(ctx,
+			`INSERT INTO import_rows (job_id, id, file_id, pos, skip, edit, proposal, override, result)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			jobID, r.ID, r.FileID, pos, boolInt(r.Skip), report(r.Edit), report(r.Proposal), boolInt(r.Override), r.Result)
+		if isUnique(err) {
+			return fmt.Errorf("%w: row %q", ErrExists, r.ID)
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+func (s *sqliteStore) Rows(ctx context.Context, jobID string) ([]Row, error) {
+	rows, err := s.r.QueryContext(ctx,
+		"SELECT id, job_id, file_id, skip, edit, proposal, override, result FROM import_rows WHERE job_id = ? ORDER BY pos", jobID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var out []Row
+	for rows.Next() {
+		var (
+			r              Row
+			skip, override int
+			edit, proposal []byte
+		)
+		if err := rows.Scan(&r.ID, &r.JobID, &r.FileID, &skip, &edit, &proposal, &override, &r.Result); err != nil {
+			return nil, err
+		}
+		r.Skip, r.Override, r.Edit, r.Proposal = skip != 0, override != 0, rawJSON(edit), rawJSON(proposal)
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+func (s *sqliteStore) UpdateRow(ctx context.Context, r Row) error {
+	res, err := s.w.ExecContext(ctx,
+		"UPDATE import_rows SET skip = ?, edit = ?, proposal = ?, override = ?, result = ? WHERE job_id = ? AND id = ?",
+		boolInt(r.Skip), report(r.Edit), report(r.Proposal), boolInt(r.Override), r.Result, r.JobID, r.ID)
+	return affectedOne(res, err)
+}
+
+// ---- import ---------------------------------------------------------------------------
+
+func (s *sqliteStore) PutImport(ctx context.Context, i Import) error {
+	tx, err := s.w.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if err := jobExists(ctx, tx, i.JobID); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx,
+		`INSERT INTO imports (job_id, command_id, submitted_at, finished_at) VALUES (?, ?, ?, ?)
+		 ON CONFLICT (job_id) DO UPDATE SET command_id = excluded.command_id,
+		   submitted_at = excluded.submitted_at, finished_at = excluded.finished_at`,
+		i.JobID, i.CommandID, nanos(normTime(i.SubmittedAt)), nanos(normTime(i.FinishedAt))); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (s *sqliteStore) Import(ctx context.Context, jobID string) (Import, error) {
+	i := Import{JobID: jobID}
+	var submitted, finished sql.NullInt64
+	err := s.r.QueryRowContext(ctx,
+		"SELECT command_id, submitted_at, finished_at FROM imports WHERE job_id = ?", jobID).
+		Scan(&i.CommandID, &submitted, &finished)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Import{}, ErrNotFound
+	}
+	if err != nil {
+		return Import{}, err
+	}
+	i.SubmittedAt, i.FinishedAt = fromNanos(submitted), fromNanos(finished)
+	return i, nil
+}
+
+// ---- post-processing ------------------------------------------------------------------
+
+func (s *sqliteStore) PutPostStep(ctx context.Context, p PostStep) error {
+	if p.Name == "" {
+		return errors.New("store: a post-processing step needs a name")
+	}
+	if p.Status == "" {
+		p.Status = StepPending
+	}
+	p.UpdatedAt = normTime(p.UpdatedAt)
+	if p.UpdatedAt.IsZero() {
+		p.UpdatedAt = s.clock()
+	}
+	tx, err := s.w.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if err := jobExists(ctx, tx, p.JobID); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx,
+		`INSERT INTO post_steps (job_id, name, status, attempts, detail, updated_at) VALUES (?, ?, ?, ?, ?, ?)
+		 ON CONFLICT (job_id, name) DO UPDATE SET status = excluded.status, attempts = excluded.attempts,
+		   detail = excluded.detail, updated_at = excluded.updated_at`,
+		p.JobID, p.Name, p.Status, p.Attempts, p.Detail, nanos(p.UpdatedAt)); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (s *sqliteStore) PostSteps(ctx context.Context, jobID string) ([]PostStep, error) {
+	rows, err := s.r.QueryContext(ctx,
+		"SELECT job_id, name, status, attempts, detail, updated_at FROM post_steps WHERE job_id = ? ORDER BY seq", jobID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var out []PostStep
+	for rows.Next() {
+		var (
+			p  PostStep
+			at sql.NullInt64
+		)
+		if err := rows.Scan(&p.JobID, &p.Name, &p.Status, &p.Attempts, &p.Detail, &at); err != nil {
+			return nil, err
+		}
+		p.UpdatedAt = fromNanos(at)
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
+// ---- active jobs ----------------------------------------------------------------------
+
+func (s *sqliteStore) ActiveJobsFor(ctx context.Context, app string, titleID int) ([]Job, error) {
+	rows, err := s.r.QueryContext(ctx, "SELECT "+jobCols+` FROM jobs
+		WHERE state NOT IN (?, ?)
+		  AND id IN (SELECT job_id FROM targets WHERE app = ? AND title_id = ?)
+		ORDER BY created_at DESC, seq DESC`, Done, Cancelled, app, titleID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var out []Job
+	for rows.Next() {
+		j, err := scanJob(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, j)
+	}
+	return out, rows.Err()
+}

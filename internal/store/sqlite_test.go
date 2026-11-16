@@ -300,3 +300,62 @@ func TestErrorsAreDistinct(t *testing.T) {
 		}
 	}
 }
+
+// The M2 data survives closing and re-opening the database.
+func TestReopenM2(t *testing.T) {
+	ctx := t.Context()
+	dir := t.TempDir()
+	s := open(t, dir, nil)
+	check := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	job, err := s.CreateJob(ctx, "user1")
+	check(err)
+	job, err = storetest.Drive(ctx, s, job.ID, store.PostProcessing)
+	check(err)
+	f, err := s.AddFile(ctx, store.File{JobID: job.ID, Path: "files/a.mkv", Kind: store.KindVideo, Size: 1})
+	check(err)
+	at := time.Date(2026, 3, 4, 5, 6, 7, 8, time.UTC)
+	check(s.SetTarget(ctx, job.ID, store.Target{App: "sonarr", TitleID: 12, Title: "Some Show", Year: 2010,
+		Options: json.RawMessage(`{"seriesType":"standard"}`), MatchedBy: "user1", MatchedAt: at}))
+	check(s.PutRows(ctx, job.ID, []store.Row{{ID: "r1", FileID: f.ID, Skip: true, Override: true, Result: store.ResultImported,
+		Edit: json.RawMessage(`{"seasonNumber":1}`), Proposal: json.RawMessage(`{"a":1}`)}}))
+	check(s.PutImport(ctx, store.Import{JobID: job.ID, CommandID: 9, SubmittedAt: at, FinishedAt: at.Add(time.Second)}))
+	check(s.PutPostStep(ctx, store.PostStep{JobID: job.ID, Name: "subtitles", Status: store.StepFailed, Attempts: 5, Detail: "x", UpdatedAt: at}))
+	check(s.PutPostStep(ctx, store.PostStep{JobID: job.ID, Name: "mediaServerRefresh", Status: store.StepOK, UpdatedAt: at}))
+	check(s.Close())
+
+	s = open(t, dir, nil)
+	defer func() { _ = s.Close() }()
+	tg, err := s.Target(ctx, job.ID)
+	check(err)
+	if tg.App != "sonarr" || tg.TitleID != 12 || tg.Title != "Some Show" || tg.Year != 2010 || tg.MatchedBy != "user1" ||
+		!tg.MatchedAt.Equal(at) || string(tg.Options) != `{"seriesType":"standard"}` {
+		t.Fatalf("target after re-open %+v", tg)
+	}
+	rows, err := s.Rows(ctx, job.ID)
+	check(err)
+	if len(rows) != 1 || rows[0].ID != "r1" || rows[0].FileID != f.ID || !rows[0].Skip || !rows[0].Override ||
+		rows[0].Result != store.ResultImported || string(rows[0].Edit) != `{"seasonNumber":1}` || string(rows[0].Proposal) != `{"a":1}` {
+		t.Fatalf("rows after re-open %+v", rows)
+	}
+	im, err := s.Import(ctx, job.ID)
+	check(err)
+	if im.CommandID != 9 || !im.SubmittedAt.Equal(at) || !im.FinishedAt.Equal(at.Add(time.Second)) {
+		t.Fatalf("import after re-open %+v", im)
+	}
+	steps, err := s.PostSteps(ctx, job.ID)
+	check(err)
+	if len(steps) != 2 || steps[0].Name != "subtitles" || steps[0].Status != store.StepFailed || steps[0].Attempts != 5 ||
+		steps[1].Name != "mediaServerRefresh" || !steps[1].UpdatedAt.Equal(at) {
+		t.Fatalf("steps after re-open %+v", steps)
+	}
+	active, err := s.ActiveJobsFor(ctx, "sonarr", 12)
+	check(err)
+	if len(active) != 1 || active[0] != job {
+		t.Fatalf("active jobs after re-open %+v, want %+v", active, job)
+	}
+}

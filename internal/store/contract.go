@@ -127,6 +127,8 @@ type Change struct {
 
 // Store is safe for concurrent use.
 type Store interface {
+	M2 // the M2 additions: contract_m2.go
+
 	CreateJob(ctx context.Context, owner string) (Job, error) // state uploading, attempt 1
 	Job(ctx context.Context, id string) (Job, error)
 	Jobs(ctx context.Context, f JobFilter) ([]Job, error) // newest first
@@ -137,7 +139,7 @@ type Store interface {
 	// and ErrorText are cleared when a job leaves failed or stalled.
 	Transition(ctx context.Context, id string, from, to State, c Change) (Job, error)
 	History(ctx context.Context, jobID string) ([]Event, error)
-	DeleteJob(ctx context.Context, id string) error // its files, uploads and events too; audit entries stay
+	DeleteJob(ctx context.Context, id string) error // its files, uploads, events and M2 data too; audit entries stay
 
 	AddFile(ctx context.Context, f File) (File, error) // ErrExists when (JobID, Path) is taken
 	UpdateFile(ctx context.Context, f File) error      // by ID

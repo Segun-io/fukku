@@ -41,6 +41,7 @@ func Run(t *testing.T, open func(t *testing.T) store.Store) {
 		{"Audit", testAudit},
 		{"Ping", testPing},
 	}
+	tests = append(tests, m2Tests...)
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			s := open(t)

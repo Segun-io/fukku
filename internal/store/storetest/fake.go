@@ -33,6 +33,7 @@ type Fake struct {
 	uploads map[string]store.Upload
 	events  []store.Event
 	audit   []store.AuditEntry
+	m2      m2
 }
 
 type fakeJob struct {
@@ -52,6 +53,7 @@ func NewFake(now func() time.Time) *Fake {
 		jobs:    map[string]*fakeJob{},
 		files:   map[int64]store.File{},
 		uploads: map[string]store.Upload{},
+		m2:      newM2(),
 	}
 }
 
@@ -222,6 +224,7 @@ func (f *Fake) DeleteJob(ctx context.Context, id string) error {
 		return store.ErrNotFound
 	}
 	delete(f.jobs, id)
+	f.m2.dropJob(id)
 	maps.DeleteFunc(f.files, func(_ int64, fl store.File) bool { return fl.JobID == id })
 	maps.DeleteFunc(f.uploads, func(_ string, u store.Upload) bool { return u.JobID == id })
 	f.events = slices.DeleteFunc(f.events, func(e store.Event) bool { return e.JobID == id })
@@ -298,6 +301,7 @@ func (f *Fake) DeleteFile(ctx context.Context, id int64) error {
 		return store.ErrNotFound
 	}
 	delete(f.files, id)
+	f.m2.dropFile(id)
 	return nil
 }
 
