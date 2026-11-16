@@ -36,6 +36,7 @@ type Step struct {
 	Movies arr.MovieManager  // nil when Radarr is not configured
 	Series arr.SeriesManager // nil when Sonarr is not configured
 	Config config.Config
+	Log    *slog.Logger // nil: the default logger
 }
 
 func (s *Step) Name() string { return StepName }
@@ -94,33 +95,48 @@ func (s *Step) Run(ctx context.Context, job store.Job, target store.Target, rows
 	if err != nil {
 		return false, "", err
 	}
-	fellBack := false
-	// A library the server never scanned with content in it ignores a library refresh: scan
-	// everything once. A libraryScan already did, and none means hands off.
+	listed := len(look) - missing
+	scanNote := ""
 	if missing > 0 && ms.RefreshFallback && ms.RefreshMethod != MethodLibraryScan && ms.RefreshMethod != MethodNone {
-		slog.Info("title not visible in the media server; falling back to a full library scan",
-			"job", job.ID, "waited", wait, "listed", len(look)-missing, "of", len(look))
-		if err := s.Server.Scan(ctx); err != nil {
-			return false, "", fmt.Errorf("scan the media server's libraries: %w", err)
-		}
-		fellBack = true
-		if ids, missing, err = s.waitFor(ctx, look, wait, poll); err != nil {
-			return false, "", err
+		// A library the server never scanned with content in it ignores a library refresh:
+		// scan every library. A libraryScan already did, and none means hands off. This runs
+		// once per attempt, and the server skips it while a scan is already running.
+		started, scanErr := s.Server.Scan(ctx)
+		switch {
+		case scanErr != nil:
+			if ctx.Err() != nil {
+				return false, "", ctx.Err()
+			}
+			s.log().Error("media_server_fallback_scan", "job", job.ID, "outcome", "failed", "error", scanErr)
+			scanNote = ", the fallback library scan failed: " + scanErr.Error()
+		default:
+			outcome := "started"
+			if !started {
+				outcome = "already_running"
+			}
+			s.log().Info("media_server_fallback_scan", "job", job.ID, "outcome", outcome,
+				"waited", wait, "listed", listed, "of", len(look))
+			scanNote = ", after a full library scan"
+			if ids, missing, err = s.waitFor(ctx, look, wait, poll); err != nil {
+				return false, "", err
+			}
 		}
 	}
 	if missing > 0 {
-		waited := wait
-		note := ""
-		if fellBack {
-			waited, note = 2*wait, ", the library was scanned once as a fallback"
-		}
-		return false, "", fmt.Errorf("%w after %s (%d of %d items listed%s)", ErrNotVisible, waited, len(look)-missing, len(look), note)
+		return false, "", fmt.Errorf("%w after %s (%d of %d items listed%s)", ErrNotVisible, wait, len(look)-missing, len(look), scanNote)
 	}
 	detail := "item " + ids[0]
-	if fellBack {
-		detail += " (found after a full library scan: the refresh alone showed nothing within " + wait.String() + ")"
+	if scanNote == ", after a full library scan" {
+		detail += " (found only after a full library scan: " + fmt.Sprint(listed) + " of " + fmt.Sprint(len(look)) + " items were listed after " + wait.String() + ")"
 	}
 	return true, detail, nil
+}
+
+func (s *Step) log() *slog.Logger {
+	if s.Log != nil {
+		return s.Log
+	}
+	return slog.Default()
 }
 
 // waitFor polls until the server lists every path or wait has passed. It returns the item

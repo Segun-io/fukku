@@ -174,7 +174,7 @@ func runWeb(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	deps.Imports.SetMetrics(deps.Metrics)
 	// Subtitles first, so that the media server's scan finds them next to the video.
 	deps.Imports.AddPostStep(subtitleStep(cfg, st))
-	deps.Imports.AddPostStep(mediaServerStep(cfg, deps.Radarr, deps.Sonarr))
+	deps.Imports.AddPostStep(mediaServerStep(cfg, log, deps.Radarr, deps.Sonarr))
 	// The job runner (#29) drives jobs next to the HTTP server and stops with it, before
 	// the store closes.
 	rn := runner.New(cfg, log, st, q, time.Now)
@@ -196,8 +196,8 @@ func runWeb(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 
 // mediaServerStep is the post-processing step that tells the media server about the
 // imported files and gives the job its title link (#41); with provider none it is skipped.
-func mediaServerStep(cfg config.Config, movies arr.MovieManager, series arr.SeriesManager) *mediaserver.Step {
-	s := &mediaserver.Step{Movies: movies, Series: series, Config: cfg}
+func mediaServerStep(cfg config.Config, log *slog.Logger, movies arr.MovieManager, series arr.SeriesManager) *mediaserver.Step {
+	s := &mediaserver.Step{Movies: movies, Series: series, Config: cfg, Log: log}
 	if cfg.MediaServer.Provider == "jellyfin" && cfg.MediaServer.URL != "" {
 		s.Server = mediaserver.NewJellyfin(cfg.MediaServer)
 	}

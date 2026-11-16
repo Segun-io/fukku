@@ -74,7 +74,7 @@ func (j *Jellyfin) Refresh(ctx context.Context, paths []string) error {
 	case MethodNone:
 		return nil
 	case MethodLibraryScan:
-		return j.Scan(ctx)
+		return j.do(ctx, http.MethodPost, "/Library/Refresh", nil, nil, nil)
 	case MethodPathUpdate:
 		ups := make([]map[string]string, 0, len(paths))
 		for _, p := range paths {
@@ -91,9 +91,22 @@ func (j *Jellyfin) Refresh(ctx context.Context, paths []string) error {
 	}
 }
 
-// Scan starts a scan of every library (POST /Library/Refresh), whatever the refresh method.
-func (j *Jellyfin) Scan(ctx context.Context) error {
-	return j.do(ctx, http.MethodPost, "/Library/Refresh", nil, nil, nil)
+// Scan starts a scan of every library (POST /Library/Refresh) unless the "Scan Media Library"
+// task is already running: a second request could restart a long scan.
+func (j *Jellyfin) Scan(ctx context.Context) (bool, error) {
+	var tasks []struct {
+		Key   string `json:"Key"`
+		State string `json:"State"`
+	}
+	if err := j.do(ctx, http.MethodGet, "/ScheduledTasks", nil, nil, &tasks); err != nil {
+		return false, err
+	}
+	for _, t := range tasks {
+		if t.Key == "RefreshLibrary" && t.State != "Idle" {
+			return false, nil
+		}
+	}
+	return true, j.do(ctx, http.MethodPost, "/Library/Refresh", nil, nil, nil)
 }
 
 // refreshLibraries refreshes each library item (Movies, Shows) that holds one of the paths.

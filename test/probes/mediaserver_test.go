@@ -132,6 +132,7 @@ func TestMediaServerRefreshFallback(t *testing.T) {
 	p.video(file, short)
 
 	itemWait := 15 * time.Second
+	timer := &scanTimer{MediaServer: mediaserver.NewJellyfin(config.MediaServer{URL: jf.Base, APIKey: config.Secret(jf.Key), RefreshMethod: config.Defaults().MediaServer.RefreshMethod})}
 	newStep := func(fallback bool) *mediaserver.Step {
 		cfg := config.Defaults()
 		cfg.MediaServer.Provider = "jellyfin"
@@ -139,7 +140,7 @@ func TestMediaServerRefreshFallback(t *testing.T) {
 		cfg.MediaServer.ItemWait = config.Duration(itemWait)
 		cfg.MediaServer.ItemPollInterval = config.Duration(500 * time.Millisecond)
 		return &mediaserver.Step{
-			Server: mediaserver.NewJellyfin(config.MediaServer{URL: jf.Base, APIKey: config.Secret(jf.Key), RefreshMethod: cfg.MediaServer.RefreshMethod}),
+			Server: timer,
 			Movies: &arrtest.FakeMovies{Library: []arr.Movie{{ID: 1, Title: "Fresh", File: &arr.MovieFile{ID: 1, Path: file}}}},
 			Config: cfg,
 		}
@@ -157,12 +158,33 @@ func TestMediaServerRefreshFallback(t *testing.T) {
 	start = time.Now()
 	done, detail, err := newStep(true).Run(p.ctx, job, target, nil)
 	took := time.Since(start)
+	scanLatency := timer.listedAt.Sub(timer.scanAt)
 	p.must(err, "Run with the fallback")
 	p.check(done && mediaserver.ItemID(detail) != "", "with the fallback the film is visible and the step reports its item")
-	scanLatency := took - itemWait
+	p.check(strings.Contains(detail, "full library scan"), "the step detail names the fallback scan")
 	p.evidence("scanLatencySeconds", scanLatency.Seconds())
 	p.evidence("detail", detail)
-	p.observe("refreshFallback on: %q after %.1f s in all, i.e. itemWait %s plus %.1f s from the scan to the film being listed; library of about 200 films (their scan took %s)",
+	p.observe("refreshFallback on: %q after %.1f s in all, i.e. itemWait %s, then %.1f s from the scan request to the film being listed; library of about 200 films (their scan took %s)",
 		detail, took.Seconds(), itemWait, scanLatency.Seconds(), fillerScan)
 	p.confirm()
+}
+
+// scanTimer records when the step asks for the fallback scan and when the film is first listed
+// after it, so the latency is measured from the scan call, not from the step's start.
+type scanTimer struct {
+	mediaserver.MediaServer
+	scanAt, listedAt time.Time
+}
+
+func (s *scanTimer) Scan(ctx context.Context) (bool, error) {
+	s.scanAt = time.Now()
+	return s.MediaServer.Scan(ctx)
+}
+
+func (s *scanTimer) Find(ctx context.Context, path string) (string, error) {
+	id, err := s.MediaServer.Find(ctx, path)
+	if id != "" && !s.scanAt.IsZero() && s.listedAt.IsZero() {
+		s.listedAt = time.Now()
+	}
+	return id, err
 }

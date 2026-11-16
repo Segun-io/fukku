@@ -52,15 +52,15 @@ func (f *Fake) Refresh(_ context.Context, paths []string) error {
 	return nil
 }
 
-func (f *Fake) Scan(context.Context) error {
+func (f *Fake) Scan(context.Context) (bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.Scans++
 	if err := f.Err["Scan"]; err != nil {
-		return err
+		return false, err
 	}
 	f.scanned = true
-	return nil
+	return true, nil
 }
 
 func (f *Fake) Find(_ context.Context, path string) (string, error) {
