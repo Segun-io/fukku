@@ -57,6 +57,9 @@ type Command struct {
 	Status  string // queued, started, completed, failed, aborted, cancelled
 	Result  string // successful, unsuccessful, unknown
 	Message string
+	// Files are the paths (as the app sees them) of a ManualImport command's files, from
+	// its body; empty for other commands. They tell which job a command belongs to.
+	Files []string
 }
 
 // Importer is what the two apps share.

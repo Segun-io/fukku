@@ -14,6 +14,7 @@ import (
 
 	"github.com/segun-io/fukku/internal/auth"
 	"github.com/segun-io/fukku/internal/config"
+	"github.com/segun-io/fukku/internal/flows"
 	"github.com/segun-io/fukku/internal/jobdir"
 	"github.com/segun-io/fukku/internal/pathmap"
 	"github.com/segun-io/fukku/internal/store"
@@ -122,6 +123,10 @@ type jobDetailJSON struct {
 	History      []eventJSON        `json:"history"`
 	ManualImport []manualImportJSON `json:"manualImport"`
 	Target       *targetJSON        `json:"target"` // the title the job is matched to (#37)
+	// The import and its result (#40); null before the job is confirmed, and result until
+	// the files are imported.
+	Import *flows.ImportView `json:"import"`
+	Result *flows.ResultView `json:"result"`
 }
 
 func ptr[T comparable](v T) *T {
@@ -152,7 +157,7 @@ func (s *Server) view(u auth.User, j store.Job, files []store.File, uploads []st
 			v.TotalSize += f.Size
 		}
 	}
-	v.Actions = actions(j.State, len(files) > 0 && len(uploads) == 0)
+	v.Actions = actions(j, len(files) > 0 && len(uploads) == 0)
 	return v
 }
 
@@ -184,11 +189,12 @@ func jobName(files []store.File, uploads []store.Upload) *string {
 	return nil
 }
 
-// actions is what a user may do with a job in state now. canSubmit: the job has a file and
-// no unfinished upload.
-func actions(state store.State, canSubmit bool) []string {
+// actions is what a user may do with a job now. canSubmit: the job has a file and no
+// unfinished upload.
+func actions(j store.Job, canSubmit bool) []string {
+	state := j.State
 	out := []string{}
-	if slices.Contains(cancellable, state) {
+	if canCancel(j) {
 		out = append(out, "cancel")
 	}
 	if state == store.Failed {
@@ -201,6 +207,16 @@ func actions(state store.State, canSubmit bool) []string {
 		out = append(out, "submit")
 	}
 	return out
+}
+
+// canCancel reports whether a job may be cancelled. A job stalled on its way through the
+// import may not: an import command of it may still be running in the app, and cancelling
+// removes the job's files. (A job that failed there may: its command has ended.)
+func canCancel(j store.Job) bool {
+	if j.State == store.Stalled && slices.Contains([]store.State{store.Importing, store.Imported, store.PostProcessing}, j.Resume) {
+		return false
+	}
+	return slices.Contains(cancellable, j.State)
 }
 
 func (s *Server) fileView(f store.File) fileJSON {
@@ -463,6 +479,12 @@ func (s *Server) getJob(w http.ResponseWriter, r *http.Request) {
 	if j.State == store.Probed {
 		d.ManualImport = s.manualImport(j)
 	}
+	if s.deps.Imports != nil {
+		if d.Import, d.Result, err = s.deps.Imports.Detail(r.Context(), j, u.Admin); err != nil {
+			s.internalError(w, r, err)
+			return
+		}
+	}
 	writeJSON(w, http.StatusOK, d)
 }
 
@@ -498,7 +520,7 @@ func (s *Server) cancelJob(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if !slices.Contains(cancellable, j.State) {
+	if !canCancel(j) {
 		wrongState(w)
 		return
 	}

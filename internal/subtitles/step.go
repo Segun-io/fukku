@@ -16,6 +16,7 @@ import (
 
 	"github.com/segun-io/fukku/internal/arr"
 	"github.com/segun-io/fukku/internal/config"
+	"github.com/segun-io/fukku/internal/flows"
 	"github.com/segun-io/fukku/internal/jobdir"
 	"github.com/segun-io/fukku/internal/store"
 )
@@ -23,18 +24,12 @@ import (
 // StepName is the name the step is recorded under (store.PostStep.Name).
 const StepName = "subtitles"
 
-// SkippedPrefix starts the detail Run returns when it did nothing on purpose (no subtitle
-// manager, or hand-over switched off). The engine records such a step as store.StepSkipped;
-// IsSkipped tells.
-const SkippedPrefix = "skipped: "
-
-// IsSkipped reports whether a detail returned by Run means the step was skipped.
-func IsSkipped(detail string) bool { return strings.HasPrefix(detail, SkippedPrefix) }
-
 // Files is the part of the store the step reads.
 type Files interface {
 	Files(ctx context.Context, jobID string) ([]store.File, error)
 }
+
+var _ flows.PostStep = (*Step)(nil)
 
 // Step is the post-processing step "subtitles" (the engine's PostStep contract, #40):
 // after the import it gives the job's accepted subtitle files to the subtitle manager.
@@ -61,13 +56,16 @@ func (s *Step) Name() string { return StepName }
 
 // Run hands the files over. It is safe to repeat: files confirmed written are not sent
 // again by the same process, and a repeat after a restart only rewrites the same file (probe
-// C5e). A returned error names the files that were not written.
+// C5e). With no subtitle manager, the hand-over switched off or no subtitle file, it is
+// skipped (flows.Skip). A file that was not written fails it with flows.GiveUp, naming the
+// file: the step has retried each upload itself (subtitles.attempts), so the engine does
+// not run it again.
 func (s *Step) Run(ctx context.Context, job store.Job, target store.Target, rows []store.Row) (bool, string, error) {
 	switch {
 	case s.Config.Provider != "bazarr" || s.Manager == nil:
-		return true, SkippedPrefix + "no subtitle manager is configured", nil
+		return true, "", flows.Skip("no subtitle manager is configured")
 	case !s.Config.HandOverUploads:
-		return true, SkippedPrefix + "handing uploads over is switched off", nil
+		return true, "", flows.Skip("handing uploads over is switched off")
 	}
 	files, err := s.Store.Files(ctx, job.ID)
 	if err != nil {
@@ -75,7 +73,7 @@ func (s *Step) Run(ctx context.Context, job store.Job, target store.Target, rows
 	}
 	items := plan(files, rows, target)
 	if len(items) == 0 {
-		return true, "no subtitle files", nil
+		return true, "", flows.Skip("no subtitle files")
 	}
 	var failed []string
 	sent := 0
@@ -99,7 +97,7 @@ func (s *Step) Run(ctx context.Context, job store.Job, target store.Target, rows
 		sent++
 	}
 	if len(failed) > 0 {
-		return false, "", fmt.Errorf("not written by the subtitle manager: %s", strings.Join(failed, "; "))
+		return false, "", flows.GiveUp(fmt.Errorf("not written by the subtitle manager: %s", strings.Join(failed, "; ")))
 	}
 	return true, fmt.Sprintf("%d subtitle file(s) handed over", sent), nil
 }

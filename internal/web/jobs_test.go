@@ -342,7 +342,7 @@ func TestJobDetailGolden(t *testing.T) {
 	  {"app": "radarr", "folder": "/downloads/intake/jobs/` + id + `/files", "url": "https://radarr.example.com/wanted/missing"},
 	  {"app": "sonarr", "folder": "` + e.root + `/jobs/` + id + `/files", "url": null}
 	],
-	"target": null}`
+	"target": null, "import": null, "result": null}`
 	_, body := e.do(&user1, "GET", jobPath(j, ""))
 	equalJSON(t, body, want)
 }
