@@ -36,7 +36,7 @@ redacted. A test keeps this table and the code in step.
 | Setting | Environment | Default | Description |
 | --- | --- | --- | --- |
 | `server.listenAddress` | `FUKKU_SERVER_LISTEN_ADDRESS` | `:8080` | Address the web process listens on |
-| `server.publicBaseUrl` | `FUKKU_SERVER_PUBLIC_BASE_URL` | (empty) | External URL users open, e.g. `https://fukku.example.com`. Used for the Origin check and links; empty means the request's own host |
+| `server.publicBaseUrl` | `FUKKU_SERVER_PUBLIC_BASE_URL` | (empty) | External URL users open, e.g. `https://fukku.example.com`. Used for the Origin check (only this origin, scheme included, may change state) and links; empty means the request's own `Host` (then the proxy must pass the original `Host` through) |
 | `server.uiLanguages` | `FUKKU_SERVER_UI_LANGUAGES` | `en, es` | UI languages offered; the first is the fallback |
 | `server.logFormat` | `FUKKU_SERVER_LOG_FORMAT` | `logfmt` | `logfmt` or `json` |
 | `server.metrics` | `FUKKU_SERVER_METRICS` | `false` | Serve Prometheus metrics on `/metrics` |
@@ -45,17 +45,25 @@ redacted. A test keeps this table and the code in step.
 
 ## auth
 
+In `proxyHeaders` mode the reverse proxy signs users in and passes who they are in headers.
+Fukku accepts a request only when the connection comes from `trustedProxies` and carries the
+user header; everything else gets 403 and is logged as `auth_refused` with the reason and the
+remote address. The proxy must remove these headers from what clients send and set them
+itself. Two paths need no user: `GET /healthz` from anywhere and `GET /readyz` from a loopback
+address (the container's health check); `/readyz` from elsewhere needs an admin. With `none`
+every request is the admin user `dev`, and the UI shows a warning banner.
+
 | Setting | Environment | Default | Description |
 | --- | --- | --- | --- |
 | `auth.mode` | `FUKKU_AUTH_MODE` | `proxyHeaders` | `proxyHeaders`: a reverse proxy authenticates users and passes headers. `oidc`: backlog. `none`: development only, refuses to start without `--insecure-dev` |
-| `auth.trustedProxies` | `FUKKU_AUTH_TRUSTED_PROXIES` | (empty) | Addresses or CIDRs the reverse proxy connects from. Required for `proxyHeaders`; requests from anywhere else get 403 |
-| `auth.userHeader` | `FUKKU_AUTH_USER_HEADER` | `Remote-User` | Header with the user name. Requests without it get 403 |
-| `auth.emailHeader` | `FUKKU_AUTH_EMAIL_HEADER` | `Remote-Email` | Header with the user's email (optional, shown in the audit log) |
-| `auth.groupsHeader` | `FUKKU_AUTH_GROUPS_HEADER` | `Remote-Groups` | Header with the user's groups |
+| `auth.trustedProxies` | `FUKKU_AUTH_TRUSTED_PROXIES` | (empty) | Addresses or CIDRs the reverse proxy connects from. Required for `proxyHeaders`; requests from anywhere else get 403. Only the connection's own address counts, never `X-Forwarded-For` or similar; an IPv4-mapped IPv6 address matches its IPv4 entry. `GET /readyz` is open to loopback addresses without a user, so if the proxy runs on the same host and connects from loopback, anyone it lets through can read `/readyz` |
+| `auth.userHeader` | `FUKKU_AUTH_USER_HEADER` | `Remote-User` | Header with the user name. Requests without a usable one get 403: missing, empty, repeated, longer than 256 bytes, not UTF-8 or with control characters |
+| `auth.emailHeader` | `FUKKU_AUTH_EMAIL_HEADER` | `Remote-Email` | Header with the user's email (optional, shown in the audit log). When sent, the same rules as the user header apply; set it empty to read no such header |
+| `auth.groupsHeader` | `FUKKU_AUTH_GROUPS_HEADER` | `Remote-Groups` | Header with the user's groups (optional). Repeated or with control characters gets 403; set it empty to read no such header |
 | `auth.groupsSeparator` | `FUKKU_AUTH_GROUPS_SEPARATOR` | `,` | Separator between groups in the groups header |
 | `auth.adminGroup` | `FUKKU_AUTH_ADMIN_GROUP` | (empty) | Members of this group are admins. Empty means no admins unless `allUsersAreAdmins` |
 | `auth.allUsersAreAdmins` | `FUKKU_AUTH_ALL_USERS_ARE_ADMINS` | `false` | Every signed-in user is an admin (small, trusted households) |
-| `auth.originCheck` | `FUKKU_AUTH_ORIGIN_CHECK` | `true` | State-changing requests must carry a matching `Origin` header |
+| `auth.originCheck` | `FUKKU_AUTH_ORIGIN_CHECK` | `true` | Every method but GET, HEAD and OPTIONS must carry an `Origin` equal to the origin of `server.publicBaseUrl`, or, when that is empty, whose host equals the request's `Host`. Missing or `null` gets 403 `origin_mismatch` |
 
 ## radarr and sonarr
 

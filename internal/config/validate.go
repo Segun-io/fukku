@@ -84,7 +84,7 @@ func validateWeb(p *problems, cfg Config, opts ValidateOptions) {
 			p.add("auth.trustedProxies", "required when auth.mode=proxyHeaders: the addresses or CIDRs the reverse proxy connects from")
 		}
 		for _, tp := range a.TrustedProxies {
-			if _, err := parsePrefix(tp); err != nil {
+			if _, err := ParsePrefix(tp); err != nil {
 				p.add("auth.trustedProxies", "%q is not an address or CIDR", tp)
 			}
 		}
@@ -298,15 +298,31 @@ func extensions(p *problems, key string, list []string, required bool) {
 	}
 }
 
-func parsePrefix(s string) (netip.Prefix, error) {
+// ParsePrefix parses an auth.trustedProxies entry: an address (one host) or a CIDR. The
+// result is masked, and an IPv4-mapped IPv6 prefix (::ffff:192.0.2.0/120) becomes its IPv4
+// form, so it matches the IPv4 addresses it names.
+func ParsePrefix(s string) (netip.Prefix, error) {
+	s = strings.TrimSpace(s)
+	var p netip.Prefix
 	if strings.Contains(s, "/") {
-		return netip.ParsePrefix(s)
+		var err error
+		if p, err = netip.ParsePrefix(s); err != nil {
+			return netip.Prefix{}, err
+		}
+	} else {
+		a, err := netip.ParseAddr(s)
+		if err != nil {
+			return netip.Prefix{}, err
+		}
+		if a.Zone() != "" {
+			return netip.Prefix{}, fmt.Errorf("%q: zoned addresses are not supported", s)
+		}
+		p = netip.PrefixFrom(a, a.BitLen())
 	}
-	a, err := netip.ParseAddr(s)
-	if err != nil {
-		return netip.Prefix{}, err
+	if a := p.Addr(); a.Is4In6() && p.Bits() >= 96 {
+		p = netip.PrefixFrom(a.Unmap(), p.Bits()-96)
 	}
-	return netip.PrefixFrom(a, a.BitLen()), nil
+	return p.Masked(), nil
 }
 
 func isWindowsAbs(p string) bool {

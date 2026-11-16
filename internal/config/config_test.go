@@ -245,3 +245,26 @@ func TestByteSizeAndDurationRoundTrip(t *testing.T) {
 		}
 	}
 }
+
+func TestParsePrefix(t *testing.T) {
+	want := map[string]string{
+		"192.0.2.10":           "192.0.2.10/32",
+		" 192.0.2.10 ":         "192.0.2.10/32",
+		"192.0.2.77/24":        "192.0.2.0/24",
+		"2001:db8::1":          "2001:db8::1/128",
+		"2001:db8::1/64":       "2001:db8::/64",
+		"::ffff:192.0.2.10":    "192.0.2.10/32",
+		"::ffff:192.0.2.0/120": "192.0.2.0/24",
+	}
+	for in, out := range want {
+		p, err := ParsePrefix(in)
+		if err != nil || p.String() != out {
+			t.Errorf("%q → %v %v, want %s", in, p, err, out)
+		}
+	}
+	for _, bad := range []string{"", "proxy", "192.0.2.0/33", "192.0.2.300", "fe80::1%eth0", "192.0.2.0/24/1"} {
+		if _, err := ParsePrefix(bad); err == nil {
+			t.Errorf("%q was accepted", bad)
+		}
+	}
+}

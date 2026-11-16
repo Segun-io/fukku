@@ -4,7 +4,6 @@ package web
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"io/fs"
 	"log/slog"
@@ -40,14 +39,6 @@ func New(cfg config.Config, log *slog.Logger, ui fs.FS, deps Deps) *Server {
 	return s
 }
 
-// Handler returns the routes with the common security headers applied.
-func (s *Server) Handler() http.Handler {
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /healthz", s.healthz)
-	mux.Handle("GET /", s.spa())
-	return securityHeaders(mux)
-}
-
 // Run serves until ctx is cancelled, then shuts down gracefully.
 func (s *Server) Run(ctx context.Context) error {
 	var lc net.ListenConfig
@@ -81,12 +72,14 @@ func (s *Server) healthz(w http.ResponseWriter, _ *http.Request) {
 }
 
 // spa serves the built UI. Unknown paths without a file extension get index.html, so the
-// client-side router can handle them; /api/ paths never do.
+// client-side router can handle them; /api/ paths never get here (routes). It is registered
+// for every method, so that /api/ can be too, and refuses all but GET and HEAD itself.
 func (s *Server) spa() http.Handler {
 	files := http.FileServerFS(s.ui)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasPrefix(r.URL.Path, "/api/") {
-			writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			w.Header().Set("Allow", "GET, HEAD")
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
 		name := strings.TrimPrefix(path.Clean(r.URL.Path), "/")
@@ -124,11 +117,4 @@ func securityHeaders(next http.Handler) http.Handler {
 		h.Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
 		next.ServeHTTP(w, r)
 	})
-}
-
-func writeJSON(w http.ResponseWriter, status int, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Cache-Control", "no-store")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v)
 }
