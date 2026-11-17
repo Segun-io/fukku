@@ -29,6 +29,6 @@ type Entry struct {
 type Skipped struct {
 	Name string `json:"name"` // the entry's name, made printable and cut to 200 bytes
 	// Reason codes: traversal, absolute, drive_letter, backslash, symlink, special,
-	// nested_archive, extension, name_too_long, duplicate, encrypted.
+	// nested_archive, extension, name_too_long, duplicate, encrypted, hidden.
 	Reason string `json:"reason"`
 }

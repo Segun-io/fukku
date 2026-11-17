@@ -115,7 +115,7 @@ Bazarr and Jellyfin themselves (see §7).
 
 | Threat | Control | Where |
 | --- | --- | --- |
-| Path traversal in the tus `filename` | `safename.Clean`: NFC, control and bidi characters removed, `/`, `\`, drive letters, `.`/`..` refused, at most `extract.maxNameBytes`; leading dot refused; the stored name is the cleaned one | `internal/uploads/create.go`, `internal/safename` |
+| Path traversal in the tus `filename` | `safename.Clean`: NFC, control and bidi characters removed, `/`, `\`, drive letters, `.`/`..` refused, at most `extract.maxNameBytes`; leading dot refused; the stored name is the cleaned one, and cleaned again (an unclean one, or one starting with a dot, is refused) when the finished upload is moved into the job (#122) | `internal/uploads/create.go`, `internal/safename` |
 | Disk exhaustion | `upload.maxFileSize` per file, `upload.maxInFlight` over all unfinished uploads, `upload.maxParallelPerUser`, free space minus what unfinished uploads still need must exceed size + `upload.freeSpaceMargin`; deferred length and concatenation refused; a PATCH carries at most `upload.chunkSize` | `create.go`, `uploads.go` |
 | Slow or stuck clients | `upload.requestIdleTimeout`; idle uploads expire after `upload.idleUploadExpiry`; idle jobs expire | `internal/retention` |
 | An upload id used as a path | Ids are 32 random hex characters, checked by `jobdir.ValidID` before anything touches the disk | `internal/uploads/uploads.go`, `internal/jobdir` |
@@ -126,7 +126,7 @@ Bazarr and Jellyfin themselves (see §7).
 
 | Threat | Control | Where |
 | --- | --- | --- |
-| Zip-slip, absolute names, drive letters, backslashes | Refused on the raw name; each segment then goes through `safename.Clean`, and one that becomes empty, `.` or `..` counts as traversal; at most 200 bytes a segment, 32 segments, 1024 bytes; extraction writes through `os.Root` of the job directory into a scratch folder renamed into place, so a refusal leaves nothing | `internal/extract` |
+| Zip-slip, absolute names, drive letters, backslashes | Refused on the raw name; each segment then goes through `safename.Clean`, and one that becomes empty, `.` or `..` counts as traversal, and one that starts with a dot is skipped and listed (`hidden`, as for uploaded names, #122); at most 200 bytes a segment, 32 segments, 1024 bytes; extraction writes through `os.Root` of the job directory into a scratch folder renamed into place, so a refusal leaves nothing | `internal/extract` |
 | Duplicate and colliding names, overwrites | Compared after cleaning, NFC and case folding; files created with `O_EXCL`, so nothing is overwritten | `internal/extract` |
 | Symbolic links, devices, FIFOs in archives | Only regular files and directories are extracted; the rest is skipped and listed | `internal/extract` |
 | Zip bombs | The central directory is read under a byte budget and counted against `extract.maxEntries` before anything is written; bytes counted as written; stop at `extract.maxWrittenBytes`, the free-space margin (checked every 64 MiB), or a written/compressed ratio above `extract.maxRatio`; a declared size that lies, or overlapping entry data, refuses the archive; encrypted entries skipped; nested archives never opened | `internal/extract` |
@@ -159,7 +159,7 @@ stops more:
 | Threat | Control | Where |
 | --- | --- | --- |
 | A second version replaces a library file | `linkat(2)` never replaces; a repeat finds its own link by inode | `internal/flows/version_link_linux.go` |
-| A label or a name from Radarr or Sonarr escapes the target folder | Labels go through `safename.Clean`, refuse `<>:"\|?*`, format characters, leading or trailing dots and forbidden tokens, at most 64 bytes (a label with fullwidth or other compatibility characters, which are not NFKC-normal, is refused); the film folder from Radarr must be one clean path element; the season folder must be inside `paths.libraryRoots` (a `..` in Sonarr's path is cleaned rather than refused, #120); both are opened through an `os.Root` and never created outside it | `internal/flows/version.go`, `episode_version.go` |
+| A label or a name from Radarr or Sonarr escapes the target folder | Labels go through `safename.Clean`, refuse `<>:"\|?*`, format characters, leading or trailing dots and forbidden tokens, at most 64 bytes (a label with fullwidth or other compatibility characters, which are not NFKC-normal, is refused); the film folder from Radarr must be one clean path element; the season folder must be a clean path (one that `Clean` would change, a `..` in Sonarr's path, is refused as `outside_library`, never followed), inside `paths.libraryRoots` and the series' own folder, and outside every Radarr root folder (#120); both are opened through an `os.Root` and never created outside it | `internal/flows/version.go`, `episode_version.go` |
 | Path-mapping prefix confusion (`/media/tv` against `/media/tv2`) | Mappings and library roots match whole path segments only | `internal/pathmap`, `internal/media/library.go` |
 | Radarr adopts a film's version as the tracked file | Films' versions live outside Radarr's root folders (`versions.root`, checked not to overlap any, symlinks resolved) | `internal/flows/version.go` |
 | Sonarr adopts an episode's version | Sonarr's Manual Import proposal must reject it as "not an upgrade" at the confirmation and right before the link; the keeper re-checks and reports `adoptable`/`adopted` | `internal/flows/episode_version.go`, `internal/mediaserver/episode_recheck.go` |
@@ -299,9 +299,9 @@ severity is open.
 | #118 | medium | worker sees all of `/data` and every job; web has the library writable | fixed: library roots and jobs read-only, nothing else; web read-only without versions; reading every job accepted (§6) |
 | #138 | medium | worker should write only `intake/jobs` (follow-up of #137, part of #118) | fixed: it writes only `intake/worker`, reads `intake/jobs`, has no `.incoming/` |
 | #119 | medium | API keys follow redirects to other hosts | open |
-| #120 | low | Sonarr's season folder cleaned instead of refused | open |
+| #120 | low | Sonarr's season folder cleaned instead of refused | fixed: an unclean season folder is refused, and it must be under the series' folder and outside Radarr's root folders |
 | #121 | low | fullwidth characters pass the label checks | fixed: a label that is not NFKC-normal is refused (`version_label`) |
-| #122 | low | extracted names may start with a dot; finished uploads not re-cleaned | open |
+| #122 | low | extracted names may start with a dot; finished uploads not re-cleaned | fixed: a segment starting with a dot is skipped (`hidden`) and the stored name is cleaned again at the move. `fscheck.CanLink` stays on plain `os` calls: it links between two folders, which an `os.Root` of one cannot do, and it touches only its own `.fukku-linkcheck-*` files: accepted |
 | #123 | low | merge free-space check trusts the upload's size tags | fixed: the merge counts the upload's fstat size |
 | #124 | low | process-group kill after reaping can hit a reused PID | fixed: `internal/procgroup` runs probe, merge and preview |
 | #125 | low | worker's no-secrets check covers only API-key settings | fixed: the worker also refuses `_FILE` secrets and URLs with credentials |

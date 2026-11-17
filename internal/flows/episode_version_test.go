@@ -641,6 +641,48 @@ func TestEpisodeVersionLabelsAndRows(t *testing.T) {
 			t.Fatalf("refusal %+v", e)
 		}
 	})
+	t.Run("a dotdot episode path into another library folder (#120)", func(t *testing.T) {
+		x := newEpvEnv(t, nil)
+		film := filepath.Join(x.lib, "Film (2000)")
+		if err := os.MkdirAll(film, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		files := x.series.Files[showID]
+		for i := range files {
+			files[i].Path = appTV + "/Some Show/../Film (2000)/x.mkv"
+		}
+		_, err := x.confirmEpv(x.epvJob(), "")
+		e := wantRefusal(t, err, CodeVersionUnavailable)
+		if !strings.Contains(e.Message, EpisodeOutsideLibrary) {
+			t.Fatalf("refusal %+v", e)
+		}
+		if got, _ := os.ReadDir(film); len(got) != 0 {
+			t.Fatalf("something was linked into the other folder: %v", got)
+		}
+	})
+	t.Run("a clean season folder outside the series folder (#120)", func(t *testing.T) {
+		x := newEpvEnv(t, nil)
+		files := x.series.Files[showID]
+		for i := range files {
+			files[i].Path = appTV + "/Other Show/Season 01/x.mkv"
+		}
+		_, err := x.confirmEpv(x.epvJob(), "")
+		e := wantRefusal(t, err, CodeVersionUnavailable)
+		if !strings.Contains(e.Message, EpisodeOutsideLibrary) {
+			t.Fatalf("refusal %+v", e)
+		}
+	})
+	t.Run("a season folder inside one of Radarr's root folders (#120)", func(t *testing.T) {
+		x := newEpvEnv(t, func(c *config.Config) {
+			c.Paths.Mappings.Radarr = append(c.Paths.Mappings.Radarr, config.PathMapping{From: c.Paths.LibraryRoots[0], To: "/media"})
+		})
+		x.movies.Roots = []arr.RootFolder{{Path: "/media/Some Show"}}
+		_, err := x.confirmEpv(x.epvJob(), "")
+		e := wantRefusal(t, err, CodeVersionUnavailable)
+		if !strings.Contains(e.Message, EpisodeOutsideLibrary) {
+			t.Fatalf("refusal %+v", e)
+		}
+	})
 	t.Run("the name is taken", func(t *testing.T) {
 		x := newEpvEnv(t, nil)
 		j := x.epvJob()

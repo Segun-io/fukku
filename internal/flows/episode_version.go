@@ -486,12 +486,43 @@ func episodeLanguage(up media.Probe, original string) string {
 	return first
 }
 
+// seasonFolderOf is the folder of Sonarr's episode file as Fukku sees it, not cleaned: a path
+// that Clean would change (a ".." segment) is refused by seasonFolderUsable, not followed.
+func seasonFolderOf(mappings []config.PathMapping, appPath string) string {
+	return pathmap.From(mappings, path.Dir(strings.ReplaceAll(appPath, `\`, "/")))
+}
+
+// seasonFolderUsable: the folder is a clean absolute path (as media.LibraryPath requires),
+// is the series' folder or under it, and does not overlap any of Radarr's root folders, so
+// that an answer of Sonarr cannot send a version into another library (#120).
+func seasonFolderUsable(folder, seriesDir string, radarrRoots []string) bool {
+	if !filepath.IsAbs(folder) || filepath.Clean(folder) != folder || !filepath.IsAbs(seriesDir) || filepath.Clean(seriesDir) != seriesDir {
+		return false
+	}
+	if folder != seriesDir {
+		rel, ok := strings.CutPrefix(folder, strings.TrimSuffix(seriesDir, string(filepath.Separator))+string(filepath.Separator))
+		if !ok || !filepath.IsLocal(rel) {
+			return false
+		}
+	}
+	for _, r := range radarrRoots {
+		if filepath.IsAbs(r) && config.OverlapsOnDisk(folder, r) {
+			return false
+		}
+	}
+	return true
+}
+
 // epvLibrary is what the rows of episodes' versions are judged on: Sonarr's folder name for
 // the series, and its episode files by id.
 type epvLibrary struct {
 	series string
 	tvdb   int // the series' TVDB id
 	files  map[int]arr.EpisodeFile
+	// seriesDir is Sonarr's folder for the series and radarrRoots are Radarr's root folders,
+	// both as Fukku sees them (#120).
+	seriesDir   string
+	radarrRoots []string
 }
 
 // loadEpvLibrary reads them from Sonarr (once per session). why is a reason of NotOffered
@@ -517,6 +548,16 @@ func (s *session) loadEpvLibrary(ctx context.Context) (lib epvLibrary, why strin
 		return lib, "", appFailure(AppSonarr, err)
 	}
 	lib.tvdb = sr.TVDBID
+	lib.seriesDir = pathmap.From(s.p.cfg.Paths.Mappings.Sonarr, strings.ReplaceAll(sr.Path, `\`, "/"))
+	if s.p.radarr != nil {
+		roots, err := s.p.radarr.RootFolders(ctx)
+		if err != nil {
+			return lib, "", appFailure(AppRadarr, err)
+		}
+		for _, r := range roots {
+			lib.radarrRoots = append(lib.radarrRoots, filepath.Clean(pathmap.From(s.p.cfg.Paths.Mappings.Radarr, r.Path)))
+		}
+	}
 	lib.files = map[int]arr.EpisodeFile{}
 	for _, f := range files {
 		lib.files[f.ID] = f
@@ -555,8 +596,8 @@ func (s *session) episodeVersionOf(ctx context.Context, lib epvLibrary, rowID, l
 	if !ok || ef.Path == "" {
 		return v, EpisodeNoFile, nil
 	}
-	folder := filepath.Clean(pathmap.From(s.p.cfg.Paths.Mappings.Sonarr, path.Dir(strings.ReplaceAll(ef.Path, `\`, "/"))))
-	if _, _, in := media.LibraryPath(s.p.cfg.Paths.LibraryRoots, folder); !in {
+	folder := seasonFolderOf(s.p.cfg.Paths.Mappings.Sonarr, ef.Path)
+	if _, _, in := media.LibraryPath(s.p.cfg.Paths.LibraryRoots, folder); !in || !seasonFolderUsable(folder, lib.seriesDir, lib.radarrRoots) {
 		return v, EpisodeOutsideLibrary, nil
 	}
 	v.Folder = folder
@@ -1194,7 +1235,7 @@ func (e *Engine) placeEpisodeVersion(ctx context.Context, job store.Job, t store
 		case ep.FileID == 0 || !has:
 			return no(CodeVersionFailed,
 				"S%02dE%02d has no file in Sonarr any more: next to nothing, Sonarr would take the version for the episode's file; nothing was placed", v.Season, v.Episode)
-		case filepath.Clean(pathmap.From(e.p.cfg.Paths.Mappings.Sonarr, path.Dir(strings.ReplaceAll(ef.Path, `\`, "/")))) != v.Folder:
+		case seasonFolderOf(e.p.cfg.Paths.Mappings.Sonarr, ef.Path) != v.Folder:
 			return no(CodeVersionFailed,
 				"Sonarr's file of S%02dE%02d is in another folder since the confirmation (%s): nothing was placed", v.Season, v.Episode, path.Dir(ef.Path))
 		}

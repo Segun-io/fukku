@@ -401,6 +401,7 @@ const es: Record<keyof typeof en, string> = {
   "skip.name_too_long": "su nombre es demasiado largo",
   "skip.duplicate": "otro archivo ya tiene este nombre",
   "skip.encrypted": "está protegido con contraseña",
+  "skip.hidden": "su nombre empieza por un punto",
   "skip.unknown": "omitido (código: {code})",
 
   "errors.unknown": "Algo salió mal.",

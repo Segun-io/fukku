@@ -89,6 +89,7 @@ export const skipReasonCodes = [
   "name_too_long",
   "duplicate",
   "encrypted",
+  "hidden",
 ] as const;
 
 const known = (list: readonly string[], code: string) => list.includes(code);
