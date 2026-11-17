@@ -94,7 +94,7 @@ func (r *Runner) reset(ctx context.Context, job store.Job) error {
 	if err := r.drain(ctx, job, files, 1, job.Attempt-1, false); err != nil {
 		return err
 	}
-	root, err := os.OpenRoot(jobdir.Dir(r.cfg.Paths.IntakeRoot, job.ID))
+	root, err := jobdir.Open(r.cfg.Paths.IntakeRoot, job.ID)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return err
 	}
@@ -608,7 +608,7 @@ func errCode(res spool.Result) string {
 
 // unlink deletes a refused file through an os.Root of the job directory.
 func (r *Runner) unlink(job store.Job, p string) error {
-	root, err := os.OpenRoot(jobdir.Dir(r.cfg.Paths.IntakeRoot, job.ID))
+	root, err := jobdir.Open(r.cfg.Paths.IntakeRoot, job.ID)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil
 	}

@@ -295,7 +295,7 @@ func (w *Worker) execute(ctx context.Context, sp *spool.Dir, t spool.Task, log *
 	if requested {
 		return nil, errCancelled
 	}
-	root, err := os.OpenRoot(jobdir.Dir(w.cfg.Paths.IntakeRoot, t.Job))
+	root, err := jobdir.Open(w.cfg.Paths.IntakeRoot, t.Job)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, &taskError{spool.CodeBadTask, "the job directory does not exist"}
 	}

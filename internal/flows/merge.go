@@ -1111,7 +1111,7 @@ func discardTask(ctx context.Context, q spool.Queue, id string) (saw bool, err e
 // directory, through a root of it, so nothing outside the job is reached. Each merged file
 // is a full copy of the film. A job without a directory has nothing to remove.
 func (e *Engine) removeMerged(jobID, rel string) error {
-	root, err := os.OpenRoot(jobdir.Dir(e.p.cfg.Paths.IntakeRoot, jobID))
+	root, err := jobdir.Open(e.p.cfg.Paths.IntakeRoot, jobID)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil
 	}

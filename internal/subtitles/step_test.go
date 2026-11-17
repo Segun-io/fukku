@@ -353,6 +353,66 @@ func TestOnlyAcceptedRegularFilesWithinTheLimitAreRead(t *testing.T) {
 	}
 }
 
+// The worker writes the job's files directory and is assumed compromised (threat model
+// B4): a symlinked directory on the way to an accepted subtitle file must not make the web
+// process read a file outside the job directory, such as its own secrets, and hand it to
+// the subtitle manager (#63).
+func TestASymlinkedDirectoryIsNotFollowed(t *testing.T) {
+	h := newHarness(t)
+	h.add("Season/Film.mkv", store.KindVideo, "v")
+	h.add("Season/Film.es.srt", store.KindSubtitle, "1\n00:00:01,000 --> 00:00:02,000\nhola\n")
+
+	outside := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outside, "Film.es.srt"), []byte("secret"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(h.root, "jobs", jobID, "files", "Season")
+	if err := os.RemoveAll(dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, dir); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := h.run(); err == nil {
+		t.Fatal("a file behind a symlinked directory was read")
+	}
+	for _, s := range h.fake.Sent() {
+		if strings.Contains(s.Data, "secret") {
+			t.Fatal("leaked a file from outside the job directory")
+		}
+	}
+}
+
+// os.Root follows a link that stays inside the job directory; the hand-over refuses it
+// anyway, since only a regular file the worker accepted may be read (#63).
+func TestALinkInsideTheJobDirectoryIsNotFollowed(t *testing.T) {
+	h := newHarness(t)
+	h.add("Film.mkv", store.KindVideo, "v")
+	h.add("Film.es.srt", store.KindSubtitle, "1\n00:00:01,000 --> 00:00:02,000\nhola\n")
+	job := filepath.Join(h.root, "jobs", jobID)
+	if err := os.MkdirAll(filepath.Join(job, "work"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(job, "work", "x"), []byte("not the subtitle"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	srt := filepath.Join(job, "files", "Film.es.srt")
+	if err := os.Remove(srt); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("../work/x", srt); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := h.run(); err == nil {
+		t.Fatal("a link inside the job directory was followed")
+	}
+	for _, s := range h.fake.Sent() {
+		if strings.Contains(s.Data, "not the subtitle") {
+			t.Fatal("sent the link's target")
+		}
+	}
+}
+
 func TestContextCancelStopsTheStep(t *testing.T) {
 	h := newHarness(t)
 	h.add("Film.mkv", store.KindVideo, "v")

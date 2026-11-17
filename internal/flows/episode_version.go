@@ -774,7 +774,7 @@ func (e *Engine) stageEpisodeVersion(jobID, src string, v episodeVersion) (strin
 	}
 	// Inside the job's folder only (os.Root: no "..", no link out of it). The folder must be
 	// readable by Sonarr, as the job's files/ is.
-	job, err := os.OpenRoot(jobdir.Dir(e.p.cfg.Paths.IntakeRoot, jobID))
+	job, err := jobdir.Open(e.p.cfg.Paths.IntakeRoot, jobID)
 	if err != nil {
 		return "", err
 	}

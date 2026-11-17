@@ -60,6 +60,11 @@ func (h *Handler) complete(ctx context.Context, row store.Upload) *apiError {
 	if !jobdir.ValidID(row.ID) || !jobdir.ValidID(row.JobID) {
 		return h.internal("upload_complete", errors.New("malformed id in upload row"))
 	}
+	inc, err := openIncoming(h.root) // refuses a symlinked .incoming
+	if err != nil {
+		return h.internal("upload_move", err)
+	}
+	_ = inc.Close()
 	root, err := os.OpenRoot(h.root)
 	if err != nil {
 		return h.internal("upload_move", err)
@@ -106,10 +111,15 @@ func moveNoReplace(root *os.Root, src, dst string, size int64) error {
 	if err := root.MkdirAll(filepath.Dir(dst), dirMode); err != nil {
 		return err
 	}
-	si, serr := root.Stat(src)
+	si, serr := root.Lstat(src)
 	di, derr := root.Lstat(dst)
 	if serr != nil && !errors.Is(serr, fs.ErrNotExist) {
 		return serr
+	}
+	if serr == nil && !si.Mode().IsRegular() {
+		// Only the web process creates upload data, as regular files; anything else there
+		// (a link put in by the worker) is never moved into a job.
+		return errIncomingUnsafe
 	}
 	if derr != nil && !errors.Is(derr, fs.ErrNotExist) {
 		return derr
@@ -193,8 +203,8 @@ func (h *Handler) reconcileOne(ctx context.Context, row store.Upload) {
 	defer func() { _ = root.Close() }()
 	_, dir := h.kindOf(row.Name)
 	src, dst := h.relPaths(row, dir)
-	si, serr := root.Stat(src)
-	_, ierr := root.Stat(src + ".info")
+	si, serr := root.Lstat(src)
+	_, ierr := root.Lstat(src + ".info")
 	moved := false
 	if dir != "" {
 		di, derr := root.Lstat(dst)
@@ -228,13 +238,7 @@ func (h *Handler) reconcileOne(ctx context.Context, row store.Upload) {
 }
 
 // dataSize is the size of an upload's data in .incoming/, if it is there.
-func (h *Handler) dataSize(id string) (int64, bool) {
-	fi, err := os.Stat(filepath.Join(h.incoming, id)) //nolint:gosec // id is a checked upload id (jobdir.ValidID)
-	if err != nil {
-		return 0, false
-	}
-	return fi.Size(), true
-}
+func (h *Handler) dataSize(id string) (int64, bool) { return dataSize(h.root, id) }
 
 func mkdirAll(dir string) error {
 	return os.MkdirAll(dir, dirMode) //nolint:gosec // directories under paths.intakeRoot, from the configuration

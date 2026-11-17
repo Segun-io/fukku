@@ -207,7 +207,7 @@ func (s *Server) previewClip(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	clip := pv.Clips[n-1]
-	root, err := os.OpenRoot(jobdir.Dir(s.cfg.Paths.IntakeRoot, j.ID))
+	root, err := jobdir.Open(s.cfg.Paths.IntakeRoot, j.ID)
 	if err != nil {
 		clipNotFound()
 		return

@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/segun-io/fukku/internal/arr"
@@ -211,6 +212,14 @@ func (s *Step) sleep(ctx context.Context, d time.Duration) error {
 // is read, inside the job's own files directory, as a regular file no larger than
 // subtitles.maxFileSize. The bytes go to the subtitle manager as they are; Fukku never
 // parses them.
+//
+// The worker writes the job directory and is assumed compromised (docs/threat-model.md,
+// B4). The file is opened through an os.Root of the job directory taken from the intake
+// root (jobdir.Open), so no link, in a directory on the way or as the file itself, leads
+// out of the job directory. os.Root still follows a link that stays inside it, so the file
+// is also checked with Lstat to be a regular file and not a link, and the open file must be
+// that same file: a link inside the job directory is refused too, and swapping the file
+// after the check cannot make the web process read something else.
 func (s *Step) read(jobID string, f store.File) (data []byte, err error) {
 	if f.Kind != store.KindSubtitle || f.Status != store.FileOK {
 		return nil, errors.New("not an accepted subtitle file")
@@ -219,20 +228,33 @@ func (s *Step) read(jobID string, f store.File) (data []byte, err error) {
 	if !strings.HasPrefix(rel, jobdir.Files+"/") || strings.Contains(rel, "..") {
 		return nil, errors.New("not in the job's files")
 	}
-	full := filepath.Join(jobdir.Dir(s.IntakeRoot, jobID), filepath.FromSlash(rel))
-	info, err := os.Lstat(full)
+	root, err := jobdir.Open(s.IntakeRoot, jobID)
+	if err != nil {
+		return nil, errors.New("the job directory cannot be opened")
+	}
+	defer func() { _ = root.Close() }()
+	name := filepath.FromSlash(rel)
+	li, err := root.Lstat(name)
 	if err != nil {
 		return nil, errors.New("the file is gone")
+	}
+	if !li.Mode().IsRegular() {
+		return nil, errors.New("not a regular file")
+	}
+	// O_NONBLOCK: a FIFO swapped in must not hang the step.
+	fh, err := root.OpenFile(name, os.O_RDONLY|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		return nil, errors.New("the file cannot be read")
+	}
+	defer func() { _ = fh.Close() }()
+	info, err := fh.Stat()
+	if err != nil || !os.SameFile(li, info) {
+		return nil, errors.New("the file changed while it was opened")
 	}
 	limit := int64(s.Config.MaxFileSize)
 	if !info.Mode().IsRegular() || info.Size() > limit {
 		return nil, errors.New("not a regular file within the size limit")
 	}
-	fh, err := os.Open(full) //nolint:gosec // inside the job directory, checked above
-	if err != nil {
-		return nil, errors.New("the file cannot be read")
-	}
-	defer func() { _ = fh.Close() }()
 	data, err = io.ReadAll(io.LimitReader(fh, limit+1))
 	if err != nil {
 		return nil, errors.New("the file cannot be read")
