@@ -1,14 +1,23 @@
-# Example configuration. Every setting and its default: docs/settings.md.
+# Example configuration. Every setting and its default: docs/settings.md. Install guide:
+# docs/install.md. Copy this file to fukku.yaml and change what differs on your host.
+#
 # Keep API keys out of this file: the worker reads it too and refuses to start with secrets.
+# The web process gets them as files (see compose.example.yaml, FUKKU_*_API_KEY_FILE).
+#
+# Check it before you start: docker compose run --rm --no-deps web check-config
 
 server:
+  # The address users type, scheme included. The Origin check compares against it.
   publicBaseUrl: https://fukku.example.com
   uiLanguages: [en, es]
+  # metrics: true        # Prometheus /metrics (loopback or an admin through the proxy)
 
 auth:
   mode: proxyHeaders
-  # The address the reverse proxy connects from (documentation range: replace it).
-  trustedProxies: [192.0.2.10]
+  # The address the reverse proxy connects from, as the web container sees it. This is the
+  # fixed address of the proxy on the fukku-frontend network in compose.example.yaml
+  # (documentation: docs/reverse-proxy.md). Never list a range that other containers share.
+  trustedProxies: [172.29.50.10]
   userHeader: Remote-User
   emailHeader: Remote-Email
   groupsHeader: Remote-Groups
@@ -17,11 +26,17 @@ auth:
 
 radarr:
   url: http://radarr:7878
+  # Where a browser can open Radarr: finished jobs link to its Manual Import page.
+  publicUrl: https://radarr.example.com
+  # The exact name of a quality profile in Radarr; empty means the user picks.
   qualityProfile: HD-1080p
+  # Radarr's own root folder, as Radarr sees it.
   rootFolder: /data/media/movies
+  # importMode: move     # or copy; move needs the intake root on the library's filesystem
 
 sonarr:
   url: http://sonarr:8989
+  publicUrl: https://sonarr.example.com
   qualityProfile: HD-1080p
   rootFolder: /data/media/tv
 
@@ -33,17 +48,37 @@ mediaServer:
   provider: jellyfin
   url: http://jellyfin:8096
   titleLinkTemplate: https://media.example.com/web/#/details?id={itemId}
+  # refreshMethod: libraryRefresh
+  # refreshFallback: true   # scan every library when a title is not visible after itemWait
 
 paths:
   intakeRoot: /data/intake
+  # Radarr's and Sonarr's root folders as Fukku sees them. The worker reads only under these.
   libraryRoots: [/data/media/movies, /data/media/tv]
-  # A file that exists only when the network share is mounted.
+  # A file that exists only when the network share is mounted (create it once: `touch`).
   sentinels: [/data/.mounted]
   # Uncomment when an app sees the data under a different path:
   # mappings:
   #   mediaServer:
   #     - {from: /data/media, to: /media}
 
+# Merging a dub into the existing film (flow 2a). The defaults suit Latin American Spanish.
 merge:
   languageTag: es-419
   trackName: Español (Latino)
+
+# Second versions: a dub kept next to the original (flow 2b, and the season-dub policy
+# `version`). Off by default, because it is the one place the web process writes into the
+# library: needs a writable /data mount in the web container, versions.root on the same mount
+# as intakeRoot and inside a Jellyfin Movies library, Jellyfin 12.4 or later for episodes,
+# and Sonarr's season folders writable by the web user. Details: docs/settings.md (versions).
+# versions:
+#   enabled: true
+#   root: /data/media/versions
+# seasonDub:
+#   policy: ask          # merge, version, replace, subtitlesOnly or ask
+
+# Demuxers the worker may use on a film's library file (flow 2); add one when a library file
+# in an older container fails with `library_unreadable`.
+# worker:
+#   libraryFormats: [matroska, webm, mov, mp4, avi, mpegts, mpeg, asf, flv, ogg]
