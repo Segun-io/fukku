@@ -18,6 +18,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/segun-io/fukku/internal/config"
+	"github.com/segun-io/fukku/internal/procgroup"
 )
 
 // Refusal codes of ProbedFile.Refusal.
@@ -309,8 +310,7 @@ func runFFprobe(ctx context.Context, f *os.File, opt Options, formats string, sh
 	fctx, cancel := context.WithTimeout(ctx, opt.Timeout)
 	defer cancel()
 	cmd := exec.CommandContext(fctx, name, probeArgs...) //nolint:gosec // the binary is configuration, the arguments are fixed
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
+	g := procgroup.New(cmd)
 	cmd.WaitDelay = killWait
 	cmd.ExtraFiles = []*os.File{f}
 	cmd.Env = []string{"PATH=" + os.Getenv("PATH")}
@@ -318,11 +318,9 @@ func runFFprobe(ctx context.Context, f *os.File, opt Options, formats string, sh
 	cmd.Stdout = stdout
 	stderr := &limitedBuffer{max: 4 << 10}
 	cmd.Stderr = stderr
-	err = cmd.Run()
-	// Whatever happened, nothing of the process group may outlive the call.
-	if cmd.Process != nil {
-		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-	}
+	// Whatever happened, nothing of the process group may outlive the call: Run makes the
+	// group's last kill before the leader is reaped.
+	err = g.Run()
 	if perr := ctx.Err(); perr != nil {
 		return nil, "", perr
 	}

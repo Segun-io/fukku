@@ -15,13 +15,13 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 	"unicode"
 
 	"github.com/segun-io/fukku/internal/config"
 	"github.com/segun-io/fukku/internal/jobdir"
 	"github.com/segun-io/fukku/internal/media"
+	"github.com/segun-io/fukku/internal/procgroup"
 )
 
 // The worker's side. Each clip is one ffmpeg run that reads two inherited descriptors
@@ -238,17 +238,15 @@ func render(ctx context.Context, job *os.Root, lib, up *os.File, a Args, c Clip,
 	cctx, cancel := context.WithTimeout(ctx, opt.Timeout)
 	defer cancel()
 	cmd := exec.CommandContext(cctx, argv0, append(prefix, Command(a, c, opt, formats)...)...) //nolint:gosec // the binary is configuration, the arguments are built here
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	g := &group{cmd: cmd}
-	cmd.Cancel = func() error { g.kill(); return nil }
+	g := procgroup.New(cmd)
 	cmd.WaitDelay = killWait
 	cmd.ExtraFiles = []*os.File{lib, up}
 	cmd.Env = []string{"PATH=" + os.Getenv("PATH")}
-	sink := &capped{w: f, max: maxClipBytes(c, opt), kill: g.kill}
+	sink := &capped{w: f, max: maxClipBytes(c, opt), kill: g.Kill}
 	cmd.Stdout = sink
 	stderr := &tail{max: tailMax}
 	cmd.Stderr = stderr
-	err = run(cmd, g)
+	err = g.Run()
 	if perr := ctx.Err(); perr != nil {
 		return 0, "", "", perr
 	}
@@ -338,38 +336,6 @@ func maxClipBytes(c Clip, opt Options) int64 {
 // seconds formats milliseconds as ffmpeg's seconds: "12.345".
 func seconds(ms int64) string {
 	return strconv.FormatInt(ms/1000, 10) + "." + fmt.Sprintf("%03d", ms%1000)
-}
-
-// group kills ffmpeg's process group (the size cap, the deadline and a cancel all do).
-// Once the leader is reaped its id may be reused, so run makes the last kill after the
-// leader has exited and before it is reaped, and every kill after that does nothing.
-type group struct {
-	cmd *exec.Cmd
-
-	mu   sync.Mutex
-	done bool
-}
-
-// kill sends SIGKILL to the group, unless the last kill was made.
-func (g *group) kill() {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	g.signal()
-}
-
-// last makes the last kill: whatever ffmpeg left in the group goes, and later kills do
-// nothing.
-func (g *group) last() {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	g.signal()
-	g.done = true
-}
-
-func (g *group) signal() {
-	if !g.done && g.cmd.Process != nil {
-		_ = syscall.Kill(-g.cmd.Process.Pid, syscall.SIGKILL)
-	}
 }
 
 // capped writes to w up to max bytes; past that it kills ffmpeg and refuses more.
