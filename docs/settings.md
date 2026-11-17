@@ -23,7 +23,18 @@ Value formats:
   only; the worker refuses to start if it is given any.
 
 `fukku check-config` loads and validates a configuration and prints it with secrets
-redacted. A test keeps this table and the code in step.
+redacted (`--role worker` validates it as the worker will: it must hold no secret). A test
+keeps this table and the code in step.
+
+What most installs set, and the rest left at its default ([install.md](install.md) has the
+steps): `server.publicBaseUrl`, `auth.trustedProxies`, `auth.adminGroup` (or
+`auth.allUsersAreAdmins`), `radarr.*` and `sonarr.*` (`url`, `apiKey`, `rootFolder`,
+`qualityProfile`), `paths.libraryRoots`, `paths.sentinels`, and, when the apps see the data under
+other paths, `paths.mappings.*`. Add `subtitles.*` and `mediaServer.*` for Bazarr and Jellyfin.
+Turn on `versions.enabled` (with `versions.root`) only when you want second versions: it is the
+one setting that makes the web container write into the library, so its mount of the library
+must be writable (films' versions go to `versions.root`; episodes' to Sonarr's season folders,
+which must be on the intake root's mount and writable by the web user).
 
 Administrators see the same effective settings, each marked default or set, on the `/admin`
 page (`GET /api/admin/settings`), next to the server's health (`GET /api/admin/status`).
@@ -34,7 +45,7 @@ Others get 404 on both endpoints.
 
 | Setting | Environment | Default | Description |
 | --- | --- | --- | --- |
-| `mode` | `FUKKU_MODE` | `split` | `split`: web and worker run as two processes (`fukku web`, `fukku worker`), the worker with no network. `combined`: one process (`fukku combined`) for simple installs; weaker, because the parser then shares the web process's network and secrets |
+| `mode` | `FUKKU_MODE` | `split` | `split`: web and worker run as two processes (`fukku web`, `fukku worker`), the worker with no network. `combined`: one process (`fukku combined`) for simple installs; weaker, because the parser then shares the web process's network and secrets. The setting and the command must agree: `web` and `worker` refuse `combined`, and `fukku combined` refuses `split` |
 
 ## server
 

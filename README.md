@@ -1,6 +1,10 @@
 # Fukku
 
-**Status: pre-alpha.** Nothing here is ready to run against a real library yet.
+**Status: first release.** It is ready to run against a real library, behind a reverse proxy that
+authenticates your users. Back up your library as you always do: Radarr and Sonarr stay the
+only writers of it, but a merge replaces a film's file (see [docs/install.md](docs/install.md)).
+The version is the image tag in [deploy/compose.example.yaml](deploy/compose.example.yaml), the
+only place it is written.
 
 Fukku (フック, "hook") is a small self-hosted web app for adding video that no indexer will
 ever provide (a ripped disc, a home recording, another language of a film you already have,
@@ -26,20 +30,57 @@ pinned versions of Radarr, Sonarr, Bazarr and Jellyfin behave is in
 [docs/compatibility.md](docs/compatibility.md). How the UI looks and sounds, and which
 component or token to use, is in [docs/design.md](docs/design.md).
 
-## Running it (preview)
+## What it needs
 
-[deploy/compose.example.yaml](deploy/compose.example.yaml) shows the two-container layout,
-and [deploy/fukku.example.yaml](deploy/fukku.example.yaml) an example configuration. No image
-has been published yet; pre-releases are described in [docs/prerelease.md](docs/prerelease.md).
+- Docker with Compose v2, and **Radarr** and/or **Sonarr** (v3 API; the tested versions are in
+  [docs/compatibility.md](docs/compatibility.md)). Bazarr and Jellyfin are optional.
+- **One filesystem** for the intake folder and the library when Radarr and Sonarr import by
+  moving (the default), mounted at the same path in every container.
+- **A reverse proxy that authenticates your users** and sets `Remote-User` (and optionally
+  groups and email) headers: Caddy, Traefik, nginx and others. Fukku has no log-in page of its
+  own and refuses requests that did not come through the proxy.
 
-```sh
-fukku check-config --config fukku.yaml           # validate, print with secrets redacted
-fukku web --config fukku.yaml                    # the web process
-fukku worker --config fukku.yaml                 # the worker process
-```
+## Install in five steps
 
-The web process keeps its state in one SQLite file in `server.dataDir` (local disk only);
-how to back it up while Fukku runs is in [docs/backup.md](docs/backup.md).
+The full guide, with the reasons, is [docs/install.md](docs/install.md). In short:
+
+1. **Copy the examples** [deploy/compose.example.yaml](deploy/compose.example.yaml) and
+   [deploy/fukku.example.yaml](deploy/fukku.example.yaml) into one folder as `compose.yaml` and
+   `fukku.yaml`, and create `state/data`, `state/spool` and `secrets/` there as the user that owns
+   your media.
+2. **Put the API keys in files** under `secrets/` (`radarr_api_key`, `sonarr_api_key`, and
+   `bazarr_api_key` and `jellyfin_api_key` if you use them).
+3. **Edit both files**: the data folder, the user id, the network your apps share, your public
+   address (`server.publicBaseUrl`), the root folders and quality profiles. Check them:
+   `docker compose run --rm --no-deps web check-config`.
+4. **Start it**: `docker compose up -d`, and wait for both containers to be `healthy`
+   (`docker compose ps`).
+5. **Put your reverse proxy in front of it**, with worked examples for Caddy, Traefik and nginx
+   in [docs/reverse-proxy.md](docs/reverse-proxy.md), then open your address.
+
+The image is `ghcr.io/segun-io/fukku`. Until it is published for the version in the compose
+file, build it yourself (`docker build`, [docs/install.md](docs/install.md)).
+
+## Your first upload
+
+Open **Upload**, choose a video (or several, or a zip of a season), press **Start upload**,
+then choose the film or show it is, check what Radarr or Sonarr made of each file, and press
+**Import**. Radarr or Sonarr do the import itself, and the job ends with a link to the title in
+your media server. A dropped connection or a reload continues where it stopped. With a film
+that is already in the library, an upload in another language is offered as a merge into the
+file or as a second version.
+
+## Where to get help
+
+[docs/troubleshooting.md](docs/troubleshooting.md) covers the usual problems (not ready, 403,
+stalled uploads, not the same filesystem, stuck jobs, the manual fallback). Every setting is in
+[docs/settings.md](docs/settings.md). Bugs and questions: the issues of the project's
+repository. Backup and restore: [docs/backup.md](docs/backup.md).
+
+The web process keeps its state in one SQLite file in `server.dataDir` (local disk only).
+Commands, for reference: `fukku web`, `fukku worker`, `fukku combined` (one process, weaker),
+`fukku check-config`, `fukku healthcheck` and `fukku version`; the image runs `web` by default.
+Pre-release images are described in [docs/prerelease.md](docs/prerelease.md).
 
 ## Metrics
 
