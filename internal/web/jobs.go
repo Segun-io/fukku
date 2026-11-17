@@ -40,6 +40,9 @@ var allStates = []store.State{
 	store.Done, store.Failed, store.Stalled, store.Cancelled,
 }
 
+// ended are the states a job no longer counts in upload.maxOpenJobsPerUser.
+var ended = []store.State{store.Done, store.Failed, store.Cancelled}
+
 // States a job can be cancelled from, and deleted from.
 var (
 	cancellable = []store.State{
@@ -474,6 +477,26 @@ func wrongState(w http.ResponseWriter) {
 func (s *Server) createJob(w http.ResponseWriter, r *http.Request) {
 	u, ok := s.user(w, r)
 	if !ok {
+		return
+	}
+	// The check and the creation are one step, so that parallel requests cannot all pass.
+	s.createMu.Lock()
+	defer s.createMu.Unlock()
+	open := make([]store.State, 0, len(allStates))
+	for _, st := range allStates {
+		if !slices.Contains(ended, st) {
+			open = append(open, st)
+		}
+	}
+	limit := s.cfg.Upload.MaxOpenJobsPerUser
+	mine, err := s.deps.Store.Jobs(r.Context(), store.JobFilter{Owner: u.Name, States: open, Limit: limit})
+	if err != nil {
+		s.internalError(w, r, err)
+		return
+	}
+	if len(mine) >= limit {
+		writeError(w, http.StatusTooManyRequests, "too_many_jobs",
+			"You have "+strconv.Itoa(limit)+" unfinished jobs (upload.maxOpenJobsPerUser). Finish or cancel one first.")
 		return
 	}
 	j, err := s.deps.Store.CreateJob(r.Context(), u.Name)

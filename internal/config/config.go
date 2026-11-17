@@ -131,6 +131,7 @@ type Upload struct {
 	MaxFileSize            ByteSize `yaml:"maxFileSize"`
 	MaxInFlight            ByteSize `yaml:"maxInFlight"`
 	MaxParallelPerUser     int      `yaml:"maxParallelPerUser"`
+	MaxOpenJobsPerUser     int      `yaml:"maxOpenJobsPerUser"`
 	FreeSpaceMargin        ByteSize `yaml:"freeSpaceMargin"`
 	VideoExtensions        []string `yaml:"videoExtensions"`
 	SubtitleExtensions     []string `yaml:"subtitleExtensions"`

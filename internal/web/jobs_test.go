@@ -675,3 +675,21 @@ func TestMalformedIDIs404BeforeTheStore(t *testing.T) {
 	}
 	e.fail(admin, "GET", "/api/jobs/"+strings.Repeat("a", 32), 404, "not_found")
 }
+
+// upload.maxOpenJobsPerUser: one more job is refused, other users are not affected, and
+// the room comes back when a job ends.
+func TestCreateJobLimit(t *testing.T) {
+	e := newEnv(t)
+	e.srv.cfg.Upload.MaxOpenJobsPerUser = 2
+	var first, second store.Job
+	e.ok(user1, "POST", "/api/jobs", http.StatusCreated, &first)
+	e.ok(user1, "POST", "/api/jobs", http.StatusCreated, &second)
+	e.fail(user1, "POST", "/api/jobs", http.StatusTooManyRequests, "too_many_jobs")
+	if jobs, _ := e.store.Jobs(t.Context(), store.JobFilter{Owner: user1.Name}); len(jobs) != 2 {
+		t.Errorf("%d jobs after the refusal, want 2", len(jobs))
+	}
+	e.ok(user2, "POST", "/api/jobs", http.StatusCreated, nil)
+	e.ok(user1, "POST", "/api/jobs/"+first.ID+"/cancel", http.StatusOK, nil)
+	e.ok(user1, "POST", "/api/jobs", http.StatusCreated, nil)
+	e.fail(user1, "POST", "/api/jobs", http.StatusTooManyRequests, "too_many_jobs")
+}

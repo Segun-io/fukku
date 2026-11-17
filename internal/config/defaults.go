@@ -70,6 +70,7 @@ func Defaults() Config {
 			MaxFileSize:            80 << 30,
 			MaxInFlight:            300 << 30,
 			MaxParallelPerUser:     3,
+			MaxOpenJobsPerUser:     20,
 			FreeSpaceMargin:        100 << 30,
 			VideoExtensions:        []string{".mkv", ".mp4", ".m4v", ".avi", ".mov", ".ts", ".webm"},
 			SubtitleExtensions:     []string{".srt", ".ass", ".ssa"},

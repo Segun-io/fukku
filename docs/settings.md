@@ -166,6 +166,7 @@ same settings.
 | `upload.maxFileSize` | `FUKKU_UPLOAD_MAX_FILE_SIZE` | `80GiB` | Largest single file |
 | `upload.maxInFlight` | `FUKKU_UPLOAD_MAX_IN_FLIGHT` | `300GiB` | Total size of all unfinished uploads |
 | `upload.maxParallelPerUser` | `FUKKU_UPLOAD_MAX_PARALLEL_PER_USER` | `3` | Uploads one user may run at once |
+| `upload.maxOpenJobsPerUser` | `FUKKU_UPLOAD_MAX_OPEN_JOBS_PER_USER` | `20` | Jobs one user may have that are not yet `done`, `failed` or `cancelled`; creating one more is refused with HTTP 429 `too_many_jobs` until one ends (finishes, fails, is cancelled, or expires) |
 | `upload.freeSpaceMargin` | `FUKKU_UPLOAD_FREE_SPACE_MARGIN` | `100GiB` | Refuse an upload when free space is below its size plus this; an extraction stops when free space falls below this, and a merge does not start unless the job's filesystem has room for about the library file plus the added tracks, plus this (measured on Linux, where the worker runs; elsewhere the extraction and merge checks always pass) |
 | `upload.videoExtensions` | `FUKKU_UPLOAD_VIDEO_EXTENSIONS` | `.mkv, .mp4, .m4v, .avi, .mov, .ts, .webm` | Accepted video files |
 | `upload.subtitleExtensions` | `FUKKU_UPLOAD_SUBTITLE_EXTENSIONS` | `.srt, .ass, .ssa` | Accepted subtitle files |

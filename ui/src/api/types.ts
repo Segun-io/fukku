@@ -28,6 +28,7 @@ export const jobErrorCodes = [
   "no_files",
   "wrong_state",
   "job_active",
+  "too_many_jobs",
 ] as const;
 
 /** Codes of the match endpoints (#37). */

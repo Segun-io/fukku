@@ -183,6 +183,7 @@ func validateShared(p *problems, cfg Config) {
 		p.add("upload.maxInFlight", "is smaller than upload.maxFileSize, so no file could ever be uploaded")
 	}
 	positive(p, "upload.maxParallelPerUser", int64(u.MaxParallelPerUser))
+	positive(p, "upload.maxOpenJobsPerUser", int64(u.MaxOpenJobsPerUser))
 	nonNegative(p, "upload.freeSpaceMargin", int64(u.FreeSpaceMargin))
 	extensions(p, "upload.videoExtensions", u.VideoExtensions, true)
 	extensions(p, "upload.subtitleExtensions", u.SubtitleExtensions, false)

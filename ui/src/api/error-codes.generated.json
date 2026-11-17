@@ -57,6 +57,7 @@
       "title_in_use",
       "title_not_found",
       "too_large",
+      "too_many_jobs",
       "too_many_uploads",
       "upload_busy",
       "uploads_unfinished",
