@@ -65,7 +65,7 @@ vulncheck: ui-deps ## scan Go modules and npm packages for known vulnerabilities
 	$(IN_DEV) tools/vulncheck.sh
 
 .PHONY: _check
-_check: fmt-check lint test ui-check e2e-check secrets
+_check: fmt-check lint test ui-check e2e-check notices-check secrets
 	@echo "check: all passed"
 
 .PHONY: fmt
@@ -83,6 +83,14 @@ lint: $(DEV_DEP) ## lint Go code
 .PHONY: test
 test: $(DEV_DEP) ## unit tests, including the fixture generators (needs ffmpeg: in the dev image)
 	$(IN_DEV) go test -race -count=1 ./...
+
+.PHONY: notices
+notices: ui-deps ## regenerate THIRD_PARTY_NOTICES.md (UI packages, fonts, Go modules, image components)
+	$(IN_DEV) go run ./tools/notices
+
+.PHONY: notices-check
+notices-check: ui-deps ## fail if THIRD_PARTY_NOTICES.md is out of date or a licence is not allowed (offline: needs ui/node_modules and the Go module cache)
+	$(IN_DEV) go run ./tools/notices -check
 
 .PHONY: ui-deps
 ui-deps: $(DEV_DEP)

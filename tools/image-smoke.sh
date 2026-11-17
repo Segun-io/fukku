@@ -22,6 +22,15 @@ fi
 
 docker run --rm "$image" version
 
+# The licence texts and third-party notices travel with the image (Dockerfile, runtime stage).
+docker run --rm --entrypoint sh "$image" -c '
+  for f in LICENSE THIRD_PARTY_NOTICES.md fonts/OFL-dm-mono.txt fonts/OFL-instrument-sans.txt fonts/OFL-schibsted-grotesk.txt ffmpeg/LICENSE.md ffmpeg/COPYING.GPLv2; do
+    [ -s "/usr/share/doc/fukku/$f" ] || { echo "missing /usr/share/doc/fukku/$f in the image" >&2; exit 1; }
+  done
+  grep -q "react" /usr/share/doc/fukku/THIRD_PARTY_NOTICES.md
+'
+echo "licence texts and notices present"
+
 # No setuid or setgid file may be left (Dockerfile, runtime stage): without no-new-privileges
 # they would let the non-root user climb. -xdev keeps find out of /proc and /sys.
 # Run as root so that no directory is unreadable, and let errors show.
