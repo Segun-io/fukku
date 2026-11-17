@@ -42,6 +42,9 @@
   --alarm: oklch(87% 0.16 98);
   --alarm-ink: oklch(22% 0.04 100);
 
+  /* Behind a video clip before it plays: dark in both modes, as a screen is */
+  --screen: oklch(14% 0.012 170);
+
   /* Light on moulded controls, and the two shadows */
   --glint: oklch(99.5% 0.01 90 / 0.45);
   --shadow-control: 0 2px 0 var(--rule);
@@ -139,6 +142,7 @@
   --color-primary-deep: var(--signal-deep);
   --color-primary-soft: var(--signal-soft);
   --color-track: var(--track);
+  --color-screen: var(--screen);
   --color-destructive-soft: var(--error-soft);
   --color-caution: var(--caution);
   --color-caution-edge: var(--caution-edge);

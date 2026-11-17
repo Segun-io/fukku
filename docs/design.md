@@ -96,6 +96,7 @@ derived again. Use the Tailwind utility in the second column, never the raw vari
 | Error fill | `bg-destructive-soft` | `oklch(94.5% 0.028 27)` | `oklch(26% 0.05 25)` | behind the reason of a failure |
 | Caution fill | `bg-caution`, `border-caution-edge`, `text-caution-foreground` | `oklch(94% 0.07 98)` | `oklch(27% 0.045 95)` | warnings before a decision; "sign in again" |
 | Alarm | `bg-alarm`, `text-alarm-foreground` | `oklch(87% 0.16 98)` | the same | the insecure-development banner, nothing else |
+| Screen | `bg-screen` | `oklch(14% 0.012 170)` | the same | behind a video clip before it plays, nothing else |
 | Focus | `ring-ring` (the outline is set globally) | `oklch(45% 0.14 160)` | `oklch(80% 0.12 160)` | the focus ring |
 
 Text pairs are 4.5:1 or better and control edges, the tray's fill and the focus ring 3:1 or
@@ -417,6 +418,58 @@ sentences as children.
   Below 40rem only the current step is written out; the others are read out, not shown.
 - A page that is not one of the three steps (the job page) does not use it.
 
+### Choice with consequences: `ChoiceList`
+
+A choice among a few ways to go on, where each needs a sentence that says what it does:
+merge or keep a second version, what to do with episodes that already have a file.
+
+- One raised strip of rows, as the results of the match step are: a native radio, the choice
+  in the words of a button, its consequence under it. The chosen row is mint. The whole row
+  is the target and takes the focus ring.
+- `legend` is the question. `value` is an empty string while nothing is chosen: nothing is
+  preselected for the user unless the page has a reason to.
+- What belongs to the question goes in as children, under the strip: the sentence that says
+  a choice is missing (`role="alert"`, and `aria-describedby` on the list).
+- Not for bare values (use `SelectField`), and never as separate bordered boxes: that is a
+  card inside a section.
+
+### Two things side by side: `SideBySide`
+
+Two file labels compared term by term, on one raised surface: the file in the library and
+the upload.
+
+- From 48rem the two stand next to each other, the terms are written once, and every term
+  is on one line across both, so a difference is found by reading across. Below that the
+  second stands under the first with the same terms in the same order.
+- Each side is a region named by its title, with its own terms (hidden from sight on the
+  second side when the first shows them), so it reads whole to a screen reader.
+- Put the term the page's verdict is about near the top (the length, for flow 2). A value
+  one side does not have says so in grey ("Not known"); a line neither side has is left out.
+- It shows facts only. What the difference means is a `Notice` directly under it.
+
+### Field with step buttons: `NudgeField`
+
+A number the user adjusts by ear or by eye rather than knows: the offset of the sync check.
+
+- A field that can be typed into, its unit after it, and under it two groups of buttons,
+  one for each direction. **A group is captioned with what the user notices** ("The sound
+  comes after the picture"), and each button says what it does ("250 ms earlier"), so
+  nobody has to work out which sign is which.
+- Two steps for each direction: one that is barely noticed and one that plainly is (50 and
+  250 ms for sound against picture).
+- The buttons only write into the field. A press starts from the number in the field (from
+  0 when the text is not a number) and stops at the bounds; a button is never disabled.
+  What the new value is used for, and what it makes stale, stays with the page.
+- `readout` says the value in a sentence and in the unit people think in ("The new audio
+  starts 0.25 s later"); it is read out when the value changes. `hint` says how to type a
+  value and its bounds; `error` goes under the field.
+
+### Confirmation under another heading
+
+`ConfirmStep` takes `as="h3"` or `as="h4"` when it closes a part of the page that has its
+own heading (the merge and the second version of flow 2), so the outline stays in order;
+"Before you confirm" is one level below. The look does not change.
+
 ### Notice with a heading
 
 `Notice` takes `titleAs="h2"` (or `h3`) when it opens a part of the page and its title
@@ -586,6 +639,60 @@ as rows on paper, the subtitle files, and the decision.
 - Above the button, what will happen in figures: "4 files will be imported", "1 is left
   out". Then "Import" (green) and "Choose a different title" (ghost).
 
+### Another language of a film (`/jobs/$id/flow2`)
+
+One column of the flow's width: `BackToJob`, `FlowHeader` (no steps: this page is not one
+of the three), then two parts under hairlines.
+
+1. **"Your upload and the library file"**: `SideBySide`, then the finding as a `Notice`
+   with a heading: "Same cut" (done), "A PAL speed-up" or "A different cut" (caution).
+2. **"What you can do"**: with both offers a `ChoiceList`; with one, that path straight
+   away; with none, a caution `Notice` and the reasons. What is not offered is listed in
+   small text under the choice.
+
+The merge path is the sync check, then the merge. **The sync check reads in the order it
+is done**, in one narrow column, the same on a phone and on a desktop:
+
+- the audio track (`SelectField`);
+- the clips, one under the other, each named "Clip 1 of 3, from 0:00", with the native
+  player on the screen colour. A clip is as wide as the column, never three in a row: the
+  picture has to be large enough to see a mouth move. While clips are made their places are
+  kept by empty frames and one line says so (a still `Hourglass`, no spinner), so what is
+  under them does not move;
+- the offset (`NudgeField`), directly under the clips it corrects;
+- "Make the clips" (green until clips exist, then an outline button, and green again when
+  the fields no longer say what the clips were made with: a caution line above it says so);
+- under a hairline, the question "Do the sound and the picture line up in every clip?",
+  the green "They match, continue", and two sentences for when they do not: the same
+  amount in every clip is an offset; right at the start and wrong at the end is a
+  different speed, which no offset fixes.
+
+The question and the merge are withdrawn whenever the track or the offset
+differs from what the clips were made with; they come back when the fields say it again.
+"They match" moves the focus to the merge's heading.
+
+The merge and the second version each end in a `ConfirmStep` with `as="h4"`. The merge's
+facts say what is added and what happens to the file and to the film; its two warnings are
+that the old file is removed and that the film's own Search in Radarr can still replace
+the merged file (B6).
+
+### Episodes that already have a file (`/jobs/$id/confirm`)
+
+Above the files of the confirmation: the seasons and their counts in plain sentences, then
+a `ChoiceList` with the policies the server offers (or one sentence when the server
+settles it). Choosing "Keep as second versions" opens "Second versions" under it: the
+label, the name each episode's file gets (or, as an error `StatusLabel`, why it cannot be
+one), and "Good to know" as a waiting `Notice`.
+
+### One upload, after a merge or a second version (`/jobs/$id`)
+
+| State | What leads |
+| --- | --- |
+| merging | "The merge": its two steps with their `StatusLabel`s, one sentence, what is added |
+| merged, done | the done `Notice` with the link; the caution `Notice` that the film is unmonitored and what can still replace the file; "Steps after the import"; then "The merge" for the record, its heading grey |
+| second version, done | the done `Notice`; where the version stands in the media server (`StatusLabel`); "Good to know" as a waiting `Notice`, in the words of the page where it was chosen |
+| episodes kept as second versions | the done or caution `Notice`; "Second versions": each episode's file and its state |
+
 ### Looking at the pages
 
 `npm run dev:mock` shows every state without a server. A file whose name carries a code in
@@ -597,8 +704,16 @@ the session a third of the way in, and `?mock=` starts from other data: `/jobs?m
 app refuses, `,pending` for an app that has not answered yet, `,slow` to look at
 "Checking…" for four seconds and `,failing` for a change that cannot be checked.
 `?mock=importing` adds an import that runs and one that waits for its app; `?mock=dub` adds
-a finished import of a dub, unmonitored, with a failed step. The names are listed in
-`ui/src/mocks/scenarios.ts`.
+a finished import of a dub, unmonitored, with a failed step. `?mock=flow2` adds three
+uploads of a film that has a file (the same cut, a PAL speed-up, a different cut): open
+"Compare with the library file" from the upload, and confirm a merge or a version to watch
+it finish. `?mock=mapping,versions` adds the choice for episodes that have a file to the
+confirmation, and `?mock=versions` a finished import that kept episodes as second
+versions. The names are listed in `ui/src/mocks/scenarios.ts`.
+
+The flow 2 screens (#60) were taken before and after in the same way (19 states, each at
+360 px and 1280 px, light and dark, English and Spanish); those pictures are described in
+the pull request and are not kept in the repository.
 
 ### Before and after
 

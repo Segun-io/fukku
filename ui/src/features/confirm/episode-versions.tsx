@@ -3,6 +3,7 @@ import { useEffect, useId, useRef } from "react";
 import type { EpisodeVersionsView, ProposalRow } from "@/api/proposal";
 import { useSession } from "@/api/session";
 import { inputClass } from "@/components/patterns/field";
+import { StatusLabel } from "@/components/patterns/status-label";
 import { Notice } from "@/components/shell/notice";
 import { type TKey, useT } from "@/i18n";
 import { problemText, rowProblemText, versionNoticeText } from "@/lib/flow2-text";
@@ -139,10 +140,9 @@ export function EpisodeVersionsSection({
                   })}
                 </span>
                 {r.problem !== "" ? (
-                  <span className="flex items-start gap-2 text-sm text-destructive">
-                    <TriangleAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
+                  <StatusLabel tone="error" className="font-normal">
                     {t(rowProblemText(r.problem).key, rowProblemText(r.problem).params)}
-                  </span>
+                  </StatusLabel>
                 ) : proposed && r.name !== "" ? (
                   <span translate="no" className="text-sm text-ink-2 [overflow-wrap:anywhere]">
                     {r.name}

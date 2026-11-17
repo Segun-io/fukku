@@ -123,6 +123,7 @@ export function VersionForm({ jobId, offer }: { jobId: string; offer: VersionOff
       )}
 
       <ConfirmStep
+        as="h4"
         title={t("flow2.version.confirm.title")}
         facts={[
           {

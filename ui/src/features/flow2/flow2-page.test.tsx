@@ -337,6 +337,74 @@ describe("the sync check", () => {
     expect(screen.getByText(/changed after these clips were made/)).toBeVisible();
     expect(screen.queryByRole("button", { name: "They match, continue" })).not.toBeInTheDocument();
   });
+
+  it("moves the offset with the buttons, which only write into the field", async () => {
+    const { previews } = record();
+    const user = userEvent.setup();
+    open();
+    await makeClips(user);
+    await screen.findByRole("list", { name: "Clips" }, slow);
+    const offset = screen.getByRole("textbox", { name: "Offset in milliseconds" });
+    const late = screen.getByRole("group", { name: "The sound comes after the picture" });
+    const early = screen.getByRole("group", { name: "The sound comes before the picture" });
+
+    await user.click(within(late).getByRole("button", { name: "250 ms earlier" }));
+    await user.click(within(late).getByRole("button", { name: "50 ms earlier" }));
+    expect(offset).toHaveValue("-300");
+    expect(screen.getByText("The new audio starts 0.3 s earlier.")).toBeVisible();
+    // The clips were made at 0: they no longer show what would be merged.
+    expect(screen.getByText(/changed after these clips were made/)).toBeVisible();
+    expect(screen.queryByRole("button", { name: "They match, continue" })).not.toBeInTheDocument();
+    // Nothing was asked of the server by the buttons.
+    expect(previews).toHaveLength(1);
+
+    // Back to the offset of the clips: they can be confirmed again.
+    await user.click(within(early).getByRole("button", { name: "250 ms later" }));
+    await user.click(within(early).getByRole("button", { name: "50 ms later" }));
+    expect(offset).toHaveValue("0");
+    expect(screen.getByRole("button", { name: "They match, continue" })).toBeVisible();
+
+    await user.click(within(early).getByRole("button", { name: "50 ms later" }));
+    await user.click(screen.getByRole("button", { name: "Make the clips again" }));
+    await waitFor(() => expect(previews).toHaveLength(2));
+    expect(previews[1]).toEqual({ offsetMs: 50, audioTrack: 1 });
+  });
+
+  it("keeps the offset within its bounds when a button would pass them", async () => {
+    const user = userEvent.setup();
+    open();
+    const offset = await screen.findByRole("textbox", { name: "Offset in milliseconds" });
+    await user.clear(offset);
+    await user.type(offset, "59900");
+    await user.click(screen.getByRole("button", { name: "250 ms later" }));
+    expect(offset).toHaveValue("60000");
+    await user.click(screen.getByRole("button", { name: "250 ms later" }));
+    expect(offset).toHaveValue("60000");
+    await user.clear(offset);
+    await user.type(offset, "-60000");
+    await user.click(screen.getByRole("button", { name: "50 ms earlier" }));
+    expect(offset).toHaveValue("-60000");
+  });
+
+  it("keeps the headings in order down to the merge confirmation", async () => {
+    const user = userEvent.setup();
+    open();
+    await makeClips(user);
+    await screen.findByRole("list", { name: "Clips" }, slow);
+    await user.click(screen.getByRole("button", { name: "They match, continue" }));
+    await screen.findByRole("heading", { name: "Merge into the library file" });
+    const levels = screen
+      .getAllByRole("heading")
+      .map((h) => Number(h.tagName.slice(1)))
+      .filter((n) => n > 0);
+    // No heading is more than one level below the one before it.
+    levels.forEach((level, i) => {
+      if (i > 0) expect(level - (levels[i - 1] ?? level)).toBeLessThanOrEqual(1);
+    });
+    expect(
+      screen.getByRole("heading", { level: 4, name: "Merge the audio into the library file?" }),
+    ).toBeVisible();
+  });
 });
 
 describe("the merge", () => {

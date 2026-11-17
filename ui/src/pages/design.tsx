@@ -1,4 +1,5 @@
 import { type ReactNode, useEffect, useState } from "react";
+import { ChoiceList } from "@/components/patterns/choice-list";
 import { ConfirmStep } from "@/components/patterns/confirm-step";
 import { CopyField } from "@/components/patterns/copy-field";
 import { FileList, type FileListItem } from "@/components/patterns/file-list";
@@ -9,7 +10,9 @@ import {
   type UploadStatus,
 } from "@/components/patterns/file-progress";
 import { FlowHeader } from "@/components/patterns/flow-header";
+import { NudgeField } from "@/components/patterns/nudge-field";
 import { SelectField } from "@/components/patterns/select-field";
+import { SideBySide } from "@/components/patterns/side-by-side";
 import { StatusLabel } from "@/components/patterns/status-label";
 import { type JobEvent, StatusTimeline } from "@/components/patterns/status-timeline";
 import { InsecureDevBanner, OfflineBanner, SignInAgain } from "@/components/shell/banners";
@@ -18,6 +21,7 @@ import { destinations } from "@/components/shell/nav";
 import { EmptyState, ErrorState, LoadingState } from "@/components/shell/states";
 import { Button } from "@/components/ui/button";
 import { useT } from "@/i18n";
+import { maxOffsetMs, parseOffset } from "@/lib/job-text";
 
 // The pattern examples, with fixed sample data. This page is registered in development
 // builds only (see router.tsx), so none of it reaches the embedded UI.
@@ -119,8 +123,10 @@ function LiveRow() {
 }
 
 export function DesignPage() {
-  const { t, formatBytes } = useT();
+  const { t, formatBytes, formatDuration } = useT();
   const [confirmed, setConfirmed] = useState(false);
+  const [choice, setChoice] = useState("merge");
+  const [offset, setOffset] = useState("0");
 
   const files: FileListItem[] = [
     { id: 1, name: "Some Show - Season 2.zip", kind: "archive", size: 21.4 * GB, status: "ok" },
@@ -343,6 +349,74 @@ export function DesignPage() {
           <option value="uploading">{t("state.uploading")}</option>
           <option value="failed">{t("state.failed")}</option>
         </SelectField>
+      </Section>
+
+      <Section title={t("patterns.demo.choice.title")}>
+        <ChoiceList
+          legend={t("flow2.offer.legend")}
+          value={choice}
+          onChange={setChoice}
+          choices={(["merge", "version"] as const).map((offer) => ({
+            value: offer,
+            label: t(`flow2.offer.${offer}`),
+            body: t(`flow2.offer.${offer}.body`),
+          }))}
+        />
+      </Section>
+
+      <Section title={t("patterns.demo.compare.title")}>
+        <SideBySide
+          as="h3"
+          titles={[t("flow2.side.library"), t("flow2.side.upload")]}
+          rows={[
+            {
+              term: t("flow2.file"),
+              verbatim: true,
+              values: ["Some Film (2001) WEBDL-1080p.mkv", "Some.Film.2001.Spanish.1080p.mkv"],
+            },
+            {
+              term: t("flow2.duration"),
+              figure: true,
+              values: [formatDuration(5_400_000), formatDuration(5_400_200)],
+            },
+            {
+              term: t("flow2.size"),
+              figure: true,
+              values: [formatBytes(4.2 * GB), formatBytes(3.9 * GB)],
+            },
+          ]}
+        />
+      </Section>
+
+      <Section title={t("patterns.demo.nudge.title")}>
+        <NudgeField
+          id="demo-offset"
+          label={t("flow2.sync.offset")}
+          value={offset}
+          onChange={setOffset}
+          parse={parseOffset}
+          min={-maxOffsetMs}
+          max={maxOffsetMs}
+          unit={t("flow2.sync.offset.unit")}
+          input={{ name: "demo-offset" }}
+          groups={[
+            {
+              caption: t("flow2.sync.offset.late"),
+              steps: [50, 250].map((ms) => ({
+                by: -ms,
+                label: t("flow2.sync.offset.earlier", { ms }),
+              })),
+            },
+            {
+              caption: t("flow2.sync.offset.early"),
+              steps: [50, 250].map((ms) => ({
+                by: ms,
+                label: t("flow2.sync.offset.later", { ms }),
+              })),
+            },
+          ]}
+          hint={t("flow2.sync.offset.hint")}
+        />
       </Section>
 
       <Section title={t("patterns.demo.status.title")}>

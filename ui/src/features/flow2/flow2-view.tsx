@@ -2,11 +2,11 @@ import { TriangleAlert } from "lucide-react";
 import { useId, useState } from "react";
 import { usePreview } from "@/api/flow2";
 import type { Flow2, Flow2File, Flow2Offer, JobFile, MergeRefusal } from "@/api/types";
+import { ChoiceList } from "@/components/patterns/choice-list";
 import { Notice } from "@/components/shell/notice";
 import { type TKey, useT } from "@/i18n";
 import { offerReasonText } from "@/lib/flow2-text";
 import { audioLines, mergeRefusalText } from "@/lib/job-text";
-import { cn } from "@/lib/utils";
 import { Comparison } from "./comparison";
 import { trackLabel } from "./labels";
 import { MergeForm } from "./merge-form";
@@ -20,7 +20,7 @@ const offerOrder: readonly Flow2Offer[] = ["merge", "version"];
  * and what to do. It stays above the sync check until another merge is confirmed.
  */
 function RefusedMerge({ refusal, upload }: { refusal: MergeRefusal; upload: Flow2File }) {
-  const { t, lang } = useT();
+  const { t, lang, formatNumber } = useT();
   const why = mergeRefusalText(refusal.code);
   const lines = audioLines(upload.audio, lang);
   const track = refusal.audioTracks
@@ -38,7 +38,7 @@ function RefusedMerge({ refusal, upload }: { refusal: MergeRefusal; upload: Flow
       title={t("flow2.refusal.title")}
     >
       <p>{t(why.key, why.params)}</p>
-      <p>{t("flow2.refusal.choice", { track, offset: String(refusal.offsetMs) })}</p>
+      <p>{t("flow2.refusal.choice", { track, offset: formatNumber(refusal.offsetMs) })}</p>
       <p>{t("flow2.refusal.hint")}</p>
     </Notice>
   );
@@ -151,35 +151,16 @@ export function Flow2View({
           <h2 id={`${legend}-options`}>{t("flow2.options.title")}</h2>
 
           {offers.length > 1 ? (
-            <fieldset className="grid gap-3">
-              <legend className="mb-1 font-medium">{t("flow2.offer.legend")}</legend>
-              <div className="grid gap-3 md:grid-cols-2">
-                {offers.map((offer) => (
-                  <label
-                    key={offer}
-                    className={cn(
-                      "flex cursor-pointer items-start gap-3 rounded-lg border p-4 hover:bg-accent/60",
-                      "has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-ring",
-                      choice === offer && "border-primary bg-primary-soft hover:bg-primary-soft",
-                    )}
-                  >
-                    <input
-                      type="radio"
-                      name={`${legend}-offer`}
-                      className="mt-0.5 size-5 shrink-0 accent-primary outline-none"
-                      checked={choice === offer}
-                      onChange={() => setPicked(offer)}
-                    />
-                    <span className="grid gap-1">
-                      <span className="font-medium">{t(`flow2.offer.${offer}` as TKey)}</span>
-                      <span className="max-w-[65ch] text-sm text-ink-2">
-                        {t(`flow2.offer.${offer}.body` as TKey)}
-                      </span>
-                    </span>
-                  </label>
-                ))}
-              </div>
-            </fieldset>
+            <ChoiceList
+              legend={t("flow2.offer.legend")}
+              value={choice ?? ""}
+              onChange={(offer) => setPicked(offer as Flow2Offer)}
+              choices={offers.map((offer) => ({
+                value: offer,
+                label: t(`flow2.offer.${offer}` as TKey),
+                body: t(`flow2.offer.${offer}.body` as TKey),
+              }))}
+            />
           ) : null}
 
           {notOffered}

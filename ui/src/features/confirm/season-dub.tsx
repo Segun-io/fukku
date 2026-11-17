@@ -1,10 +1,10 @@
 import { CircleAlert, TriangleAlert } from "lucide-react";
 import { useId } from "react";
 import type { ProposalRow, SeasonDub } from "@/api/proposal";
+import { ChoiceList } from "@/components/patterns/choice-list";
 import { Notice } from "@/components/shell/notice";
 import { type TKey, useT } from "@/i18n";
 import { offerReasonText } from "@/lib/flow2-text";
-import { cn } from "@/lib/utils";
 
 /** The policies this page has text for (`confirm.dub.<policy>`). */
 const knownPolicies = ["replace", "subtitlesOnly", "version"];
@@ -93,7 +93,7 @@ export function SeasonDubSection({
         {dub.seasons
           .filter((s) => s.existing > 0)
           .map((s) => (
-            <li key={s.season} className="figure whitespace-normal">
+            <li key={s.season} className="max-w-[65ch] font-medium">
               {t("confirm.dub.season", {
                 season: s.season,
                 existing: s.existing,
@@ -104,34 +104,21 @@ export function SeasonDubSection({
       </ul>
 
       {dub.ask && (
-        <fieldset className="grid gap-3" aria-describedby={missing ? `${id}-missing` : undefined}>
-          <legend className="mb-1 font-medium">{t("confirm.dub.legend")}</legend>
-          {dub.offers.map((policy) => {
+        <ChoiceList
+          legend={t("confirm.dub.legend")}
+          aria-describedby={missing ? `${id}-missing` : undefined}
+          value={choice}
+          onChange={onChoice}
+          choices={dub.offers.map((policy) => {
             const text = policyText(policy);
-            return (
-              <label
-                key={policy}
-                className={cn(
-                  "flex cursor-pointer items-start gap-3 rounded-lg border p-4 hover:bg-accent/60",
-                  "has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-ring",
-                  choice === policy && "border-primary bg-primary-soft hover:bg-primary-soft",
-                )}
-              >
-                <input
-                  type="radio"
-                  name={`${id}-policy`}
-                  data-policy={policy}
-                  className="mt-0.5 size-5 shrink-0 accent-primary outline-none"
-                  checked={choice === policy}
-                  onChange={() => onChoice(policy)}
-                />
-                <span className="grid gap-1">
-                  <span className="font-medium">{t(text.label, { policy })}</span>
-                  <span className="max-w-[65ch] text-sm text-ink-2">{t(text.body, { app })}</span>
-                </span>
-              </label>
-            );
+            return {
+              value: policy,
+              label: t(text.label, { policy }),
+              body: t(text.body, { app }),
+              input: { "data-policy": policy },
+            };
           })}
+        >
           {missing && choice === "" && (
             <p
               id={`${id}-missing`}
@@ -142,7 +129,7 @@ export function SeasonDubSection({
               {t("confirm.dub.missing")}
             </p>
           )}
-        </fieldset>
+        </ChoiceList>
       )}
 
       {decided && dub.decided && (
