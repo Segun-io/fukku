@@ -11,6 +11,8 @@ auth:
   # The test proxy's address on the dev network (compose.yaml overrides it when
   # FUKKU_DEV_SUBNET is set).
   trustedProxies: [172.30.77.10]
+  # The test proxy sets Remote-Groups and drops the client's own.
+  groupsHeader: Remote-Groups
   adminGroup: media-admins
 
 radarr:

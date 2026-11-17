@@ -123,3 +123,11 @@ func FuzzClean(f *testing.F) {
 		}
 	})
 }
+
+func TestIsNFKC(t *testing.T) {
+	for s, want := range map[string]bool{"Español": true, "plain": true, "\uff11\uff10": false, "\u2460": false, "\ufb01": false} {
+		if got := IsNFKC(s); got != want {
+			t.Errorf("IsNFKC(%q) = %v, want %v", s, got, want)
+		}
+	}
+}

@@ -168,6 +168,7 @@ func applyEnv(cfg *Config, opts Options) error {
 		if leaf.Secret {
 			known[leaf.Env+"_FILE"] = true
 			if path, ok := env[leaf.Env+"_FILE"]; ok {
+				cfg.SecretFiles = append(cfg.SecretFiles, leaf.Key)
 				if set {
 					errs = append(errs, fmt.Errorf("%s and %s_FILE are both set; use one", leaf.Env, leaf.Env))
 					continue

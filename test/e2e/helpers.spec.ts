@@ -1,8 +1,8 @@
 import { stat } from "node:fs/promises";
-import { expect, test } from "@playwright/test";
 import { files, loginAs, network, session, stack, type TestUser } from "./helpers";
 import { radarr } from "./helpers/apps";
 import { baseURL } from "./helpers/env";
+import { expect, test } from "./test";
 
 // Self-test of the helpers: each one is used here, so a broken helper fails under its own
 // name before a scenario trips over it. Scenarios live in their own *.spec.ts files.

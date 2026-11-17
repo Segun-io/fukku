@@ -18,21 +18,24 @@ service.
    | Header (default) | Setting | Needed |
    | --- | --- | --- |
    | `Remote-User` | `auth.userHeader` | yes: the user name. Exactly one value, at most 256 bytes, UTF-8, no control characters, or the request gets 403 |
-   | `Remote-Groups` | `auth.groupsHeader` | no: groups separated by `auth.groupsSeparator` (default `,`); members of `auth.adminGroup` are admins |
+   | `Remote-Groups` | `auth.groupsHeader` (empty by default: no groups header is read) | no: groups separated by `auth.groupsSeparator` (default `,`); members of `auth.adminGroup` are admins. Set `auth.groupsHeader: Remote-Groups` only when the proxy sets it on every request and drops the client's own (the examples below do); `auth.adminGroup` needs it |
    | `Remote-Email` | `auth.emailHeader` | no: shown in the audit log |
 
    Use other header names by changing the settings. If your auth service names its answers
    differently (`X-Forwarded-User`, ...), map them onto these names in the proxy. If you do not
-   send groups, set `auth.allUsersAreAdmins: true` (a small trusted household) or nobody is an
-   admin.
+   send groups, leave `auth.groupsHeader` empty and set `auth.allUsersAreAdmins: true` (a small
+   trusted household) or nobody is an admin. Fukku reads no header that is not named in a
+   setting, so a client's `Remote-Groups` does nothing while `auth.groupsHeader` is empty.
 3. **Connect from a known address.** Fukku accepts a request only from `auth.trustedProxies`
    (addresses or CIDRs), judged by the address the connection came from. `X-Forwarded-For` is
    never read. Anything else gets 403 and is logged as `auth_refused`. Trust the proxy's own
-   address, never a range that other containers or users share. How to arrange that with Docker
+   address, never a range that other containers or users share. A prefix shorter than /8 (IPv4)
+   or /32 (IPv6), such as `0.0.0.0/0`, is refused at start-up. How to arrange that with Docker
    is below.
 4. **Pass the request's `Origin` and `Host` through unchanged.** Every change (`POST`, `PATCH`,
    `DELETE`) must carry an `Origin` equal to `server.publicBaseUrl`, scheme and port included
-   (when that is empty, the Origin's host must equal the request's `Host`). Set
+   (when that is empty, the Origin's host must equal the request's `Host`, which a page that
+   rebinds DNS controls: `fukku check-config` warns). Set
    `server.publicBaseUrl` to exactly what the browser shows, `https://fukku.example.com`, and
    keep the proxy's TLS at the proxy: Fukku speaks plain HTTP on port 8080.
 5. **Allow what uploads use.** Resumable uploads (the tus protocol) use `POST`, `HEAD`, `PATCH`
@@ -285,6 +288,9 @@ user name and `"admin": true` when your group is the admin group. Then:
   `auth_refused` line with `reason=untrusted_address`.
 - A header the client sends does not count: send `Remote-Email: someone@example.com` through
   the proxy to `/api/session` and the answer's email is the one your auth service set (or empty).
+  Do the same with `Remote-Groups: media-admins` while signed in as a user who is not in that
+  group: `"admin"` must stay `false`. If it turns `true`, the proxy passes the client's groups
+  through; fix it, or leave `auth.groupsHeader` empty.
 - A full chunk gets through: an upload bigger than `upload.chunkSize` (16 MiB) goes past its first
   chunk instead of stopping there.
 

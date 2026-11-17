@@ -25,7 +25,8 @@ function mockServiceWorker(): Plugin {
 export default defineConfig(({ mode }) => ({
   plugins: [react(), tailwindcss(), ...(mode === "mock" ? [mockServiceWorker()] : [])],
   resolve: { alias: { "@": path.resolve(import.meta.dirname, "src") } },
-  build: { outDir: "dist", emptyOutDir: false, sourcemap: true },
+  // No source maps in the build: the Go binary embeds ui/dist and would serve them (#132).
+  build: { outDir: "dist", emptyOutDir: false, sourcemap: false },
   server: {
     proxy: {
       "/api": "http://127.0.0.1:8080",

@@ -1,10 +1,10 @@
 import { readdir } from "node:fs/promises";
 import path from "node:path";
-import { expect, test } from "@playwright/test";
 import { loginAs, network, session, stack } from "./helpers";
 import { Api } from "./helpers/api";
 import { data, diff, type Listing } from "./helpers/data";
 import { fixturesDir, radarrKey, radarrURL, webURL } from "./helpers/env";
+import { expect, test } from "./test";
 
 // M1 exit criteria that need the running stack but no browser (plan section 15, issue #33):
 // the hostile corpus is refused with nothing written outside the job directory, the worker

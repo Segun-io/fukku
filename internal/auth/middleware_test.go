@@ -23,6 +23,7 @@ const (
 func testConfig() config.Config {
 	cfg := config.Defaults()
 	cfg.Auth.TrustedProxies = []string{"192.0.2.10", "2001:db8::/64"}
+	cfg.Auth.GroupsHeader = "Remote-Groups"
 	cfg.Auth.AdminGroup = "admins"
 	return cfg
 }

@@ -326,6 +326,9 @@ func checkLabel(label string, cfg config.Versions) (string, *LabelProblem) {
 	if strings.ContainsFunc(clean, func(r rune) bool { return unicode.Is(unicode.Cf, r) }) {
 		return "", &LabelProblem{Reason: LabelInvalid, Message: "The label must not contain invisible characters (zero-width spaces, soft hyphens and the like)."}
 	}
+	if !safename.IsNFKC(clean) {
+		return "", &LabelProblem{Reason: LabelInvalid, Message: "The label must not contain fullwidth or other compatibility characters (use plain letters and digits)."}
+	}
 	words := labelWords(clean)
 	if len(words) == 0 {
 		return "", &LabelProblem{Reason: LabelInvalid, Message: "The label needs at least one letter or digit."}

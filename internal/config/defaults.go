@@ -31,10 +31,13 @@ func Defaults() Config {
 			PostStepBackoff:    Duration(30 * time.Second),
 		},
 		Auth: Auth{
-			Mode:            "proxyHeaders",
-			UserHeader:      "Remote-User",
-			EmailHeader:     "Remote-Email",
-			GroupsHeader:    "Remote-Groups",
+			Mode:        "proxyHeaders",
+			UserHeader:  "Remote-User",
+			EmailHeader: "Remote-Email",
+			// No groups header by default (#133): a proxy that sets only the user header
+			// would otherwise pass a client's own groups through. Set it, together with
+			// auth.adminGroup, when the proxy sets and strips it.
+			GroupsHeader:    "",
 			GroupsSeparator: ",",
 			OriginCheck:     true,
 			// Safe by default (#116): a household turns it off when everyone may change the library.

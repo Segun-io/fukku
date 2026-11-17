@@ -1,6 +1,6 @@
 import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
-import { expect, type Page, test } from "@playwright/test";
+import type { Page } from "@playwright/test";
 import { loginAs, stack } from "./helpers";
 import { Api, type Job, type JobFile, type Proposal } from "./helpers/api";
 import {
@@ -14,6 +14,7 @@ import {
 } from "./helpers/apps";
 import { dataDir, fixturesDir, online, simulateOutage, titleLinkTemplate } from "./helpers/env";
 import { needMetadata, outageOr } from "./helpers/online";
+import { expect, test } from "./test";
 
 // The M2 exit criteria (plan section 15, issue #47), on the dev stack with the test Radarr,
 // Sonarr, Bazarr and Jellyfin:

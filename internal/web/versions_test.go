@@ -17,6 +17,7 @@ func versionsOn(root string) func(*config.Config) {
 	return func(c *config.Config) {
 		c.Versions.Enabled, c.Versions.Root = true, root
 		c.MediaServer.Provider = "jellyfin"
+		c.Auth.GroupsHeader = "Remote-Groups"
 		c.Auth.AdminGroup = "media-admins"
 	}
 }

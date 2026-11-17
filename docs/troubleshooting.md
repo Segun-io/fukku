@@ -50,7 +50,7 @@ Every refusal is logged as `auth_refused` with a `reason` and the `remote` addre
 | `user_header_unusable` | the user header is empty, repeated, longer than 256 bytes or has control characters | the proxy sends it twice (a header you set and one copied), or an empty value |
 | `email_header_unusable`, `groups_header_unusable` | same for those headers | send them once, or set `auth.emailHeader` / `auth.groupsHeader` empty |
 | `origin_mismatch` | a change (`POST`, `PATCH`, `DELETE`) without an `Origin` that equals `server.publicBaseUrl` | `server.publicBaseUrl` must be exactly the address in the browser, with `https://`; the proxy must not rewrite `Origin` or `Host` |
-| `not_admin` | `/readyz`, `/metrics` or the Admin page, as a non-admin | put the user in `auth.adminGroup`, or `auth.allUsersAreAdmins` |
+| `not_admin` | `/readyz`, `/metrics` or the Admin page, as a non-admin | put the user in `auth.adminGroup` (which needs `auth.groupsHeader`, set by the proxy), or set `auth.allUsersAreAdmins` |
 
 If the Admin page is not there, you are not an admin: it answers 404 to others. A confirmation
 refused with `admin_required` (403) would replace or change a file the library already has (an

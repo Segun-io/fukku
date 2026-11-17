@@ -10,10 +10,10 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/segun-io/fukku/internal/media"
+	"github.com/segun-io/fukku/internal/procgroup"
 )
 
 const (
@@ -60,7 +60,6 @@ type track struct {
 		DefaultTrack      bool   `json:"default_track"`
 		ForcedTrack       bool   `json:"forced_track"`
 		PixelDimensions   string `json:"pixel_dimensions"`
-		TagNumberOfBytes  string `json:"tag_number_of_bytes"`
 		TagNumberOfFrames string `json:"tag_number_of_frames"`
 		TagDuration       string `json:"tag_duration"` // statistics: "00:01:00.020000000"
 		// StatisticsApp is set when mkvmerge wrote the statistics: its DURATION is then the
@@ -129,19 +128,16 @@ func (t tool) run(ctx context.Context, files []*os.File, out *limitedBuffer, arg
 	}
 	cmd := exec.CommandContext(ctx, name, args...) //nolint:gosec // the binary is configuration, the arguments are built here
 	cmd.SysProcAttr = sysProcAttr()
-	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
+	g := procgroup.New(cmd)
 	cmd.WaitDelay = killWait
 	cmd.ExtraFiles = files
 	// No MKVTOOLNIX_OPTIONS or other settings from the worker's environment.
 	cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=/nonexistent"}
 	cmd.Stdout = out
 	cmd.Stderr = out
-	err = cmd.Run()
+	err = g.Run()
 	if lerr := media.LimitFailure(out.buf.String()); lerr != nil && err != nil {
 		return 0, lerr // prlimit could not set the limit: the deployment, not the files
-	}
-	if cmd.Process != nil {
-		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 	}
 	if cerr := ctx.Err(); cerr != nil {
 		return 0, cerr

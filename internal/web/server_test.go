@@ -34,6 +34,7 @@ const (
 func testConfig() config.Config {
 	cfg := config.Defaults()
 	cfg.Auth.TrustedProxies = []string{"192.0.2.10"}
+	cfg.Auth.GroupsHeader = "Remote-Groups"
 	cfg.Auth.AdminGroup = "admins"
 	cfg.Radarr.URL, cfg.Radarr.APIKey = radarrURL, radarrKey
 	cfg.Sonarr.URL, cfg.Sonarr.APIKey = sonarrURL, sonarrKey
@@ -129,7 +130,10 @@ func TestSPA(t *testing.T) {
 		{"/jobs/123", 200, "<html>app</html>"}, // client-side route
 		{"/assets/app.js", 200, "console.log(1)"},
 		{"/assets/missing.js", 404, ""},
-		{"/../../etc/passwd", 307, ""}, // redirected to the cleaned route, never a file outside
+		{"/assets/", 404, ""}, // no directory listing, and not the app either
+		{"/assets", 404, ""},
+		{"/assets/app.js.map", 404, ""}, // no source maps, even if one was built
+		{"/../../etc/passwd", 307, ""},  // redirected to the cleaned route, never a file outside
 	}
 	for _, c := range cases {
 		w := serve(h, fromProxy("GET", c.path, nil))
@@ -251,5 +255,28 @@ func TestNoCORSHeaders(t *testing.T) {
 				t.Errorf("%s %s: answer has %s", r.Method, r.URL.Path, k)
 			}
 		}
+	}
+}
+
+// #129: the policy allows what the UI needs and nothing more, and no other site may embed
+// a response.
+func TestSecurityHeaders(t *testing.T) {
+	h := handler(t, testConfig(), testUI)
+	hdr := serve(h, fromProxy("GET", "/", nil)).Header()
+	csp := hdr.Get("Content-Security-Policy")
+	for _, want := range []string{
+		"default-src 'self'", "script-src 'self'", "style-src 'self';", "object-src 'none'",
+		"img-src 'self' data: blob:", "media-src 'self' blob:", "frame-ancestors 'none'",
+		"base-uri 'none'", "form-action 'self'",
+	} {
+		if !strings.Contains(csp, want) {
+			t.Errorf("CSP lacks %q: %s", want, csp)
+		}
+	}
+	if strings.Contains(csp, "unsafe-inline") || strings.Contains(csp, "unsafe-eval") {
+		t.Errorf("CSP allows inline code: %s", csp)
+	}
+	if got := hdr.Get("Cross-Origin-Resource-Policy"); got != "same-origin" {
+		t.Errorf("Cross-Origin-Resource-Policy %q", got)
 	}
 }

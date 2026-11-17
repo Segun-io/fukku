@@ -118,6 +118,7 @@ func TestLibraryChangesMergeThroughTheAPI(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			e := newFlow2Env(t, func(cfg *config.Config) {
 				gateOn(c.gate)(cfg)
+				cfg.Auth.GroupsHeader = "Remote-Groups"
 				cfg.Auth.AdminGroup = "admins"
 				cfg.Paths.IntakeRoot = t.TempDir()
 				cfg.Paths.RequireSameFilesystem = "never"
@@ -230,6 +231,7 @@ func TestLibraryChangesFilmVersionThroughTheAPI(t *testing.T) {
 			e := newFlow2Env(t, func(cfg *config.Config) {
 				versionsOn(t.TempDir() + "/missing")(cfg)
 				gateOn(c.gate)(cfg)
+				cfg.Auth.GroupsHeader = "Remote-Groups"
 				cfg.Auth.AdminGroup = "admins"
 			})
 			j := e.readyPAL()

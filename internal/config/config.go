@@ -26,6 +26,11 @@ type Config struct {
 	Versions    Versions    `yaml:"versions"`
 	SeasonDub   SeasonDub   `yaml:"seasonDub"`
 	Worker      Worker      `yaml:"worker"`
+
+	// SecretFiles lists the secret settings (by key) that were given through <NAME>_FILE.
+	// Load fills it; it is not a setting. The worker refuses any of them, even when the
+	// file is empty.
+	SecretFiles []string `yaml:"-"`
 }
 
 type Server struct {
@@ -62,6 +67,9 @@ type Auth struct {
 	AdminGroup        string   `yaml:"adminGroup"`
 	AllUsersAreAdmins bool     `yaml:"allUsersAreAdmins"`
 	OriginCheck       bool     `yaml:"originCheck"`
+	// AllowWideTrustedProxies lets auth.trustedProxies hold a prefix shorter than /8 (IPv4)
+	// or /32 (IPv6), such as 0.0.0.0/0, which turns the address check off.
+	AllowWideTrustedProxies bool `yaml:"allowWideTrustedProxies"`
 	// LibraryChangesRequireAdmin: only admins may replace or change a file the library
 	// already has (an override, a season-dub replace or version, a flow 2 merge or second
 	// version, #116). Others can still import new films and episodes.

@@ -71,3 +71,9 @@ func IsControl(r rune) bool {
 func HasDriveLetter(s string) bool {
 	return len(s) >= 2 && s[1] == ':' && ('a' <= s[0] && s[0] <= 'z' || 'A' <= s[0] && s[0] <= 'Z')
 }
+
+// IsNFKC reports whether s is already in compatibility-normalised form. Labels that are not
+// (fullwidth letters and digits, ligatures, circled numbers) read differently to a checker
+// that compares ASCII and to a parser that folds Unicode digits, so they are refused rather
+// than folded.
+func IsNFKC(s string) bool { return norm.NFKC.IsNormalString(s) }

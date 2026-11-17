@@ -60,7 +60,7 @@ direct write into the library, a new subprocess or a new input from the network 
 | B1 | Browser → reverse proxy | Any user of the site, any web page the user visits (CSRF), anyone on the internet if the proxy is public | HTTP requests, uploads, cookies of the proxy's sign-in | The proxy signs users in (out of Fukku's hands); Fukku's Origin check, same-origin API, CSP |
 | B2 | Reverse proxy → web | The proxy, trusted to authenticate and to set and strip the identity headers | `Remote-User`, `Remote-Email`, `Remote-Groups` and the request | `auth.trustedProxies` matched against the connection's own address only; one usable user header required; repeated headers refused (`internal/auth/middleware.go`) |
 | B3 | Network neighbours → web | Any container or host that can reach the web port | Requests that bypass the proxy | The same address check: everything not from `trustedProxies` gets 403, including `/readyz` and `/metrics` (loopback only, or an admin) |
-| B4 | web ↔ worker (spool) | The worker, which parses hostile files and must be assumed compromised | Task files (web → worker), result files (worker → web), files the worker writes under the intake root | The worker has no network and no secrets; the web process validates results (size, ids, kinds) and treats paths and files the worker produced as untrusted |
+| B4 | web ↔ worker (spool) | The worker, which parses hostile files and must be assumed compromised | Task files (web → worker), result files (worker → web), files the worker writes under the intake root | The worker has no network and no secrets (it refuses to start with an API key, a `_FILE` secret or a URL with credentials); the web process validates results (size, ids, kinds) and treats paths and files the worker produced as untrusted |
 | B5 | Worker → filesystem | The worker | Reads of uploads and library files, writes into the job directory | `os.Root` confinement to the job directory; library reads only under `paths.libraryRoots`; the library is mounted read-only in the worker's container |
 | B6 | web → Radarr, Sonarr, Bazarr, Jellyfin | The apps, trusted as the owners of the library | API calls with the keys; titles, paths and verdicts back | Keys only in headers, never logged; response bodies capped; paths from the apps are mapped (`internal/pathmap`) and checked against `paths.libraryRoots` before the web process writes |
 | B7 | web → library (direct writes) | — | Second versions: films' into `versions.root`, episodes' into Sonarr's season folders | Only with `versions.enabled` (off by default); hard links with `linkat(2)` that never replace a file; opened through an `os.Root` of the library root; trial link and overlap checks; Sonarr's "not an upgrade" verdict for episodes |
@@ -92,10 +92,10 @@ Bazarr and Jellyfin themselves (see §7).
 | A3 sends `Remote-User: admin` straight to the web port | Only connections from `auth.trustedProxies` are accepted; `X-Forwarded-For` and similar never count; IPv4-mapped IPv6 is unmapped before the match | `internal/auth/middleware.go` (`remoteAddr`, `isTrusted`) |
 | A1 adds a second `Remote-User` or `Remote-Groups` that a proxy appends instead of replacing | A repeated identity header is refused with 403 | `identityHeader` |
 | A1 sends control characters, invalid UTF-8 or a huge user name to confuse logs or the owner check | Refused; user and email at most 256 bytes | `identityHeader` |
-| A1 forges `Remote-Groups` through a proxy that sets only the user header | Not preventable by Fukku: the proxy must strip and set every header Fukku reads. Documented in `docs/settings.md` (`auth`); hardening in #133 | proxy configuration |
+| A1 forges `Remote-Groups` through a proxy that sets only the user header | Not preventable by Fukku: the proxy must strip and set every header Fukku reads. Documented in `docs/settings.md` (`auth`); `auth.groupsHeader` is empty by default, `auth.adminGroup` needs it, and `fukku check-config` warns about an Origin check that trusts `Host` | proxy configuration |
 | A2 makes the browser POST, PATCH or DELETE to the API | Every method but GET, HEAD and OPTIONS needs exactly one `Origin` equal to `server.publicBaseUrl`'s origin (or the request's `Host` when that is unset); `null` and missing are refused; tusd's `X-HTTP-Method-Override` is removed; no GET changes state; no CORS headers | `internal/auth/origin.go`, `internal/uploads/uploads.go` |
 | A2 frames the UI (clickjacking) | `frame-ancestors 'none'` | `internal/web/server.go` (`securityHeaders`) |
-| A1 or A2 injects script into the UI | React escapes text; the CSP allows scripts only from the origin (`default-src 'self'`, no `unsafe-inline` or `unsafe-eval` for scripts); `base-uri 'none'`, `form-action 'self'` | `securityHeaders`, `ui/src` |
+| A1 or A2 injects script into the UI | React escapes text; the CSP allows scripts and styles only from the origin (`default-src 'self'`, no `unsafe-inline` or `unsafe-eval`, `object-src 'none'`), and `Cross-Origin-Resource-Policy: same-origin` keeps other sites from embedding a clip; `base-uri 'none'`, `form-action 'self'` | `securityHeaders`, `ui/src` |
 | A1 reads `/readyz` or `/metrics` for paths and counts | Loopback without a user (the container's health check), anyone else must be an admin | `Middleware` |
 | A1 reads the API key through a redirect | Not yet: the *arr and Bazarr clients follow redirects and resend their key header to another host (#119) | `internal/arr/client.go`, `internal/subtitles/bazarr.go` |
 | A1 sends large JSON bodies | 1 MiB cap outside `/api/uploads/`, decided by the route the mux picks, not the raw path | `internal/web/respond.go` (`limitJSONBody`) |
@@ -154,7 +154,7 @@ stops more:
 | Threat | Control | Where |
 | --- | --- | --- |
 | A second version replaces a library file | `linkat(2)` never replaces; a repeat finds its own link by inode | `internal/flows/version_link_linux.go` |
-| A label or a name from Radarr or Sonarr escapes the target folder | Labels go through `safename.Clean`, refuse `<>:"\|?*`, format characters, leading or trailing dots and forbidden tokens, at most 64 bytes (fullwidth forms still pass the token check, #121); the film folder from Radarr must be one clean path element; the season folder must be inside `paths.libraryRoots` (a `..` in Sonarr's path is cleaned rather than refused, #120); both are opened through an `os.Root` and never created outside it | `internal/flows/version.go`, `episode_version.go` |
+| A label or a name from Radarr or Sonarr escapes the target folder | Labels go through `safename.Clean`, refuse `<>:"\|?*`, format characters, leading or trailing dots and forbidden tokens, at most 64 bytes (a label with fullwidth or other compatibility characters, which are not NFKC-normal, is refused); the film folder from Radarr must be one clean path element; the season folder must be inside `paths.libraryRoots` (a `..` in Sonarr's path is cleaned rather than refused, #120); both are opened through an `os.Root` and never created outside it | `internal/flows/version.go`, `episode_version.go` |
 | Path-mapping prefix confusion (`/media/tv` against `/media/tv2`) | Mappings and library roots match whole path segments only | `internal/pathmap`, `internal/media/library.go` |
 | Radarr adopts a film's version as the tracked file | Films' versions live outside Radarr's root folders (`versions.root`, checked not to overlap any, symlinks resolved) | `internal/flows/version.go` |
 | Sonarr adopts an episode's version | Sonarr's Manual Import proposal must reject it as "not an upgrade" at the confirmation and right before the link; the keeper re-checks and reports `adoptable`/`adopted` | `internal/flows/episode_version.go`, `internal/mediaserver/episode_recheck.go` |
@@ -270,17 +270,17 @@ severity is open.
 | #138 | medium | worker should write only `intake/jobs` (follow-up of #137, part of #118) | open |
 | #119 | medium | API keys follow redirects to other hosts | open |
 | #120 | low | Sonarr's season folder cleaned instead of refused | open |
-| #121 | low | fullwidth characters pass the label checks | open |
+| #121 | low | fullwidth characters pass the label checks | fixed: a label that is not NFKC-normal is refused (`version_label`) |
 | #122 | low | extracted names may start with a dot; finished uploads not re-cleaned | open |
-| #123 | low | merge free-space check trusts the upload's size tags | open |
-| #124 | low | process-group kill after reaping can hit a reused PID | open |
-| #125 | low | worker's no-secrets check covers only API-key settings | open |
+| #123 | low | merge free-space check trusts the upload's size tags | fixed: the merge counts the upload's fstat size |
+| #124 | low | process-group kill after reaping can hit a reused PID | fixed: `internal/procgroup` runs probe, merge and preview |
+| #125 | low | worker's no-secrets check covers only API-key settings | fixed: the worker also refuses `_FILE` secrets and URLs with credentials |
 | #126 | low | setuid binaries in the image | open |
 | #127 | low | SBOM incomplete and not attached | open |
 | #128 | low | no dependency vulnerability scanning | open |
-| #129 | low | CSP tightening and `Cross-Origin-Resource-Policy` | open |
-| #130 | low | `mediaServer.titleLinkTemplate` not validated | open |
+| #129 | low | CSP tightening and `Cross-Origin-Resource-Policy` | fixed: `style-src 'self'`, `object-src 'none'`, `Cross-Origin-Resource-Policy`; e2e fails on a violation |
+| #130 | low | `mediaServer.titleLinkTemplate` not validated | fixed: validated as an http(s) URL with `{itemId}`; the id is escaped |
 | #131 | low | CI checkouts persist the token | open |
-| #132 | low | `/assets/` listing and source maps | open |
-| #133 | low | auth configuration foot-guns | open |
+| #132 | low | `/assets/` listing and source maps | fixed: directories and `.map` files are 404; no source maps in the build |
+| #133 | low | auth configuration foot-guns | fixed: no groups header by default, wide `trustedProxies` refused, Origin-from-Host warning |
 | #134 | low | no per-user job limit | open |

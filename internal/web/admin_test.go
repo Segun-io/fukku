@@ -48,6 +48,7 @@ func newAdminEnv(t *testing.T, arrStatus int) adminEnv {
 	cfg.Worker = ready.cfg.Worker
 	cfg.Paths = ready.cfg.Paths
 	cfg.Auth.TrustedProxies = []string{"127.0.0.1"}
+	cfg.Auth.GroupsHeader = "Remote-Groups"
 	cfg.Auth.AdminGroup = "admins"
 	cfg.Server.PublicBaseURL = adminOrigin
 
@@ -168,6 +169,7 @@ func TestAdminSettings(t *testing.T) {
 func TestAdminSettingsUnsetSecretIsEmptyAndDefault(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Auth.TrustedProxies = []string{"127.0.0.1"}
+	cfg.Auth.GroupsHeader = "Remote-Groups"
 	cfg.Auth.AdminGroup = "admins"
 	h := New(cfg, slog.New(slog.DiscardHandler), fstest.MapFS{}, Deps{Store: storetest.NewFake(nil)}).Handler()
 	r := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/admin/settings", nil)
@@ -243,6 +245,7 @@ func TestAdminStatusWithoutHeartbeat(t *testing.T) {
 	beat(t, ready.cfg, time.Now().Add(-time.Hour))
 	cfg := ready.cfg
 	cfg.Auth.TrustedProxies = []string{"127.0.0.1"}
+	cfg.Auth.GroupsHeader = "Remote-Groups"
 	cfg.Auth.AdminGroup = "admins"
 	h := New(cfg, slog.New(slog.DiscardHandler), fstest.MapFS{}, Deps{Store: storetest.NewFake(nil)}).Handler()
 	r := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/admin/status", nil)
