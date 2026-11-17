@@ -63,7 +63,7 @@ func testMergeCrash(t *testing.T, slow int) {
 
 		f := &fuse{left: n}
 		dying := x.process(fusedStore{x.st, f}, fusedMovies{x.movies, f}, fusedQueue{x.q, f})
-		if _, err := dying.Confirm(x.ctx, "user1", "", x.jobNow(j), mergeReq(nil)); err != nil && !f.blown() {
+		if _, err := dying.Confirm(x.ctx, "user1", "", true, x.jobNow(j), mergeReq(nil)); err != nil && !f.blown() {
 			t.Fatalf("after %d calls: confirm: %v", n, err)
 		}
 		for range 50 {

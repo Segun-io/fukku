@@ -52,7 +52,11 @@ Every refusal is logged as `auth_refused` with a `reason` and the `remote` addre
 | `origin_mismatch` | a change (`POST`, `PATCH`, `DELETE`) without an `Origin` that equals `server.publicBaseUrl` | `server.publicBaseUrl` must be exactly the address in the browser, with `https://`; the proxy must not rewrite `Origin` or `Host` |
 | `not_admin` | `/readyz`, `/metrics` or the Admin page, as a non-admin | put the user in `auth.adminGroup`, or `auth.allUsersAreAdmins` |
 
-If the Admin page is not there, you are not an admin: it answers 404 to others. If you are signed
+If the Admin page is not there, you are not an admin: it answers 404 to others. A confirmation
+refused with `admin_required` (403) would replace or change a file the library already has (an
+override of a Radarr or Sonarr rejection, `replace`, a merge or a second version): an admin
+confirms the upload, or the setting
+`auth.libraryChangesRequireAdmin` is turned off. If you are signed
 out in the middle of an upload, the page waits and continues once you sign in.
 
 ## Uploads that stall or fail

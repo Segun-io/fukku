@@ -492,7 +492,7 @@ func TestViewStates(t *testing.T) {
 	if _, err := e.st.Transition(e.ctx, j.ID, store.AwaitingConfirmation, store.Importing, store.Change{Actor: "user1"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := e.p.View(e.ctx, j); Code(err) != CodeWrongState {
+	if _, err := e.p.View(e.ctx, j, true); Code(err) != CodeWrongState {
 		t.Errorf("view while importing: %v", err)
 	}
 	if _, err := e.p.EditRow(e.ctx, j, RowID(1), Edit{}); Code(err) != CodeWrongState {
@@ -515,7 +515,7 @@ func TestEditRecheckFailureKeepsTheRow(t *testing.T) {
 		t.Error("a failed re-check changed the row")
 	}
 	e.series.Err = map[string]error{"Episodes": errors.New("timed out")}
-	if _, err := e.p.View(e.ctx, j); Code(err) != CodeArrUnavailable {
+	if _, err := e.p.View(e.ctx, j, true); Code(err) != CodeArrUnavailable {
 		t.Errorf("view without episodes: %v", err)
 	}
 }

@@ -154,7 +154,7 @@ func TestLanguageWarningAppDown(t *testing.T) {
 	e.series.Proposed[e.folder(j)] = []arr.Row{scored(e.item(j, "Some.Show.S01E01.mkv", webdl1080), spanish, -10000)}
 	e.ready(j)
 	e.series.Err = map[string]error{"Profiles": errors.New("connection refused")}
-	if _, err := e.p.View(e.ctx, e.jobNow(j)); err == nil {
+	if _, err := e.p.View(e.ctx, e.jobNow(j), true); err == nil {
 		t.Fatal("view succeeded with the app down")
 	}
 	if got := e.jobNow(j).State; got != store.AwaitingConfirmation {

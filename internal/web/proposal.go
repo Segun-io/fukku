@@ -15,6 +15,11 @@ import (
 //	POST  /api/jobs/{id}/proposal/bulk           flows.BulkEdit → 200 {"rows": [flows.RowView]}
 //
 // Errors: 409 wrong_state, 404 not_found, 400 bad_request, 502 arr_unavailable.
+//
+// The proposal is the user's: what only an admin may confirm (#116,
+// auth.libraryChangesRequireAdmin) is listed in notOffered (the offer "override": of a
+// rejection by the app or of existing_file) and in
+// seasonDub.notOffered (replace, version) with the reason admin_required.
 
 func (s *Server) proposalRoutes(mux *http.ServeMux) {
 	if s.deps.Store == nil || s.deps.Proposals == nil {
@@ -26,11 +31,11 @@ func (s *Server) proposalRoutes(mux *http.ServeMux) {
 }
 
 func (s *Server) getProposal(w http.ResponseWriter, r *http.Request) {
-	_, j, ok := s.ownJob(w, r)
+	u, j, ok := s.ownJob(w, r)
 	if !ok {
 		return
 	}
-	p, err := s.deps.Proposals.View(r.Context(), j)
+	p, err := s.deps.Proposals.View(r.Context(), j, u.Admin)
 	if err != nil {
 		s.matchError(w, r, err)
 		return

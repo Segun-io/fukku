@@ -162,7 +162,7 @@ func (x *ienv) seasonJobOf(durations ...int64) store.Job {
 
 func (x *ienv) confirm(j store.Job, overrides ...string) store.Job {
 	x.t.Helper()
-	c, err := x.eng.Confirm(x.ctx, "user1", "", j, ConfirmRequest{Overrides: overrides})
+	c, err := x.eng.Confirm(x.ctx, "user1", "", true, j, ConfirmRequest{Overrides: overrides})
 	if err != nil {
 		x.t.Fatalf("confirm: %v", err)
 	}

@@ -59,7 +59,8 @@ type SeasonDub struct {
 	Seasons []SeasonDubSeason `json:"seasons"`
 	// NotOffered says why a policy of seasonDub.order is not among the offers, when Fukku
 	// can tell (#58: version, with versions_disabled, versions_unsupported,
-	// media_server_too_old or media_server_unknown).
+	// media_server_too_old or media_server_unknown; #116: replace or version with
+	// admin_required, which an admin would be offered, auth.libraryChangesRequireAdmin).
 	NotOffered []NotOffered `json:"notOffered"`
 	// Version is what keeping the rows as second versions would be (#58), while "version"
 	// is among the offers; absent otherwise.
@@ -122,27 +123,33 @@ type SeasonDubResult struct {
 	Seasons []int  `json:"seasons"`
 }
 
-// offers are the policies that apply to the job, in seasonDub.order, without repeats.
-func (s *session) offers() []string {
-	out := []string{}
+// offers are the policies that apply to the job, in seasonDub.order, without repeats, and
+// those of them the user may not choose (replace and version, while only admins may change
+// the library, #116), which are not among the offers.
+func (s *session) offers() (out, admin []string) {
+	out = []string{}
 	for _, p := range s.p.cfg.SeasonDub.Order {
-		if slices.Contains(out, p) {
+		if slices.Contains(out, p) || slices.Contains(admin, p) {
 			continue
 		}
+		applies := false
 		switch p {
 		case PolicyReplace:
-			out = append(out, p)
+			applies = true
 		case PolicySubtitlesOnly:
-			if s.hasSubtitles() {
-				out = append(out, p)
-			}
+			applies = s.hasSubtitles()
 		case PolicyVersion: // #58
-			if s.episodeVersionsOffered() {
-				out = append(out, p)
-			}
+			applies = s.episodeVersionsOffered()
+		}
+		switch {
+		case !applies:
+		case adminOnly(p) && !s.changes:
+			admin = append(admin, p)
+		default:
+			out = append(out, p)
 		}
 	}
-	return out
+	return out, admin
 }
 
 // hasSubtitles: the job has an accepted subtitle file and the hand-over is configured.
@@ -230,7 +237,11 @@ func (s *session) seasonDub() *SeasonDub {
 	if policy == "" {
 		policy = PolicyAsk
 	}
-	v := &SeasonDub{Policy: policy, Offers: s.offers(), Seasons: []SeasonDubSeason{}, NotOffered: []NotOffered{}}
+	offers, admin := s.offers()
+	v := &SeasonDub{Policy: policy, Offers: offers, Seasons: []SeasonDubSeason{}, NotOffered: []NotOffered{}}
+	for _, p := range admin {
+		v.NotOffered = append(v.NotOffered, NotOffered{Offer: p, Reason: ReasonAdminRequired})
+	}
 	if s.epvNot != nil && slices.Contains(s.p.cfg.SeasonDub.Order, PolicyVersion) {
 		v.NotOffered = append(v.NotOffered, *s.epvNot)
 	}
@@ -271,6 +282,9 @@ func (s *session) chooseDub(req string) (string, existing, error) {
 		return "", existing{}, nil
 	}
 	x := s.existing()
+	if adminOnly(req) && !s.changes { // #116
+		return "", existing{}, adminRequired("Only an admin can choose %s for episodes that already have a file: ask an admin to confirm this upload, or choose another option.", req)
+	}
 	switch {
 	case v.Decided != "":
 		if req != "" && req != v.Decided {

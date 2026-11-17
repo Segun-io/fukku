@@ -24,10 +24,15 @@ type Proposal struct {
 	Hints  []Notice    `json:"hints"`
 	// SeasonDub asks what to do with rows whose episodes already have a file (#57); absent
 	// when there are none.
-	SeasonDub *SeasonDub     `json:"seasonDub,omitempty"`
-	Episodes  *[]EpisodeView `json:"episodes,omitempty"`
-	Qualities []Ref          `json:"qualities"`
-	Languages []Ref          `json:"languages"`
+	SeasonDub *SeasonDub `json:"seasonDub,omitempty"`
+	// NotOffered lists what this user may not confirm, with the reason (#116): the offer
+	// override (importing a row despite a rejection by Radarr or Sonarr, or an
+	// existing_file warning; Fukku's other warnings stay open) with admin_required, while
+	// auth.libraryChangesRequireAdmin is on and the user is not an admin. Empty otherwise.
+	NotOffered []NotOffered   `json:"notOffered"`
+	Episodes   *[]EpisodeView `json:"episodes,omitempty"`
+	Qualities  []Ref          `json:"qualities"`
+	Languages  []Ref          `json:"languages"`
 }
 
 type TargetView struct {
@@ -104,8 +109,10 @@ type Notice struct {
 // (the job is matched, or failed or stalled on its way out of matched), ready while the job
 // is awaiting confirmation; a wrong_state refusal otherwise. A ready proposal asks the app for the
 // pickers (the series' episodes, the qualities and languages), so its warnings describe
-// what the app knows now; an arr_unavailable failure when it does not answer.
-func (p *Proposals) View(ctx context.Context, job store.Job) (Proposal, error) {
+// what the app knows now; an arr_unavailable failure when it does not answer. admin is
+// whether the user is an admin: what only an admin may confirm (#116) is not offered to
+// others.
+func (p *Proposals) View(ctx context.Context, job store.Job, admin bool) (Proposal, error) {
 	// No lock: the rows are read in one call, and writers replace them in one.
 	job, err := p.st.Job(ctx, job.ID)
 	if err != nil {
@@ -120,7 +127,11 @@ func (p *Proposals) View(ctx context.Context, job store.Job) (Proposal, error) {
 	if err != nil && (!errors.Is(err, store.ErrNotFound) || !pending) {
 		return Proposal{}, err
 	}
-	out := Proposal{App: t.App, Rows: []RowView{}, Hints: []Notice{}, Qualities: []Ref{}, Languages: []Ref{}}
+	out := Proposal{App: t.App, Rows: []RowView{}, Hints: []Notice{}, NotOffered: []NotOffered{}, Qualities: []Ref{}, Languages: []Ref{}}
+	changes := LibraryChangesAllowed(p.cfg, admin)
+	if !changes {
+		out.NotOffered = append(out.NotOffered, NotOffered{Offer: OfferOverride, Reason: ReasonAdminRequired})
+	}
 	if t.App != "" {
 		out.Target = &TargetView{TitleID: t.TitleID, Title: t.Title, Year: t.Year}
 	}
@@ -133,6 +144,7 @@ func (p *Proposals) View(ctx context.Context, job store.Job) (Proposal, error) {
 	if err != nil {
 		return Proposal{}, err
 	}
+	s.changes = changes
 	if out.Rows, out.Hints, err = s.views(ctx); err != nil {
 		return Proposal{}, err
 	}
@@ -185,6 +197,9 @@ type session struct {
 	idx   map[int]arr.Episode
 	quals []arr.Quality
 	langs []arr.Language
+	// changes: the user may confirm what changes a file the library has (#116,
+	// LibraryChangesAllowed). The view and the confirmation set it; false otherwise.
+	changes bool
 	// dub is what the confirmation chose for the rows that have a file (PolicyReplace,
 	// PolicySubtitlesOnly or PolicyVersion); "" while the proposal is only viewed or edited.
 	dub string

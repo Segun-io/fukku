@@ -610,8 +610,12 @@ const es: Record<keyof typeof en, string> = {
     "La aplicación rechazó los archivos o no pudo volver a revisarlos. No se importó nada. Inténtalo de nuevo; si vuelve a fallar, avisa a quien administra el servidor.",
   "jobError.title_busy":
     "La aplicación está descargando este título ahora, así que no se pudieron importar los archivos. Inténtalo de nuevo cuando termine la descarga.",
+  "jobError.library_has_file":
+    "El título recibió un archivo en la biblioteca después de la confirmación, y esta importación lo reemplazaría, así que no se envió nada. Vuelve a subir los archivos para elegir qué hacer con el archivo que tiene ahora la biblioteca.",
   "errors.needs_override":
     "Algunos archivos tienen problemas que aún no has aceptado. Marca «Importar de todos modos» en cada uno, o déjalos fuera.",
+  "errors.admin_required":
+    "En este servidor solo un administrador puede hacer este cambio en la biblioteca. Pide a un administrador que confirme este envío, o deja fuera lo que cambiaría la biblioteca.",
   "errors.incomplete_rows":
     "Algunos archivos no tienen película o episodio al que ir. Elige uno para cada uno, o déjalos fuera.",
   "errors.flow2":
@@ -659,6 +663,14 @@ const es: Record<keyof typeof en, string> = {
   "confirm.count.out.other": "{count} se dejan fuera",
   "confirm.override.missing":
     "Marca «Importar de todos modos» en cada archivo con un problema, o déjalo fuera.",
+  "confirm.override.adminOnly":
+    "{app} rechazó este archivo, o reemplazaría un archivo de la biblioteca, así que solo un administrador puede importarlo de todos modos. Déjalo fuera, o pide a un administrador que confirme este envío.",
+  "confirm.override.adminMissing":
+    "Solo un administrador puede importar archivos que {app} rechazó o que reemplazarían un archivo de la biblioteca. Déjalos fuera para importar el resto, o pide a un administrador que confirme este envío.",
+  "confirm.admin.leaveOut.hint.one":
+    "Puedes dejar este archivo fuera e importar el resto: déjalo fuera aquí y después elige Importar otra vez.",
+  "confirm.admin.leaveOut.hint.other":
+    "Puedes dejar estos archivos fuera e importar el resto: déjalos fuera aquí y después elige Importar otra vez.",
   "confirm.override.stale":
     "El servidor encontró problemas que esta página no mostraba. Ahora se muestran: léelos y vuelve a intentarlo.",
   "confirm.skip": "Dejar este archivo fuera",
@@ -805,6 +817,15 @@ const es: Record<keyof typeof en, string> = {
     "las segundas versiones necesitan un servidor multimedia que pueda agruparlas (Jellyfin), y no hay ninguno configurado.",
   "flow2.reason.runtime_differs": "fusionar exige el mismo montaje, y este no lo es.",
   "flow2.reason.unknown": "no es posible aquí (código: {code}).",
+  "flow2.reason.admin_required":
+    "cambia un archivo que la biblioteca ya tiene, así que solo un administrador puede confirmarlo. Un administrador puede abrir este envío y confirmarlo.",
+  "flow2.admin.title": "Un administrador debe confirmar este envío",
+  "flow2.admin.body":
+    "Fusionar en el archivo de la película y conservar una segunda versión cambian la biblioteca, y en este servidor solo un administrador puede hacerlo. No se cambió nada.",
+  "flow2.admin.body.merge":
+    "Fusionar en el archivo de la película cambia la biblioteca, y en este servidor solo un administrador puede hacerlo. No se cambió nada.",
+  "flow2.admin.body.version":
+    "Conservar una segunda versión cambia la biblioteca, y en este servidor solo un administrador puede hacerlo. No se cambió nada.",
   "flow2.nothing.title": "Aquí no se puede hacer nada con este envío",
   "flow2.nothing.body":
     "Pide a quien administra Fukku que lo cambie, o importa los archivos a mano. No se cambió nada.",

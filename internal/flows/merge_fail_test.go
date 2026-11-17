@@ -111,7 +111,7 @@ func TestMergeConfirmRefusals(t *testing.T) {
 				x.eng = x.process(x.st, x.movies, x.q)
 			}
 			before := len(x.q.Tasks())
-			_, err := x.eng.Confirm(x.ctx, "user1", "", x.jobNow(j), c.req)
+			_, err := x.eng.Confirm(x.ctx, "user1", "", true, x.jobNow(j), c.req)
 			if Code(err) != c.code {
 				t.Fatalf("err %v, want %s", err, c.code)
 			}
@@ -138,7 +138,7 @@ func (x *mergeEnv) dropPreview(j store.Job) {
 func TestMergeRefusedForFlow1(t *testing.T) {
 	x := newImportEnv(t)
 	j := x.filmJob()
-	if _, err := x.eng.Confirm(x.ctx, "user1", "", j, mergeReq(nil)); Code(err) != CodeBadRequest {
+	if _, err := x.eng.Confirm(x.ctx, "user1", "", true, j, mergeReq(nil)); Code(err) != CodeBadRequest {
 		t.Fatalf("err %v", err)
 	}
 	if j = x.jobNow(j); j.State != store.AwaitingConfirmation {
@@ -162,7 +162,7 @@ func TestMergeConfirmLibraryChanged(t *testing.T) {
 			x := newMergeEnv(t)
 			j := x.readyJob()
 			x.movies.Library[0].File = change(libFile())
-			if _, err := x.eng.Confirm(x.ctx, "user1", "", j, mergeReq(nil)); Code(err) != CodeLibraryChanged {
+			if _, err := x.eng.Confirm(x.ctx, "user1", "", true, j, mergeReq(nil)); Code(err) != CodeLibraryChanged {
 				t.Fatalf("err %v", err)
 			}
 			if j = x.jobNow(j); j.State != store.Probed {
@@ -204,7 +204,7 @@ func TestMergeConfirmPreviewRequestedMeanwhile(t *testing.T) {
 		}
 		newer = pv
 	}}, x.q)
-	if _, err := eng.Confirm(x.ctx, "user1", "", j, mergeReq(nil)); Code(err) != CodePreviewRequired {
+	if _, err := eng.Confirm(x.ctx, "user1", "", true, j, mergeReq(nil)); Code(err) != CodePreviewRequired {
 		t.Fatalf("err %v", err)
 	}
 	got, _ := PreviewOf(x.tgt(j))

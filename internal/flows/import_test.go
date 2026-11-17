@@ -151,7 +151,7 @@ func TestOverriddenRejection(t *testing.T) {
 	x.ready(j)
 	rows := x.rows(j)
 
-	_, err := x.eng.Confirm(x.ctx, "user1", "", j, ConfirmRequest{})
+	_, err := x.eng.Confirm(x.ctx, "user1", "", true, j, ConfirmRequest{})
 	var refusal *Error
 	if !errors.As(err, &refusal) || refusal.Code != CodeNeedsOverride || !slices.Equal(refusal.Rows, []string{rows[1].ID}) {
 		t.Fatalf("without the override: %v (%+v)", err, refusal)
@@ -159,10 +159,10 @@ func TestOverriddenRejection(t *testing.T) {
 	if x.jobNow(j).State != store.AwaitingConfirmation {
 		t.Fatal("a refused confirmation moved the job")
 	}
-	if _, err := x.eng.Confirm(x.ctx, "user1", "", j, ConfirmRequest{Overrides: []string{"r999"}}); Code(err) != CodeBadRequest {
+	if _, err := x.eng.Confirm(x.ctx, "user1", "", true, j, ConfirmRequest{Overrides: []string{"r999"}}); Code(err) != CodeBadRequest {
 		t.Errorf("an unknown row: %v", err)
 	}
-	c, err := x.eng.Confirm(x.ctx, "user1", "", j, ConfirmRequest{Overrides: []string{rows[1].ID}})
+	c, err := x.eng.Confirm(x.ctx, "user1", "", true, j, ConfirmRequest{Overrides: []string{rows[1].ID}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -187,34 +187,34 @@ func TestConfirmRefusals(t *testing.T) {
 
 	// A row without episodes cannot be imported, even overridden.
 	x.edit(j, rows[0].ID, Edit{EpisodeIDs: &[]int{}})
-	_, err := x.eng.Confirm(x.ctx, "user1", "", j, ConfirmRequest{Overrides: []string{rows[0].ID}})
+	_, err := x.eng.Confirm(x.ctx, "user1", "", true, j, ConfirmRequest{Overrides: []string{rows[0].ID}})
 	var refusal *Error
 	if !errors.As(err, &refusal) || refusal.Code != CodeIncompleteRows || !slices.Equal(refusal.Rows, []string{rows[0].ID}) {
 		t.Fatalf("incomplete: %v", err)
 	}
 	x.edit(j, rows[0].ID, Edit{Skip: ptr(true)})
 	x.edit(j, rows[1].ID, Edit{Skip: ptr(true)})
-	if _, err := x.eng.Confirm(x.ctx, "user1", "", j, ConfirmRequest{}); Code(err) != CodeNothingToImport {
+	if _, err := x.eng.Confirm(x.ctx, "user1", "", true, j, ConfirmRequest{}); Code(err) != CodeNothingToImport {
 		t.Fatalf("all skipped: %v", err)
 	}
 	x.edit(j, rows[1].ID, Edit{Skip: ptr(false)})
 
 	// The storage checks.
 	x.eng.checkStorage = func() error { return errors.New("/mnt/media/.sentinel is missing") }
-	if _, err := x.eng.Confirm(x.ctx, "user1", "", j, ConfirmRequest{}); Code(err) != CodeStorageUnavailable {
+	if _, err := x.eng.Confirm(x.ctx, "user1", "", true, j, ConfirmRequest{}); Code(err) != CodeStorageUnavailable {
 		t.Fatalf("storage: %v", err)
 	}
 	x.eng.checkStorage = func() error { return nil }
 
 	// The app does not answer: a show's rows are judged with its episodes.
 	x.series.Err = map[string]error{"Episodes": errRefused}
-	if _, err := x.eng.Confirm(x.ctx, "user1", "", j, ConfirmRequest{}); Code(err) != CodeArrUnavailable {
+	if _, err := x.eng.Confirm(x.ctx, "user1", "", true, j, ConfirmRequest{}); Code(err) != CodeArrUnavailable {
 		t.Fatalf("app down: %v", err)
 	}
 	x.series.Err = nil
 
 	x.confirm(j)
-	if _, err := x.eng.Confirm(x.ctx, "user1", "", j, ConfirmRequest{}); Code(err) != CodeWrongState {
+	if _, err := x.eng.Confirm(x.ctx, "user1", "", true, j, ConfirmRequest{}); Code(err) != CodeWrongState {
 		t.Fatalf("twice: %v", err)
 	}
 }
@@ -227,7 +227,7 @@ func TestConfirmTakesTheJobLock(t *testing.T) {
 	unlock := x.p.locks.Lock(j.ID)
 	done := make(chan error, 1)
 	go func() {
-		_, err := x.eng.Confirm(x.ctx, "user1", "", j, ConfirmRequest{})
+		_, err := x.eng.Confirm(x.ctx, "user1", "", true, j, ConfirmRequest{})
 		done <- err
 	}()
 	select {
@@ -264,7 +264,7 @@ func TestConfirmSeesAnEditMadeMeanwhile(t *testing.T) {
 			}
 		}
 	}})
-	c, err := x.eng.Confirm(x.ctx, "user1", "", j, ConfirmRequest{})
+	c, err := x.eng.Confirm(x.ctx, "user1", "", true, j, ConfirmRequest{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -663,14 +663,14 @@ func TestConfirmRefusesAFileThatAppearedAfterTheMatch(t *testing.T) {
 	j := x.filmJob()
 
 	x.movies.Err = map[string]error{"Movie": errRefused}
-	if _, err := x.eng.Confirm(x.ctx, "user1", "", j, ConfirmRequest{}); Code(err) != CodeArrUnavailable {
+	if _, err := x.eng.Confirm(x.ctx, "user1", "", true, j, ConfirmRequest{}); Code(err) != CodeArrUnavailable {
 		t.Fatalf("app down: %v", err)
 	}
 	x.movies.Err = nil
 
 	x.movies.Library[0].File = libFile()
 	x.movies.Library[0].HasFile = true
-	_, err := x.eng.Confirm(x.ctx, "user1", "", j, ConfirmRequest{})
+	_, err := x.eng.Confirm(x.ctx, "user1", "", true, j, ConfirmRequest{})
 	var fe *Error
 	if !errors.As(err, &fe) || fe.Code != CodeFlow2 {
 		t.Fatalf("confirm: %v, want %s", err, CodeFlow2)

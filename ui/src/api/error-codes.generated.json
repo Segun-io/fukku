@@ -24,6 +24,7 @@
       "too_many_entries"
     ],
     "errors": [
+      "admin_required",
       "app_not_configured",
       "arr_unavailable",
       "bad_name",
@@ -86,6 +87,7 @@
       "arr_unavailable",
       "free_space",
       "import_failed",
+      "library_has_file",
       "library_unreadable",
       "merge_failed",
       "merge_rejected",
@@ -126,6 +128,7 @@
       "upgrade_can_replace"
     ],
     "offerReasons": [
+      "admin_required",
       "media_server_too_old",
       "media_server_unknown",
       "merge_disabled",

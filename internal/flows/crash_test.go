@@ -209,7 +209,7 @@ func TestConcurrentEdits(t *testing.T) {
 		},
 		func() error { _, err := e.p.EditRow(e.ctx, j, r[2], Edit{EpisodeIDs: &[]int{105}}); return err },
 		func() error { _, err := e.p.EditRow(e.ctx, j, r[3], Edit{Skip: ptr(true)}); return err },
-		func() error { _, err := e.p.View(e.ctx, j); return err },
+		func() error { _, err := e.p.View(e.ctx, j, true); return err },
 	}
 	var wg sync.WaitGroup
 	start := make(chan struct{})

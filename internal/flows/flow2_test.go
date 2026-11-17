@@ -332,7 +332,7 @@ func TestConfirmRefusesFlow2(t *testing.T) {
 	j = x.matched(j)
 	eng := NewEngine(x.p)
 	eng.checkStorage = func() error { return nil }
-	_, err := eng.Confirm(x.ctx, "user1", "user1@example.com", j, ConfirmRequest{})
+	_, err := eng.Confirm(x.ctx, "user1", "user1@example.com", true, j, ConfirmRequest{})
 	var fe *Error
 	if !errors.As(err, &fe) || fe.Code != CodeFlow2 {
 		t.Fatalf("confirm: %v, want %s", err, CodeFlow2)

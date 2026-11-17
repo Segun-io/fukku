@@ -97,3 +97,25 @@ func TestCheckConfigLeavesDataDirAlone(t *testing.T) {
 		t.Fatalf("check-config touched the data directory: %v", err)
 	}
 }
+
+// fukku check-config warns when only admins may change the library and nobody can be one
+// (#116), and still succeeds.
+func TestCheckConfigWarnsWithoutAnAdmin(t *testing.T) {
+	root := t.TempDir()
+	file := filepath.Join(root, "fukku.yaml")
+	cfg := "server:\n  dataDir: " + filepath.Join(root, "data") + "\n" +
+		"auth:\n  trustedProxies: [127.0.0.1]\n" +
+		"radarr:\n  url: http://radarr.example.com:7878\n"
+	if err := os.WriteFile(file, []byte(cfg), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("FUKKU_RADARR_API_KEY", "not-a-real-key")
+	var stdout, stderr syncBuffer
+	if code := run([]string{"check-config", "--config", file}, &stdout, &stderr); code != 0 {
+		t.Fatalf("exit %d:\n%s", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "warning: auth.libraryChangesRequireAdmin: ") ||
+		!strings.Contains(stdout.String(), "# warning: auth.libraryChangesRequireAdmin: ") {
+		t.Fatalf("stdout:\n%s\nstderr:\n%s", stdout.String(), stderr.String())
+	}
+}

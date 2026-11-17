@@ -58,6 +58,10 @@ const (
 	CodeIncompleteRows     = "incomplete_rows"     // confirm: rows without a title or an episode; edit or skip them
 	CodeNothingToImport    = "nothing_to_import"   // confirm: every row is skipped
 	CodeStorageUnavailable = "storage_unavailable" // confirm: a sentinel is missing, or the folders are on different filesystems
+	// CodeLibraryHasFile fails an import, right before its submission, that would replace a
+	// file the title got in the library after the confirmation (#116), once an import was
+	// already submitted; before any submission the job goes back to probed instead.
+	CodeLibraryHasFile = "library_has_file"
 )
 
 // Engine is the confirmation, the import and the post-processing. Build one per process
@@ -588,12 +592,17 @@ func (e *Engine) submit(ctx context.Context, job store.Job, w work, got []bool) 
 		}
 		send = append(send, pl.ar)
 	}
+	now, err := e.look(ctx, w.t)
+	if err != nil {
+		return e.appError(ctx, job, w, "files", err, false)
+	}
+	// Each submission (the first, after a crash, a stall or a retry) checks that it replaces
+	// no file the title has now, unless the confirmation chose to replace it (#116, #82).
+	if rows := replacesUnchosen(w.t, w.plan, got, now); len(rows) > 0 {
+		return e.libraryHasFile(ctx, job, w, rows)
+	}
 	baseline := w.imp.Baseline
 	if w.imp.SubmittedAt.IsZero() || len(baseline) == 0 {
-		now, err := e.look(ctx, w.t)
-		if err != nil {
-			return e.appError(ctx, job, w, "files", err, false)
-		}
 		if baseline, err = json.Marshal(now); err != nil {
 			return err
 		}
@@ -633,6 +642,60 @@ func (e *Engine) submit(ctx context.Context, job store.Job, w work, got []bool) 
 	e.m.ObserveImport(w.t.App, metrics.ImportSubmitted)
 	e.log.Info("import_submitted", "job", job.ID, "app", w.t.App, "command", id, "files", len(send), "mode", mode)
 	return nil
+}
+
+// replacesUnchosen returns the rows about to be submitted (got false) whose film or episode
+// has a file in the app now (now, from look) that the confirmation did not choose to
+// replace: a flow 1 film never does (a film with a file is flow 2), and an episode's row
+// only under the season-dub policy replace, as one of the rows it covered. A merge is
+// checked by mergeStillTracked instead.
+func replacesUnchosen(t store.Target, plan []planned, got []bool, now tracked) []string {
+	if IsMerge(t) {
+		return nil
+	}
+	var chosen []string
+	if c, ok := seasonDubOf(t); ok && c.Policy == PolicyReplace {
+		chosen = c.Rows
+	}
+	var out []string
+	for i, pl := range plan {
+		if got[i] {
+			continue
+		}
+		switch t.App {
+		case AppRadarr:
+			if now.Movie != nil {
+				out = append(out, pl.row.ID)
+			}
+		case AppSonarr:
+			if slices.Contains(chosen, pl.row.ID) {
+				continue
+			}
+			if slices.ContainsFunc(pl.ar.EpisodeIDs, func(id int) bool { return now.Episodes[strconv.Itoa(id)] != 0 }) {
+				out = append(out, pl.row.ID)
+			}
+		}
+	}
+	return out
+}
+
+// libraryHasFile stops an import that would replace a file the title got after the
+// confirmation. Before any submission the job goes back to probed, to be matched again (a
+// film is then flow 2; a show's proposal asks what to do with those episodes). After one,
+// the job fails with CodeLibraryHasFile, since the import record belongs to that
+// submission; nothing is sent either way.
+func (e *Engine) libraryHasFile(ctx context.Context, job store.Job, w work, rows []string) error {
+	what := "the film has a file in Radarr now"
+	if w.t.App == AppSonarr {
+		what = "episodes of " + strings.Join(rows, ", ") + " have a file in Sonarr now"
+	}
+	e.log.Warn("import_would_replace", "job", job.ID, "app", w.t.App, "rows", strings.Join(rows, ","))
+	if w.imp.SubmittedAt.IsZero() {
+		e.forget(job.ID)
+		_, err := e.p.backToProbed(ctx, job, w.t, fmt.Errorf("not imported: %s, which this import would replace; match the title again", what))
+		return err
+	}
+	return e.fail(ctx, job, w.t, CodeLibraryHasFile, "refused before the import: "+what+", which this import would replace; nothing was sent")
 }
 
 // finish marks every row imported and moves the job to imported.

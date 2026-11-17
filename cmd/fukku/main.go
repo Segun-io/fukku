@@ -113,11 +113,21 @@ func run(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
-		fmt.Fprintf(stdout, "# valid for role %s; secrets redacted\n%s", r, out)
+		fmt.Fprintf(stdout, "# valid for role %s; secrets redacted\n", r)
+		for _, w := range config.Warnings(cfg) {
+			fmt.Fprintf(stdout, "# warning: %s: %s\n", w.Key, w.Message)
+			fmt.Fprintf(stderr, "warning: %s: %s\n", w.Key, w.Message)
+		}
+		fmt.Fprintf(stdout, "%s", out)
 		return 0
 	}
 
 	log := newLogger(cfg.Server.LogFormat, stderr)
+	if cmd != "worker" { // the settings the warnings are about are the web process's
+		for _, w := range config.Warnings(cfg) {
+			log.Warn("config_warning", "setting", w.Key, "note", w.Message)
+		}
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
