@@ -152,3 +152,40 @@ func TestOnlyAMergeCancelsBeforeTheImport(t *testing.T) {
 	}
 	e.want(e.send("user1", "users", "POST", "/api/jobs/"+j.ID+"/cancel", ``, true), http.StatusConflict, "wrong_state")
 }
+
+// server.jobStuckAfter counts from the submission of the import, not from the job's last
+// change: a merge that took longer than it before the import was sent is not abandoned at
+// once, and neither is an import of another flow (no merge choice) that waited as long.
+func TestStuckAfterCountsFromTheSubmission(t *testing.T) {
+	for _, merge := range []bool{true, false} {
+		name := "merge"
+		if !merge {
+			name = "other flow"
+		}
+		t.Run(name, func(t *testing.T) {
+			e := newConfirmEnv(t)
+			j := e.mergeJob(store.Importing, nil)
+			if !merge {
+				if err := e.st.SetTarget(t.Context(), j.ID, store.Target{App: "radarr", TitleID: 7, Title: "Some Film", Year: 2001}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			e.clock.advance(2 * time.Hour) // the merge (or the wait) takes longer than jobStuckAfter
+			if err := e.st.PutImport(t.Context(), store.Import{JobID: j.ID, CommandID: 99, SubmittedAt: e.clock.now()}); err != nil {
+				t.Fatal(err)
+			}
+			path := "/api/jobs/" + j.ID + "/cancel"
+			if e.offered("admin1", "admins", j) {
+				t.Error("cancel offered to an admin right after the submission")
+			}
+			e.want(e.send("admin1", "admins", "POST", path, ``, true), http.StatusConflict, "wrong_state")
+			e.clock.advance(2 * time.Hour)
+			if !e.offered("admin1", "admins", j) {
+				t.Fatal("cancel not offered to an admin past server.jobStuckAfter from the submission")
+			}
+			if rec := e.send("admin1", "admins", "POST", path, ``, true); rec.Code != http.StatusOK {
+				t.Fatalf("cancel: %d %s", rec.Code, rec.Body)
+			}
+		})
+	}
+}
