@@ -6,7 +6,7 @@ repo=$(cd ../.. && pwd)
 dev_image="fukku-dev:$(sha256sum "$repo/tools/dev/Dockerfile" | cut -c1-12)"
 
 mkdir -p .run/{radarr,sonarr,bazarr/config,jellyfin/config,jellyfin/cache,results} \
-         .run/data/media/{movies,tv} .run/data/intake .run/data/blackhole/{radarr,sonarr}/{nzb,watch}
+         .run/data/media/{movies,tv,versions} .run/data/intake .run/data/blackhole/{radarr,sonarr}/{nzb,watch}
 cat > .run/.env <<ENV
 PUID=$(id -u)
 PGID=$(id -g)

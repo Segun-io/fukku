@@ -55,10 +55,12 @@ browser). `playwright-report/index.html` is the HTML report.
 | `stack.logs(service, sinceMs)` | what a Fukku container logged since then |
 
 Tests without a browser use `helpers/api.ts` (`new Api("user1")`: create a job, upload with tus,
-submit, wait for the final state; match, proposal, confirm), `helpers/data.ts` (list `/data`,
-take the sentinel away), `helpers/apps.ts` (look at the test Radarr, Sonarr, Bazarr and
-Jellyfin, and remove the titles a test added) and `stack.inspect` / `stack.exec` (look into and
-run commands in the Fukku containers).
+submit, wait for the final state; match, proposal, confirm; flow 2's preview and its
+confirmation), `helpers/data.ts` (list `/data`, take the sentinel away), `helpers/apps.ts` (look
+at the test Radarr, Sonarr, Bazarr and Jellyfin, and remove the titles a test added; run
+Radarr's commands; the fake indexer's control API; `mediacheck`, below), `helpers/online.ts`
+(`needMetadata`, `outageOr`: the `@online` tests' skip on an upstream outage) and
+`stack.inspect` / `stack.exec` (look into and run commands in the Fukku containers).
 
 `exit-stack.spec.ts` is the M1 exit criteria that need the stack but no browser (issue #33): the
 hostile corpus end to end, good uploads, the manual-import fallback against the test Radarr,
@@ -92,6 +94,36 @@ running stack.
   generator's version is the same.
 - `1+4` and `2+4` confirm on the confirmation page (#44), and check the request it sends;
   `3a`-`3e` start their imports through `POST /api/jobs/{id}/confirm`.
+
+## The M3 exit criteria (`exit-m3.spec.ts`, tagged `@online`)
+
+Plan §15, issue #61, against the test Radarr, Jellyfin and the fake indexer (#24). The dev
+stack's `test/env/fukku.yaml` turns `versions.enabled` on with `versions.root:
+/data/media/versions` (outside Radarr's and Sonarr's root folders, on the intake root's mount);
+the seeder adds that folder to Jellyfin's Movies library, and `up.sh` and `dev-up.sh` create it.
+Each test puts Big Buck Bunny (a probes' free title) in the library through flow 1, then uploads
+another language of it from `make e2e-fixtures`' `m3/`: the same cut with a Spanish track, the
+same 800 ms late, and a PAL speed-up of it.
+
+| Test | Criterion | What it shows |
+| --- | --- | --- |
+| `1` | A matching dub ends as one file with correctly tagged tracks and the film unmonitored; RSS sync and the bulk searches do not replace it (decision B6 on #61) | Through the upload, match ("Add another language") and flow 2 pages: the clips are in sync, the merge confirmation warns that the film's own Search can still replace the file; then Radarr has one new file with the existing quality and `English`, `Spanish (Latino)`, mkvmerge reads the tracks as video, `eng` "English" (default) and `spa`/`es-419` "Español (Latino)" (not default), the film is unmonitored (`unmonitorReason: merged`, warning `search_can_replace`, shown on the result page). With a Bluray-1080p release without the dub on the fake indexer, RSS sync (which sees it) and the Wanted "cutoff unmet" search grab nothing, and the file stays the merged one |
+| `2` | A shifted dub is caught by the preview | On the flow 2 page, with the dub 800 ms late: the clips at offset 0 measure about -200 ms (800 late, read modulo a second), beyond 150 ms; at -800 within 50 ms (the #53 thresholds) |
+| `3` | A PAL copy becomes a second version (decision #20) | `finding: pal`, only `version` offered (`merge`: `runtime_differs`, and no preview); the version is a hard link of the upload in `versions.root/<film folder>/`, Radarr's file, record and folder are unchanged, Jellyfin lists it among the film's media sources, and the admin list has its record, `grouped` |
+| `4` | A winning label is refused by #20's check | `1080p` (a forbidden token) and `Screener` (not one, but Radarr's parse reads DVDSCR) are refused with `version_label`; nothing is placed or recorded and Radarr is unchanged |
+| `5a`, `5b` | A failed mux leaves the library untouched | The merge's mkvmerge killed halfway (SIGKILL from inside the worker, after about 3 MiB of output), and the upload's middle overwritten with noise after the sync check: the library file's hash, inode and modification time, Radarr's records of the film and its file, and the film folder are as before, Radarr got no ManualImport of the job, no merged or partial file is left, and the job is back at the confirmation with the refusal (#95) |
+
+- **mediacheck** (`test/env/mediacheck`, started by `dev-up`) measures the clips: the runner's
+  image has no ffmpeg and its Chromium cannot decode H.264 and AAC, while the #53 tests' measure
+  (`fixtures.SyncOffset`: the flash against the beep) is Go and ffmpeg, which the dev image has.
+  The test fetches each clip as the user (the URLs the page's players load) and posts it to
+  `http://mediacheck:8080/sync`; `GET /identify?path=` is mkvmerge's identification of a file
+  under `/data`, read-only.
+- Run them alone with `make e2e ARGS='exit-m3.spec.ts'`, or
+  `FUKKU_E2E_ONLINE=1 test/e2e/run.sh exit-m3.spec.ts` on a running stack. Each removes the
+  film, its files and its version folder from Radarr, `versions.root` and Jellyfin before and
+  after. A version's record stays in Fukku's store (it outlives its job), so test 3 labels its
+  version with a word of the run.
 
 `helpers.spec.ts` tests each helper. Tests share one proxy, so they run one at a time, and
 each one that changes proxy state should call `network.reset()` and `session.restore()` in

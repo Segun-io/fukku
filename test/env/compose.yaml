@@ -251,6 +251,32 @@ services:
       - "127.0.0.1:18080:8080"
       - "127.0.0.1:18081:8081"
 
+  # Measures media for the e2e tests (test/env/mediacheck): the sync of a sync-check clip, as
+  # the #53 tests measure it (flash against beep, with ffmpeg), and mkvmerge's identification
+  # of a library file. The runner's image has no ffmpeg and its Chromium cannot decode the
+  # clips, so dev-up builds this into .cache/bin and the dev image runs it. It reads /data
+  # read-only and is on the default network only, where the runner reaches it.
+  mediacheck:
+    profiles: [fukku]
+    image: ${DEV_IMAGE:-fukku-dev:local}
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    user: ${PUID:-1000}:${PGID:-1000}
+    command: ["/src/.cache/bin/mediacheck", "-listen=:8080", "-data=/data"]
+    environment:
+      TMPDIR: /tmp
+    tmpfs: ["/tmp:size=256m"]
+    volumes:
+      - ../..:/src:ro
+      - ./.run/data:/data:ro
+    healthcheck:
+      test: ["CMD", "/src/.cache/bin/mediacheck", "-healthcheck=127.0.0.1:8080"]
+      interval: 10s
+      timeout: 5s
+      start_period: 5s
+
   # The Playwright runner (test/e2e, `make e2e`; never started by dev-up). The browsers are in
   # the pinned image, nothing is downloaded at test time; the tests come from ../e2e with its
   # node_modules installed beforehand in the dev image. It is on the fukku network (the proxy
@@ -280,8 +306,8 @@ services:
       # The size of the large upload (exit-m1-large-upload.spec.ts), set by make e2e.
       FUKKU_E2E_LARGE_SIZE: ${FUKKU_E2E_LARGE_SIZE:-5GiB}
       # 1: run the tests tagged @online, which add titles through the *arr metadata services
-      # (exit-m2.spec.ts); make e2e sets it unless E2E_ONLINE=0. The second variable makes
-      # them skip as on an upstream outage, without asking the internet.
+      # (exit-m2.spec.ts, exit-m3.spec.ts); make e2e sets it unless E2E_ONLINE=0. The second
+      # variable makes them skip as on an upstream outage, without asking the internet.
       FUKKU_E2E_ONLINE: ${FUKKU_E2E_ONLINE:-0}
       FUKKU_E2E_SIMULATE_METADATA_OUTAGE: ${FUKKU_E2E_SIMULATE_METADATA_OUTAGE:-0}
     volumes:
@@ -297,9 +323,10 @@ services:
       - /tmp:size=256m
       - /files:size=1g,uid=${PUID:-1000},gid=${PGID:-1000}
     # Also on the default network, to ask the test Radarr about the folder of Manual Import,
-    # and for the M2 exit tests to look at what Fukku did in the test Radarr, Sonarr, Bazarr
-    # and Jellyfin and to remove the titles they added. Nothing else is reachable from there
-    # but the test environment.
+    # and for the M2 and M3 exit tests to look at what Fukku did in the test Radarr, Sonarr,
+    # Bazarr and Jellyfin and to remove the titles they added, to set the fake indexer's
+    # releases, and to reach mediacheck. Nothing else is reachable from there but the test
+    # environment.
     networks:
       default: {}
       fukku: {}

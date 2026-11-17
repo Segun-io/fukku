@@ -1,8 +1,11 @@
 import {
   bazarrKey,
   bazarrURL,
+  indexerKey,
+  indexerURL,
   jellyfinKey,
   jellyfinURL,
+  mediacheckURL,
   radarrKey,
   radarrURL,
   simulateOutage,
@@ -11,8 +14,9 @@ import {
 } from "./env";
 
 // Clients of the test environment's Radarr, Sonarr, Bazarr and Jellyfin (never a real one: the
-// addresses are the stack's service names), for the M2 exit tests (issue #47). They look at
-// what Fukku did, and remove the titles a test added. Nothing else is changed in them.
+// addresses are the stack's service names), for the M2 and M3 exit tests (issues #47, #61).
+// They look at what Fukku did, and remove the titles a test added; the M3 tests also run
+// Radarr's RSS sync and Wanted search against the fake indexer. Nothing else is changed in them.
 
 export class HttpError extends Error {
   constructor(
@@ -69,6 +73,10 @@ export interface MovieFile {
   id: number;
   path: string;
   size: number;
+  relativePath?: string;
+  dateAdded?: string;
+  quality?: { quality: { id: number; name: string } };
+  languages?: { id: number; name: string }[];
 }
 
 export interface Movie {
@@ -78,7 +86,16 @@ export interface Movie {
   path: string;
   hasFile: boolean;
   monitored: boolean;
+  runtime?: number;
   movieFile?: MovieFile;
+}
+
+/** One entry of a title's history in Radarr or Sonarr. */
+export interface HistoryEvent {
+  id: number;
+  eventType: string;
+  sourceTitle: string;
+  date: string;
 }
 
 export interface Episode {
@@ -127,6 +144,29 @@ class Arr extends Rest {
   command(id: number): Promise<ArrCommand> {
     return this.get<ArrCommand>(`/api/v3/command/${id}`);
   }
+
+  /** Run a command (POST /command) and wait until it has ended; returns how it ended. */
+  async run(body: Record<string, unknown>, timeoutMs = 180_000): Promise<ArrCommand> {
+    const started = await this.call<ArrCommand>("POST", "/api/v3/command", body);
+    const deadline = Date.now() + timeoutMs;
+    for (;;) {
+      const c = await this.command(started.id);
+      if (!["queued", "started"].includes(c.status)) return c;
+      if (Date.now() > deadline) {
+        throw new Error(
+          `${this.name} ${String(body.name)} still ${c.status} after ${timeoutMs} ms`,
+        );
+      }
+      await new Promise((r) => setTimeout(r, 500));
+    }
+  }
+
+  /** The app's size limits per quality, in MB per minute (GET /qualitydefinition). */
+  qualityDefinitions(): Promise<
+    { quality: { id: number; name: string }; minSize: number; maxSize?: number }[]
+  > {
+    return this.get("/api/v3/qualitydefinition");
+  }
 }
 
 export class RadarrClient extends Arr {
@@ -140,6 +180,32 @@ export class RadarrClient extends Arr {
 
   movieFiles(movieId: number): Promise<MovieFile[]> {
     return this.get<MovieFile[]>(`/api/v3/moviefile?movieId=${movieId}`);
+  }
+
+  /** The film's history, newest first. */
+  history(movieId: number): Promise<HistoryEvent[]> {
+    return this.get<HistoryEvent[]>(`/api/v3/history/movie?movieId=${movieId}`);
+  }
+
+  /** What Radarr reads in a name (GET /parse): the quality and its revision. */
+  async parse(
+    title: string,
+  ): Promise<{ quality: string; source: string; resolution: number; version: number }> {
+    const res = await this.get<{
+      parsedMovieInfo?: {
+        quality?: {
+          quality?: { name: string; source: string; resolution: number };
+          revision?: { version: number };
+        };
+      };
+    }>(`/api/v3/parse?title=${encodeURIComponent(title)}`);
+    const q = res.parsedMovieInfo?.quality;
+    return {
+      quality: q?.quality?.name ?? "",
+      source: q?.quality?.source ?? "",
+      resolution: q?.quality?.resolution ?? 0,
+      version: q?.revision?.version ?? 0,
+    };
   }
 
   /** Remove the film and its files, as a test that added it must (no import exclusion). */
@@ -234,6 +300,16 @@ export class JellyfinClient extends Rest {
     return res.Items.find((i) => i.Path === path) ?? null;
   }
 
+  /**
+   * The paths of an item's media sources: its own file and the versions grouped with it
+   * (MergeVersions, decision #20).
+   */
+  async sources(itemId: string): Promise<string[]> {
+    const q = new URLSearchParams({ Ids: itemId, Fields: "MediaSources,Path" });
+    const res = await this.get<{ Items: { MediaSources?: { Path?: string }[] }[] }>(`/Items?${q}`);
+    return (res.Items[0]?.MediaSources ?? []).map((s) => s.Path ?? "");
+  }
+
   /** Every item whose path is under `folder`. */
   async itemsUnder(folder: string): Promise<JellyfinItem[]> {
     const q = new URLSearchParams({
@@ -267,12 +343,105 @@ export class JellyfinClient extends Rest {
   }
 }
 
+/** A release the fake indexer offers (test/env/indexer). */
+export interface Release {
+  title: string;
+  category: number; // a Newznab category: 2040 Movies/HD, 5040 TV/HD
+  size: number; // bytes
+  guid?: string;
+}
+
+/** A search or NZB request the fake indexer answered. */
+export interface IndexerRequest {
+  at: string;
+  agent: string;
+  t: string;
+  query: Record<string, string>;
+  returned: string[];
+}
+
+/**
+ * The fake indexer's control API (test/env/indexer): what it offers, and what the apps asked
+ * it. With the seeded blackhole download client, a grab is the release's NZB written to
+ * /data/blackhole/<app>/nzb (nothing is downloaded).
+ */
+export class IndexerClient extends Rest {
+  offer(releases: Release[]): Promise<Release[]> {
+    return this.call<Release[]>("PUT", "/control/releases", releases);
+  }
+
+  clear(): Promise<unknown> {
+    return this.call("DELETE", "/control/releases");
+  }
+
+  requests(): Promise<IndexerRequest[]> {
+    return this.get<IndexerRequest[]>("/control/requests");
+  }
+
+  forgetRequests(): Promise<unknown> {
+    return this.call("DELETE", "/control/requests");
+  }
+}
+
+/** What mediacheck (test/env/mediacheck) measured in a clip: the audio's offset to the picture. */
+export interface SyncReport {
+  offsetMs: number;
+  flashes: number;
+  beeps: number;
+}
+
+/** A track of mkvmerge's identification (mkvmerge -J), the parts the tests look at. */
+export interface MkvTrack {
+  id: number;
+  type: "video" | "audio" | "subtitles";
+  codec: string;
+  properties: {
+    language?: string;
+    language_ietf?: string;
+    track_name?: string;
+    default_track?: boolean;
+  };
+}
+
+class MediacheckClient {
+  constructor(private readonly base: string) {}
+
+  /**
+   * How far a clip's audio is from its picture, by the flash and the beep of the generated
+   * media (fixtures.SyncOffset, as the #53 tests measure it); positive: the audio is late.
+   * Ambiguous by whole seconds: 800 ms late reads as 200 ms early.
+   */
+  async sync(clip: Buffer): Promise<SyncReport> {
+    const res = await fetch(`${this.base}/sync`, {
+      method: "POST",
+      headers: { "Content-Type": "application/octet-stream" },
+      body: new Uint8Array(clip),
+      signal: AbortSignal.timeout(180_000),
+    });
+    const text = await res.text();
+    if (!res.ok) throw new Error(`mediacheck sync: ${res.status} ${text}`);
+    return JSON.parse(text) as SyncReport;
+  }
+
+  /** mkvmerge's identification of a file on the library filesystem (/data). */
+  async tracks(file: string): Promise<MkvTrack[]> {
+    const res = await fetch(`${this.base}/identify?path=${encodeURIComponent(file)}`, {
+      signal: AbortSignal.timeout(120_000),
+    });
+    const text = await res.text();
+    if (!res.ok) throw new Error(`mediacheck identify ${file}: ${res.status} ${text}`);
+    return (JSON.parse(text) as { tracks: MkvTrack[] }).tracks;
+  }
+}
+
 export const radarr = new RadarrClient("radarr", radarrURL, { "X-Api-Key": radarrKey });
 export const sonarr = new SonarrClient("sonarr", sonarrURL, { "X-Api-Key": sonarrKey });
 export const bazarr = new BazarrClient("bazarr", bazarrURL, { "X-API-KEY": bazarrKey });
 export const jellyfin = new JellyfinClient("jellyfin", jellyfinURL, {
   Authorization: `MediaBrowser Token="${jellyfinKey}"`,
 });
+export const indexer = new IndexerClient("indexer", indexerURL, { "X-Api-Key": indexerKey });
+export const mediacheck = new MediacheckClient(mediacheckURL);
 
 // The words the apps use when their metadata service cannot be reached; the same list as the
 // probes' (test/probes/gate.go).

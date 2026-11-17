@@ -27,6 +27,13 @@ export const bazarrURL = "http://bazarr:6767";
 export const bazarrKey = "cccccccccccccccccccccccccccccccc";
 export const jellyfinURL = "http://jellyfin:8096";
 export const jellyfinKey = "dddddddddddddddddddddddddddddddd";
+/** The fake indexer of the test environment (test/env/indexer) and its control key. */
+export const indexerURL = "http://indexer:8080";
+export const indexerKey = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
+/** Measures clips and files for the M3 exit tests (test/env/mediacheck, dev image). */
+export const mediacheckURL = "http://mediacheck:8080";
+/** versions.root of the dev stack (test/env/fukku.yaml), as Fukku and the runner see it. */
+export const versionsRoot = "/data/media/versions";
 /** The media server's title link template of the dev stack (test/env/fukku.yaml). */
 export const titleLinkTemplate = "http://127.0.0.1:18096/web/#/details?id={itemId}";
 

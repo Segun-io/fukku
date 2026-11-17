@@ -35,13 +35,79 @@ export interface Job {
   history: { at: string; from: string | null; to: string; actor: string; note: string }[];
   /** The chosen title (#37), and the import and its result (#40); null until they apply. */
   target: { app: string; titleId: number; title: string; year: number } | null;
-  import: { status: string; rows: { id: string; name: string; result: string }[] } | null;
+  import: {
+    status: string;
+    rows: { id: string; name: string; result: string }[];
+    /** A merge's progress (#55). */
+    merge?: MergeView | null;
+  } | null;
   result: {
     titleLink: string | null;
     monitored: boolean | null;
     unmonitorReason: string;
     postProcessing: { step: string; status: string; detail: string }[];
+    merge?: { name: string; warnings: { code: string; message: string }[] } | null;
+    version?: { name: string; label: string; status: string; notices: string[] } | null;
   } | null;
+  /** Flow 2 (#52): the film already has a file; null for other jobs. */
+  flow2?: Flow2 | null;
+}
+
+export interface MergeView {
+  state: string;
+  refusal: string;
+  audioTracks: number[];
+  subtitleTracks: number[];
+  offsetMs: number;
+  languageTag: string;
+  trackName: string;
+  keepOriginalDefault: boolean;
+  arrLanguage: { id: number; name: string } | null;
+  name: string;
+  size: number;
+}
+
+export interface Flow2File {
+  fileId: number;
+  name: string;
+  size: number;
+  durationMs: number | null;
+  audio: { index: number; language?: string; title?: string; default?: boolean }[];
+}
+
+export interface Flow2 {
+  state: "pending" | "ready";
+  library: Flow2File;
+  upload: Flow2File | null;
+  finding: "match" | "pal" | "different" | null;
+  deltaMs: number | null;
+  ratio: number | null;
+  offers: string[];
+  notOffered: { offer: string; reason: string }[];
+  version: { label: string; language: string; name: string; problem: unknown } | null;
+  mergeRefusal: { code: string; message: string; offsetMs: number; audioTracks: number[] } | null;
+}
+
+/** The sync-check clips of a flow 2 job (#53). */
+export interface Preview {
+  state: "none" | "pending" | "ready" | "failed";
+  offsetMs: number | null;
+  audioTrack: number | null;
+  error: { code: string; message: string } | null;
+  clips: { n: number; startMs: number; lengthMs: number; size: number; url: string }[];
+}
+
+/** A film's second version, as GET /api/admin/versions lists it (#56). */
+export interface VersionRecord {
+  id: number;
+  jobId: string;
+  app: string;
+  titleId: number;
+  name: string;
+  path: string;
+  label: string;
+  status: string;
+  primaryFile: string;
 }
 
 /** A row of the proposal (#38), as GET /api/jobs/{id}/proposal shows it. */
@@ -157,6 +223,53 @@ export class Api {
       `/api/jobs/${id}/confirm`,
       body,
     );
+  }
+
+  /** POST /api/jobs/{id}/confirm of a flow 2 job: a merge (#55) or a second version (#56). */
+  confirmFlow2(
+    id: string,
+    body:
+      | { flow2: "merge"; merge: { audioTracks?: number[]; offsetMs?: number } }
+      | { flow2: "version"; version: { label?: string } },
+  ) {
+    return this.send<Job & { error?: { code: string; message: string } }>(
+      "POST",
+      `/api/jobs/${id}/confirm`,
+      body,
+    );
+  }
+
+  /** POST /api/jobs/{id}/preview (#53): render the sync-check clips. */
+  requestPreview(id: string, body: { offsetMs?: number; audioTrack?: number } = {}) {
+    return this.send<Preview & { error?: { code: string; message: string } }>(
+      "POST",
+      `/api/jobs/${id}/preview`,
+      body,
+    );
+  }
+
+  preview(id: string): Promise<Preview> {
+    return this.expect("GET", `/api/jobs/${id}/preview`, 200);
+  }
+
+  /** The preview once its clips are ready (fails when it fails). */
+  async readyPreview(id: string, timeoutMs = 240_000): Promise<Preview> {
+    const deadline = Date.now() + timeoutMs;
+    for (;;) {
+      const p = await this.preview(id);
+      if (p.state === "ready") return p;
+      if (p.state === "failed" || Date.now() > deadline) {
+        throw new Error(`preview of ${id} is ${p.state}: ${JSON.stringify(p.error)}`);
+      }
+      await new Promise((r) => setTimeout(r, 500));
+    }
+  }
+
+  /** The bytes of a URL of the API (a clip), as this user. */
+  async bytes(url: string): Promise<Buffer> {
+    const res = await fetch(new URL(url, baseURL), { headers: this.headers() });
+    if (res.status !== 200) throw new Error(`GET ${url}: ${res.status} ${await res.text()}`);
+    return Buffer.from(await res.arrayBuffer());
   }
 
   /** Poll the job until `done(job)` says so; fails on a state in `stop`. */
