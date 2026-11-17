@@ -213,7 +213,8 @@ func (h *Handler) prepare(ctx context.Context) error {
 	if err := fscheck.Sentinels(h.paths); err != nil {
 		return err
 	}
-	for _, dir := range []string{h.incoming, filepath.Join(h.root, jobdir.Jobs)} {
+	// worker/ too: the worker container mounts it on its own (jobdir.Prepare).
+	for _, dir := range []string{h.incoming, filepath.Join(h.root, jobdir.Jobs), filepath.Join(h.root, jobdir.Worker)} {
 		if err := mkdirAll(dir); err != nil {
 			return err
 		}

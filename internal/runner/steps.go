@@ -128,6 +128,18 @@ func (r *Runner) reset(ctx context.Context, job store.Job) error {
 		}
 		again[f.Path] = ok
 	}
+	// What an earlier attempt extracted from them and moved into the job goes: the new
+	// extraction is moved there again (seal), and never replaces a file.
+	if root != nil {
+		dests := extractDests(files)
+		for _, f := range files {
+			if f.Kind == store.KindArchive && again[f.Path] {
+				if err := root.RemoveAll(dests[f.ID]); err != nil {
+					return err
+				}
+			}
+		}
+	}
 	for _, f := range files {
 		if f.From != "" && again[f.From] { // its archive writes it again
 			if err := r.st.DeleteFile(ctx, f.ID); err != nil && !errors.Is(err, store.ErrNotFound) {
@@ -267,6 +279,9 @@ func (r *Runner) useExtract(ctx context.Context, job store.Job, archive store.Fi
 	}
 	if archive.Status == store.FilePending { // otherwise stored before a crash: only the ack is missing
 		if out.Refused == "" {
+			if err := r.seal(job, dest, out.Files); err != nil {
+				return true, r.failTask(ctx, job, res, "the extracted files cannot be taken into the job: "+err.Error())
+			}
 			for _, e := range out.Files {
 				_, err := r.st.AddFile(ctx, store.File{
 					JobID: job.ID, Path: e.Path, Kind: r.kindOf(e.Path), Size: e.Size,
@@ -291,6 +306,34 @@ func (r *Runner) useExtract(ctx context.Context, job store.Job, archive store.Fi
 		}
 	}
 	return false, r.ack(ctx, res.ID)
+}
+
+// seal moves the files an extraction reported from the worker's directory of the job into
+// the job's directory (jobdir.Seal: regular files of the reported size, reached without a
+// symbolic link and with no other name), and then removes what is left of dest in the
+// worker's directory. From then on the worker cannot change them, and they are what the
+// probe reads and what Radarr or Sonarr import (#113, #114). It is safe to repeat after a
+// crash: a file already moved is checked where it is now.
+func (r *Runner) seal(job store.Job, dest string, files []extract.Entry) error {
+	to, err := jobdir.Open(r.cfg.Paths.IntakeRoot, job.ID)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = to.Close() }()
+	from, err := jobdir.MakeWorker(r.cfg.Paths.IntakeRoot, job.ID)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = from.Close() }()
+	for _, e := range files {
+		if err := jobdir.Seal(from, to, e.Path, e.Size); err != nil {
+			return err
+		}
+	}
+	if err := from.RemoveAll(dest); err != nil {
+		r.log.Warn("extract_leftover", "job", job.ID, "dir", dest, "error", err)
+	}
+	return nil
 }
 
 // noRoom handles an archive refused for lack of free space. That says nothing about the

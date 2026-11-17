@@ -6,9 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"strconv"
-	"syscall"
 	"time"
 
 	"github.com/segun-io/fukku/internal/auth"
@@ -207,21 +205,22 @@ func (s *Server) previewClip(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	clip := pv.Clips[n-1]
-	root, err := jobdir.Open(s.cfg.Paths.IntakeRoot, j.ID)
+	// The worker renders the clips into its own directory of the job: a regular file of the
+	// size it reported, reached without a symbolic link (jobdir.OpenFile; a FIFO does not
+	// hang the request).
+	root, err := jobdir.OpenWorker(s.cfg.Paths.IntakeRoot, j.ID)
 	if err != nil {
 		clipNotFound()
 		return
 	}
 	defer func() { _ = root.Close() }()
-	// O_NONBLOCK: a FIFO put there must not hang the request.
-	f, err := root.OpenFile(preview.Dir+"/"+preview.ClipName(pv.Request, n), os.O_RDONLY|syscall.O_NONBLOCK, 0)
+	f, info, err := jobdir.OpenFile(root, preview.Dir+"/"+preview.ClipName(pv.Request, n))
 	if err != nil {
 		clipNotFound()
 		return
 	}
 	defer func() { _ = f.Close() }()
-	info, err := f.Stat()
-	if err != nil || !info.Mode().IsRegular() || info.Size() != clip.Size {
+	if info.Size() != clip.Size {
 		clipNotFound()
 		return
 	}

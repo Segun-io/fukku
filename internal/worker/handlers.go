@@ -24,7 +24,7 @@ func Handlers(cfg config.Config) map[string]Handler {
 	limits := extract.LimitsFrom(cfg)
 	libraryRoots := slices.Clone(cfg.Paths.LibraryRoots)
 	return map[string]Handler{
-		spool.KindProbe: func(ctx context.Context, job *os.Root, raw json.RawMessage) (any, error) {
+		spool.KindProbe: func(ctx context.Context, job, _ *os.Root, raw json.RawMessage) (any, error) {
 			var args media.ProbeArgs
 			if err := decodeArgs(raw, &args); err != nil {
 				return nil, err
@@ -32,13 +32,13 @@ func Handlers(cfg config.Config) map[string]Handler {
 			return media.Run(ctx, job, args, probe)
 		},
 		// The preview clips (#53) read the library file as the library probe does, and the
-		// upload and their output through the job directory.
-		spool.KindPreview: func(ctx context.Context, job *os.Root, raw json.RawMessage) (any, error) {
+		// upload through the job directory; the clips go to the worker's directory of the job.
+		spool.KindPreview: func(ctx context.Context, job, wdir *os.Root, raw json.RawMessage) (any, error) {
 			var args preview.Args
 			if err := decodeArgs(raw, &args); err != nil {
 				return nil, err
 			}
-			out, err := preview.Run(ctx, job, libraryRoots, args, preview.OptionsFrom(cfg))
+			out, err := preview.Run(ctx, job, wdir, libraryRoots, args, preview.OptionsFrom(cfg))
 			if errors.Is(err, preview.ErrBadArgs) {
 				return nil, fmt.Errorf("%w: %w", ErrBadTask, err)
 			}
@@ -47,19 +47,19 @@ func Handlers(cfg config.Config) map[string]Handler {
 		spool.KindMerge: mergeHandler(cfg),
 		// The library probe (#52) does not use the job directory: it reads the library file,
 		// confined to this process's own paths.libraryRoots (media.RunLibrary).
-		spool.KindLibraryProbe: func(ctx context.Context, _ *os.Root, raw json.RawMessage) (any, error) {
+		spool.KindLibraryProbe: func(ctx context.Context, _, _ *os.Root, raw json.RawMessage) (any, error) {
 			var args media.LibraryProbeArgs
 			if err := decodeArgs(raw, &args); err != nil {
 				return nil, err
 			}
 			return media.RunLibrary(ctx, libraryRoots, args, probe)
 		},
-		spool.KindExtract: func(ctx context.Context, job *os.Root, raw json.RawMessage) (any, error) {
+		spool.KindExtract: func(ctx context.Context, job, wdir *os.Root, raw json.RawMessage) (any, error) {
 			var args extract.Args
 			if err := decodeArgs(raw, &args); err != nil {
 				return nil, err
 			}
-			out, err := extract.Run(ctx, job, args, limits)
+			out, err := extract.Run(ctx, job, wdir, args, limits)
 			if errors.Is(err, extract.ErrBadArgs) {
 				return nil, fmt.Errorf("%w: %w", ErrBadTask, err)
 			}

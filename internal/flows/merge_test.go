@@ -31,10 +31,14 @@ type mergeEnv struct {
 }
 
 // mergedSize is the size of the merged file the fake worker writes; an output whose Detail
-// is noFile makes it write none.
+// is noFile makes it write none, linkFile a symbolic link to a file of that size outside
+// the job instead, and linkDir its folder as a link to a folder holding such a file (what a
+// compromised worker may leave, #113).
 const (
 	mergedSize = 5000
 	noFile     = "no file"
+	linkFile   = "link as the file"
+	linkDir    = "link as the folder"
 )
 
 var latino = arr.Language{ID: 37, Name: "Spanish (Latino)"}
@@ -217,12 +221,32 @@ func (x *mergeEnv) worker(change func(*merge.Output)) bool {
 			change(&out)
 		}
 		if out.OK && out.Path != "" && out.Detail != noFile {
-			p := filepath.Join(x.root, "jobs", task.Job, filepath.FromSlash(out.Path))
+			// Into the worker's directory of the job: the web process moves it into the job.
+			p := filepath.Join(x.root, "worker", task.Job, filepath.FromSlash(out.Path))
 			if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 				x.t.Fatal(err)
 			}
-			if err := os.WriteFile(p, make([]byte, out.Size), 0o644); err != nil {
-				x.t.Fatal(err)
+			switch out.Detail {
+			case linkFile, linkDir:
+				outside := filepath.Join(x.t.TempDir(), filepath.Base(p))
+				if err := os.WriteFile(outside, make([]byte, out.Size), 0o644); err != nil {
+					x.t.Fatal(err)
+				}
+				link, target := p, outside
+				if out.Detail == linkDir {
+					link, target = filepath.Dir(p), filepath.Dir(outside)
+					if err := os.Remove(link); err != nil {
+						x.t.Fatal(err)
+					}
+				}
+				if err := os.Symlink(target, link); err != nil {
+					x.t.Fatal(err)
+				}
+				out.Detail = ""
+			default:
+				if err := os.WriteFile(p, make([]byte, out.Size), 0o644); err != nil {
+					x.t.Fatal(err)
+				}
 			}
 		}
 		x.q.Complete(task.ID, out)

@@ -46,7 +46,7 @@ func run(t *testing.T, lim Limits, entries ...zent) (Output, map[string]string) 
 	sb := newSandbox(t)
 	archive := sb.put(t, buildZip(t, filepath.Join(t.TempDir(), "a.zip"), entries...))
 	before := listing(t, sb.dir, "job/files/out", "job/files/out.partial")
-	out, err := Run(context.Background(), sb.root, Args{Archive: archive, Dest: "files/out"}, lim)
+	out, err := Run(context.Background(), sb.root, sb.root, Args{Archive: archive, Dest: "files/out"}, lim)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -156,7 +156,7 @@ func TestModesAndTimesIgnored(t *testing.T) {
 		zent{name: "d/x.mkv", data: "x", mode: fs.ModeSetuid | 0o777, modified: stamp},
 		zent{name: "y.srt", data: "y", mode: 0o000, modified: stamp},
 	))
-	if _, err := Run(context.Background(), sb.root, Args{Archive: archive, Dest: "files/out"}, testLimits()); err != nil {
+	if _, err := Run(context.Background(), sb.root, sb.root, Args{Archive: archive, Dest: "files/out"}, testLimits()); err != nil {
 		t.Fatal(err)
 	}
 	for rel, maxPerm := range map[string]fs.FileMode{"d": 0o755, "d/x.mkv": 0o644, "y.srt": 0o644} {
@@ -256,7 +256,7 @@ func TestNotAZip(t *testing.T) {
 			if err := os.WriteFile(filepath.Join(sb.job, "archives", "x.zip"), []byte(data), 0o644); err != nil {
 				t.Fatal(err)
 			}
-			out, err := Run(context.Background(), sb.root, Args{Archive: "archives/x.zip", Dest: "files/x"}, testLimits())
+			out, err := Run(context.Background(), sb.root, sb.root, Args{Archive: "archives/x.zip", Dest: "files/x"}, testLimits())
 			if err != nil || out.Refused != RefusedNotAZip {
 				t.Fatalf("got %+v, %v; want refused not_a_zip", out, err)
 			}
@@ -348,17 +348,17 @@ func TestBadArgs(t *testing.T) {
 		{Archive: "work/s/a.zip", Dest: "files/out", Scratch: "work/s"},   // the archive inside it
 		{Archive: archive, Dest: "files/out", Scratch: archive + "/more"}, // inside the archive
 	} {
-		if _, err := Run(context.Background(), sb.root, a, testLimits()); !errors.Is(err, ErrBadArgs) {
+		if _, err := Run(context.Background(), sb.root, sb.root, a, testLimits()); !errors.Is(err, ErrBadArgs) {
 			t.Errorf("Run(%+v) error %v, want ErrBadArgs", a, err)
 		}
 	}
 	if _, err := os.Stat(filepath.Join(sb.job, filepath.FromSlash(archive))); err != nil {
 		t.Errorf("the archive is gone: %v", err)
 	}
-	if _, err := Run(context.Background(), sb.root, Args{Archive: "archives/missing.zip", Dest: "files/out"}, testLimits()); err == nil || errors.Is(err, ErrBadArgs) {
+	if _, err := Run(context.Background(), sb.root, sb.root, Args{Archive: "archives/missing.zip", Dest: "files/out"}, testLimits()); err == nil || errors.Is(err, ErrBadArgs) {
 		t.Errorf("a missing archive gives %v, want an I/O error", err)
 	}
-	if _, err := Run(context.Background(), sb.root, Args{Archive: "archives", Dest: "files/out"}, testLimits()); !errors.Is(err, ErrBadArgs) {
+	if _, err := Run(context.Background(), sb.root, sb.root, Args{Archive: "archives", Dest: "files/out"}, testLimits()); !errors.Is(err, ErrBadArgs) {
 		t.Errorf("a directory as the archive gives %v, want ErrBadArgs", err)
 	}
 }
@@ -371,7 +371,7 @@ func TestRoot(t *testing.T) {
 	if err := os.Symlink(filepath.Join(sb.dir, "outside"), filepath.Join(sb.job, "escape")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Run(context.Background(), sb.root, Args{Archive: archive, Dest: "escape/out"}, testLimits()); err == nil {
+	if _, err := Run(context.Background(), sb.root, sb.root, Args{Archive: archive, Dest: "escape/out"}, testLimits()); err == nil {
 		t.Error("Run wrote through a symlink out of the job directory")
 	}
 	if tree := treeOf(t, filepath.Join(sb.dir, "outside")); !maps.Equal(tree, map[string]string{"keep.txt": "keep\n"}) {
@@ -399,7 +399,7 @@ func TestRepeatable(t *testing.T) {
 	dest := filepath.Join(sb.job, "files", "Season 01")
 	before := listing(t, sb.dir, "job/files/Season 01", "job/files/Season 01.partial")
 
-	first, err := Run(context.Background(), sb.root, args, testLimits())
+	first, err := Run(context.Background(), sb.root, sb.root, args, testLimits())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -421,7 +421,7 @@ func TestRepeatable(t *testing.T) {
 	if err := os.RemoveAll(dest); err != nil {
 		t.Fatal(err)
 	}
-	again, err := Run(context.Background(), sb.root, args, testLimits())
+	again, err := Run(context.Background(), sb.root, sb.root, args, testLimits())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -433,7 +433,7 @@ func TestRepeatable(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dest, "extra.mkv"), []byte("extra"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	again, err = Run(context.Background(), sb.root, args, testLimits())
+	again, err = Run(context.Background(), sb.root, sb.root, args, testLimits())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -463,7 +463,7 @@ func TestScratch(t *testing.T) {
 	if err := os.MkdirAll(own, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	out, err := Run(context.Background(), sb.root, Args{Archive: archive, Dest: "files/Season 01", Scratch: "work/extract-2-x1"}, testLimits())
+	out, err := Run(context.Background(), sb.root, sb.root, Args{Archive: archive, Dest: "files/Season 01", Scratch: "work/extract-2-x1"}, testLimits())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -490,7 +490,7 @@ func TestCancelled(t *testing.T) {
 				t.Fatal(err)
 			}
 			before := listing(t, sb.dir, "job/files/Season 01", "job/files/Season 01.partial")
-			out, err := Run(newCancelAfter(n), sb.root, args, testLimits())
+			out, err := Run(newCancelAfter(n), sb.root, sb.root, args, testLimits())
 			if !errors.Is(err, context.Canceled) {
 				t.Fatalf("got %+v, %v; want context.Canceled", out, err)
 			}
@@ -504,7 +504,7 @@ func TestCancelled(t *testing.T) {
 	cancel()
 	sb := newSandbox(t)
 	archive := sb.put(t, seasonArchive(t))
-	if _, err := Run(ctx, sb.root, Args{Archive: archive, Dest: "files/x"}, testLimits()); !errors.Is(err, context.Canceled) {
+	if _, err := Run(ctx, sb.root, sb.root, Args{Archive: archive, Dest: "files/x"}, testLimits()); !errors.Is(err, context.Canceled) {
 		t.Errorf("a cancelled context gives %v", err)
 	}
 }
@@ -517,7 +517,7 @@ func TestCancelledWhileCreatingDirectories(t *testing.T) {
 		sb := newSandbox(t)
 		archive := sb.put(t, buildZip(t, filepath.Join(t.TempDir(), "d.zip"), zent{name: name}))
 		before := listing(t, sb.dir, "job/files/out", "job/files/out.partial")
-		_, err := Run(newCancelAfter(n), sb.root, Args{Archive: archive, Dest: "files/out"}, testLimits())
+		_, err := Run(newCancelAfter(n), sb.root, sb.root, Args{Archive: archive, Dest: "files/out"}, testLimits())
 		// unpack and the entry loop take two checks, and each of the ten levels one more.
 		wantCancel := n < 12
 		if errors.Is(err, context.Canceled) != wantCancel || !wantCancel && err != nil {
@@ -598,7 +598,7 @@ func TestSeasonZip(t *testing.T) {
 	sb := newSandbox(t)
 	archive := sb.put(t, src)
 	before := listing(t, sb.dir, "job/files/Season 01", "job/files/Season 01.partial")
-	out, err := Run(context.Background(), sb.root, Args{Archive: archive, Dest: "files/Season 01"}, testLimits())
+	out, err := Run(context.Background(), sb.root, sb.root, Args{Archive: archive, Dest: "files/Season 01"}, testLimits())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -643,7 +643,7 @@ func TestCreatesTheParentOfDest(t *testing.T) {
 		t.Fatal(err)
 	}
 	archive := sb.put(t, buildZip(t, filepath.Join(t.TempDir(), "a.zip"), zent{name: "a.mkv", data: "video"}))
-	out, err := Run(context.Background(), sb.root, Args{Archive: archive, Dest: "files/out"}, testLimits())
+	out, err := Run(context.Background(), sb.root, sb.root, Args{Archive: archive, Dest: "files/out"}, testLimits())
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}

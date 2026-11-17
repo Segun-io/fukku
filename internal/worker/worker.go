@@ -25,9 +25,12 @@ import (
 // HeartbeatFile is the name, inside the spool directory, of the worker's heartbeat.
 const HeartbeatFile = "worker.heartbeat"
 
-// Handler runs one task. job is the task's job directory; a handler can reach nothing else.
-// It must be safe to run again after a crash. The returned value is the result's output.
-type Handler func(ctx context.Context, job *os.Root, args json.RawMessage) (output any, err error)
+// Handler runs one task. job is the task's job directory (jobs/<id>, read-only to the
+// worker in the reference deployment), out the worker's own directory of the job
+// (worker/<id>), where everything a handler writes goes; a handler can reach nothing else
+// of the intake root. It must be safe to run again after a crash. The returned value is the
+// result's output.
+type Handler func(ctx context.Context, job, out *os.Root, args json.RawMessage) (output any, err error)
 
 // ErrBadTask is returned, wrapped, by a handler whose args cannot be used (they do not
 // decode, or name a path outside the job). The result then has error code bad_task.
@@ -303,19 +306,24 @@ func (w *Worker) execute(ctx context.Context, sp *spool.Dir, t spool.Task, log *
 		return nil, fmt.Errorf("job directory: %w", err)
 	}
 	defer func() { _ = root.Close() }()
+	out, err := jobdir.MakeWorker(w.cfg.Paths.IntakeRoot, t.Job)
+	if err != nil {
+		return nil, fmt.Errorf("the worker's job directory: %w", err)
+	}
+	defer func() { _ = out.Close() }()
 	log.Info("task_started")
-	return callHandler(ctx, h, root, t.Args, log)
+	return callHandler(ctx, h, root, out, t.Args, log)
 }
 
 // callHandler turns a panic in the handler into an error.
-func callHandler(ctx context.Context, h Handler, root *os.Root, args json.RawMessage, log *slog.Logger) (output any, err error) {
+func callHandler(ctx context.Context, h Handler, root, out *os.Root, args json.RawMessage, log *slog.Logger) (output any, err error) {
 	defer func() {
 		if p := recover(); p != nil {
 			log.Error("task_panicked", "panic", fmt.Sprint(p), "stack", string(debug.Stack()))
 			output, err = nil, fmt.Errorf("panic: %v", p)
 		}
 	}()
-	return h(ctx, root, args)
+	return h(ctx, root, out, args)
 }
 
 func (w *Worker) logIgnored(ignored []spool.Ignored) {

@@ -40,19 +40,19 @@ func TestPreviewHandler(t *testing.T) {
 		AudioIndex: 1, Clips: []preview.Clip{{StartMs: 0, LengthMs: 1000}},
 	}
 	for _, raw := range []string{`{"request":`, `{"request":"0123456789abcdef","extra":1}`, `{"request":"nope","upload":"files/film.mkv","clips":[{"lengthMs":1}]}`} {
-		if _, err := h(t.Context(), root, json.RawMessage(raw)); !errors.Is(err, ErrBadTask) {
+		if _, err := h(t.Context(), root, root, json.RawMessage(raw)); !errors.Is(err, ErrBadTask) {
 			t.Errorf("%s: %v, want ErrBadTask", raw, err)
 		}
 	}
 	bad := good
 	bad.Upload = "../outside.mkv"
 	args, _ := json.Marshal(bad)
-	if _, err := h(t.Context(), root, args); !errors.Is(err, ErrBadTask) {
+	if _, err := h(t.Context(), root, root, args); !errors.Is(err, ErrBadTask) {
 		t.Errorf("upload outside the job: %v, want ErrBadTask", err)
 	}
 	// The job's own file is not a library file.
 	args, _ = json.Marshal(good)
-	out, err := h(t.Context(), root, args)
+	out, err := h(t.Context(), root, root, args)
 	if err != nil {
 		t.Fatal(err)
 	}

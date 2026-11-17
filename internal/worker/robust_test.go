@@ -31,7 +31,7 @@ func TestFinishRetries(t *testing.T) {
 	e.submit("t-1", spool.KindProbe, job)
 	var calls atomic.Int32
 	ctx, cancel := context.WithCancel(context.Background())
-	w := New(e.cfg, slog.New(e.logs), map[string]Handler{spool.KindProbe: func(context.Context, *os.Root, json.RawMessage) (any, error) {
+	w := New(e.cfg, slog.New(e.logs), map[string]Handler{spool.KindProbe: func(context.Context, *os.Root, *os.Root, json.RawMessage) (any, error) {
 		calls.Add(1)
 		return "done", nil
 	}})
@@ -70,7 +70,7 @@ func TestFinishGivesUpOnStop(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.Chmod(results, 0o750) })
 	e.submit("t-1", spool.KindProbe, job)
-	stop := e.start(map[string]Handler{spool.KindProbe: func(context.Context, *os.Root, json.RawMessage) (any, error) {
+	stop := e.start(map[string]Handler{spool.KindProbe: func(context.Context, *os.Root, *os.Root, json.RawMessage) (any, error) {
 		return nil, nil
 	}})
 	eventually(t, func() bool { return len(e.logs.attrs("result_write_failed", "attempt")) >= 1 })
@@ -89,7 +89,7 @@ func TestStaleCancelMarker(t *testing.T) {
 		t.Fatal(err)
 	}
 	e.submit("t-1", spool.KindProbe, job)
-	e.start(map[string]Handler{spool.KindProbe: func(context.Context, *os.Root, json.RawMessage) (any, error) {
+	e.start(map[string]Handler{spool.KindProbe: func(context.Context, *os.Root, *os.Root, json.RawMessage) (any, error) {
 		return "ran", nil
 	}})
 	if r := e.result("t-1"); r.Status != spool.StatusOK || string(r.Output) != `"ran"` {

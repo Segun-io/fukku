@@ -20,8 +20,10 @@ direct write into the library, a new subprocess or a new input from the network 
                  │              spool files ▼  │ result files                    │
                  │                       fukku worker (network_mode: none)       │
                  │                                                               │
-                 │ /data: intake root (web rw, worker rw), library (web rw only  │
-                 │        with versions.enabled, worker ro), versions.root       │
+                 │ /data: intake root: jobs/ (web rw, worker ro), worker/ (both  │
+                 │        rw), .incoming/ (web only); library (web rw only with  │
+                 │        versions.enabled, worker ro: paths.libraryRoots only), │
+                 │        versions.root                                          │
                  └───────────────────────────────────────────────────────────────┘
 ```
 
@@ -60,10 +62,10 @@ direct write into the library, a new subprocess or a new input from the network 
 | B1 | Browser → reverse proxy | Any user of the site, any web page the user visits (CSRF), anyone on the internet if the proxy is public | HTTP requests, uploads, cookies of the proxy's sign-in | The proxy signs users in (out of Fukku's hands); Fukku's Origin check, same-origin API, CSP |
 | B2 | Reverse proxy → web | The proxy, trusted to authenticate and to set and strip the identity headers | `Remote-User`, `Remote-Email`, `Remote-Groups` and the request | `auth.trustedProxies` matched against the connection's own address only; one usable user header required; repeated headers refused (`internal/auth/middleware.go`) |
 | B3 | Network neighbours → web | Any container or host that can reach the web port | Requests that bypass the proxy | The same address check: everything not from `trustedProxies` gets 403, including `/readyz` and `/metrics` (loopback only, or an admin) |
-| B4 | web ↔ worker (spool) | The worker, which parses hostile files and must be assumed compromised | Task files (web → worker), result files (worker → web), files the worker writes under the intake root | The worker has no network and no secrets (it refuses to start with an API key, a `_FILE` secret or a URL with credentials); the web process validates results (size, ids, kinds) and treats paths and files the worker produced as untrusted |
-| B5 | Worker → filesystem | The worker | Reads of uploads and library files, writes into the job directory | `os.Root` confinement to the job directory; library reads only under `paths.libraryRoots`; the library is mounted read-only in the worker's container |
+| B4 | web ↔ worker (spool) | The worker, which parses hostile files and must be assumed compromised | Task files (web → worker), result files (worker → web), files the worker writes into its own folder of a job (`worker/<job>`) | The worker has no network and no secrets (it refuses to start with an API key, a `_FILE` secret or a URL with credentials); the web process validates results (size, ids, kinds), takes the files it accepts into the job's directory one checked regular file at a time (`jobdir.Seal`), and opens every job file it hands over or links without following a link (`jobdir.OpenFile`) |
+| B5 | Worker → filesystem | The worker | Reads of uploads and library files, writes into its own folder of the job | Its container mounts only `intake/worker` writable, `intake/jobs` and each of `paths.libraryRoots` read-only, nothing else of `/data` (no `.incoming/`); it refuses to start when it can write more (`worker.requireSeparateMounts`); `os.Root` confinement to the job's folders; library reads only under `paths.libraryRoots` |
 | B6 | web → Radarr, Sonarr, Bazarr, Jellyfin | The apps, trusted as the owners of the library | API calls with the keys; titles, paths and verdicts back | Keys only in headers, never logged; response bodies capped; paths from the apps are mapped (`internal/pathmap`) and checked against `paths.libraryRoots` before the web process writes |
-| B7 | web → library (direct writes) | — | Second versions: films' into `versions.root`, episodes' into Sonarr's season folders | Only with `versions.enabled` (off by default); hard links with `linkat(2)` that never replace a file; opened through an `os.Root` of the library root; trial link and overlap checks; Sonarr's "not an upgrade" verdict for episodes |
+| B7 | web → library (direct writes) | — | Second versions: films' into `versions.root`, episodes' into Sonarr's season folders | Only with `versions.enabled` (off by default; without it the web container mounts the library read-only); hard links with `linkat(2)` that never replace a file, made from the job's file as it was opened and checked; opened through an `os.Root` of the library root; trial link and overlap checks; Sonarr's "not an upgrade" verdict for episodes |
 | B8 | Supply chain → image | Upstream projects and registries | Go modules, npm packages, Debian packages, FFmpeg source, base images, Actions | Pins by version and hash or digest, `go.sum` and the npm lockfile with integrity hashes, the FFmpeg tarball by SHA-256, Actions by commit SHA, an SBOM per image |
 
 ## 4. Attackers
@@ -117,7 +119,7 @@ Bazarr and Jellyfin themselves (see §7).
 | Disk exhaustion | `upload.maxFileSize` per file, `upload.maxInFlight` over all unfinished uploads, `upload.maxParallelPerUser`, free space minus what unfinished uploads still need must exceed size + `upload.freeSpaceMargin`; deferred length and concatenation refused; a PATCH carries at most `upload.chunkSize` | `create.go`, `uploads.go` |
 | Slow or stuck clients | `upload.requestIdleTimeout`; idle uploads expire after `upload.idleUploadExpiry`; idle jobs expire | `internal/retention` |
 | An upload id used as a path | Ids are 32 random hex characters, checked by `jobdir.ValidID` before anything touches the disk | `internal/uploads/uploads.go`, `internal/jobdir` |
-| Upload metadata under the intake root steers the endpoint's reads and writes (the worker can write the intake root, A4) | Fukku's own tus data store (`incomingStore`), not tusd's filestore: every path is computed from the upload id, never taken from an `.info` file; an `.info` that names any other place than `.incoming/<id>` and `.incoming/<id>.info`, or another id, is refused; every open goes through an `os.Root` of `.incoming/`, which must be a real directory of the intake root (a symbolic link there is refused, also when swapped in while running); upload files must be regular files and not links, checked before and after each open; upload data that is not a regular file is never moved into a job; an `.info` with a deferred or negative size, concatenation, or a size other than the upload row's is refused, and so is data past that size; the headers of the IETF resumable-upload drafts are removed, so the endpoint speaks tus 1.0 only. Fixed in #137. Only paths, file types and these fields are enforced: the upload's data and its other metadata stay writable by the worker; #138 takes `.incoming/` out of the worker's writable mount | `internal/uploads/incoming.go`, `finish.go` |
+| Upload metadata under the intake root steers the endpoint's reads and writes (the worker can write the intake root, A4) | Fukku's own tus data store (`incomingStore`), not tusd's filestore: every path is computed from the upload id, never taken from an `.info` file; an `.info` that names any other place than `.incoming/<id>` and `.incoming/<id>.info`, or another id, is refused; every open goes through an `os.Root` of `.incoming/`, which must be a real directory of the intake root (a symbolic link there is refused, also when swapped in while running); upload files must be regular files and not links, checked before and after each open; upload data that is not a regular file is never moved into a job; an `.info` with a deferred or negative size, concatenation, or a size other than the upload row's is refused, and so is data past that size; the headers of the IETF resumable-upload drafts are removed, so the endpoint speaks tus 1.0 only. Fixed in #137. Only paths, file types and these fields are enforced: the upload's data and its other metadata stay writable by the worker; since #138 the worker has no view of `.incoming/` | `internal/uploads/incoming.go`, `finish.go` |
 | Many jobs | Idle jobs expire; no per-user cap yet (#134) | `internal/web/jobs.go` |
 
 ### 5.4 Hostile files (worker, A1 → A4)
@@ -143,10 +145,12 @@ stops more:
 | --- | --- | --- |
 | Reach Radarr, Sonarr or the internet | `network_mode: none` | compose |
 | Read API keys | Not in its environment or configuration (it refuses to start with one); not in the spool | `internal/config/validate.go` |
-| Write outside the intake root | The library is mounted read-only; only the intake root is writable. It can still change a placed version or an import made with hard links through the job's own name for the same inode (#114), and it can read all of `/data` and every user's jobs (#118) | compose |
+| Write anything but its own scratch space | Only `intake/worker` is mounted writable. The jobs' files (`intake/jobs`) and the library roots are read-only mounts, so no name of a file the web process checked, handed to Radarr or Sonarr or linked as a version (the same inode as a placed version, or an import made with hard links) can be opened for writing, whatever its owner or mode (#114); `.incoming/`, the downloads and the rest of `/data` are not mounted at all (#118, #138). `fukku worker` refuses to start when it can write `jobs/`, `.incoming/` or a library root (`worker.requireSeparateMounts`, `internal/worker/mounts.go`). The two processes keep one user id, so imported files keep their owner: the mounts, not the uid, are the boundary | compose, `internal/worker/mounts.go` |
+| Read other users' files | Not prevented: the worker processes every job, so it reads every job's files and the library roots, and could put what it reads into what it produces for its own job (preview clips, a merge, extracted files): accepted, §6 | compose |
 | Forge results (another job, huge files, odd kinds) | Spool access through an `os.Root`, writes to a random `O_EXCL` name then fsync and rename, reads non-blocking, regular files only, at most 16 MiB; ids by regex and equal to the file name; the web process matches each result to what it asked (probe results by stored path, extracted paths under the destination, merge output, tracks and library echo, preview request echo and clip count, library-probe path) | `internal/spool/dir.go`, `internal/runner/steps.go`, `internal/flows` |
-| Plant symbolic links or swap files under the job directory that the web process later opens, links or hands to an app | Every job directory is opened with `jobdir.Open`, from an `os.Root` of the intake root, so a symbolic link at `jobs/` or `jobs/<id>` cannot lead out (#112); job directories and uploads are removed through an `os.Root` of the intake root (`jobdir.Remove`, `RemoveUpload`), so a symbolic link at `jobs/` or `.incoming/` that leads out of it is refused and one at `jobs/<id>` is removed itself, never followed (#137); a test fails if non-test code outside `internal/jobdir` uses `jobdir.Dir` outside a reviewed allow-list of callers (paths handed to an app, the free-space check, and the callers #113 still has to move), or hands `jobdir.Dir(...)` directly to a package `os` function. An accepted subtitle is opened through the job's root, which refuses a symbolic link out of the job directory; because `os.Root` still follows a symbolic link that stays inside it (`O_NOFOLLOW` has no effect there), the name is also checked with `Lstat` to be a regular file and not a symbolic link, and the open file must be that same file (#111). Preview clips are opened through the job's root and must be regular files of the size the worker reported (a symbolic link inside the job directory to another file of that size is not refused). Paths handed to Radarr, Sonarr or `linkat`, and the staging of episode versions, are still checked by path, with `Lstat` of the last element only (#113) | `internal/jobdir`, `internal/subtitles/step.go`, `internal/web/preview.go`, `internal/flows` |
-| Write upload metadata that the web process acts on | See §5.3: nothing in `.incoming/` is taken as a path, symbolic links and files that are not regular are refused, and an `.info` whose shape the endpoint never creates (deferred or negative size, concatenation) or whose size differs from the upload's row is refused (#137). The upload's data and the other fields of its `.info` (its metadata) stay writable by the worker until #138 takes `.incoming/` out of its mount | `internal/uploads/incoming.go` |
+| Plant symbolic links or swap files under its folder of the job (or, where it can write it, the job directory) that the web process later opens, links or hands to an app | Every job directory and the worker's folder of it are opened with `jobdir.Open` and `jobdir.OpenWorker`, from an `os.Root` of the intake root, so a link at `jobs/`, `worker/` or below cannot lead out (#112); job directories and uploads are removed through an `os.Root` of the intake root (`jobdir.Remove`, `RemoveUpload`), so a link at `jobs/`, `worker/` or `.incoming/` that leads out of it is refused and a link at `jobs/<id>` is removed itself, never followed (#137); a test fails if non-test code outside `internal/jobdir` uses `jobdir.Dir` outside a reviewed allow-list of callers (paths handed to an app, the free-space check), or hands `jobdir.Dir(...)` directly to a package `os` function. An accepted subtitle was first opened through the job's root with an `Lstat` and same-file check (#111), as `os.Root` follows a link that stays inside it. Since #113 every job file the web process reads, hands over or links is opened one path element at a time with `O_NOFOLLOW` from the job's root (`jobdir.OpenFile`): a symbolic link anywhere on the way, also one that stays inside, is refused, and so is anything but a regular file; the accepted subtitle, the preview clips (in the worker's folder, of the size it reported) and the staging of episode versions go through it. What the worker extracted or merged is moved from its folder into the job's by a rename that never replaces (`jobdir.Seal`): a regular file of the reported size with no other hard link, checked again after the rename, so a name swapped meanwhile is taken back out. Right before a path goes to Radarr or Sonarr it is checked again the same way, with the recorded size; a version is hard-linked from the open, checked file (`linkat(2)` of its `/proc/self/fd` entry), and the new name is checked to be that file. The apps open the path themselves later; nothing can change it in between, because the job's directory is read-only to the worker | `internal/jobdir`, `internal/subtitles/step.go`, `internal/web/preview.go`, `internal/runner/steps.go`, `internal/flows` |
+| Keep writing a file it produced | A worker compromised before it wrote an extracted file or a merge may keep a descriptor to it, and write through that descriptor after the file was moved into the job and imported: the file is not copied at the hand-over (a film is tens of gigabytes). It reaches only a file it wrote itself for that job, whose content it chose anyway: accepted, §6 | `internal/jobdir` (`Seal`) |
+| Write upload metadata that the web process acts on | See §5.3: nothing in `.incoming/` is taken as a path, symbolic links and files that are not regular are refused, and an `.info` whose shape the endpoint never creates (deferred or negative size, concatenation) or whose size differs from the upload's row is refused (#137). The upload's data and the other fields of its `.info` (its metadata) are not checked further; since #138 the worker has no view of `.incoming/` | `internal/uploads/incoming.go` |
 | Produce a bad merge that replaces a film | The worker verifies its own merge, so a compromised worker can make Radarr import a file of its choosing for the job's film: accepted, §6 | `internal/merge` |
 
 ### 5.6 Library writes (B7)
@@ -184,9 +188,10 @@ stops more:
   takes over the web process owns the apps.
 - **The web process writes into the library when `versions.enabled` is on**: films' versions
   into `versions.root`, next to Radarr's root folders, and, since #58, episodes' versions
-  into Sonarr's own season folders. Its mount of the library must then be writable. The
-  writes are hard links that never replace a file, but a bug in the path checks would be a
-  write into the library with the web process's rights.
+  into Sonarr's own season folders. Its mount of the library must then be writable (one
+  mount with the intake root, for the hard link); with versions off the compose example
+  mounts it read-only. The writes are hard links that never replace a file, but a bug in the
+  path checks would be a write into the library with the web process's rights.
 - **Any signed-in user can add titles to Radarr and Sonarr and import new files into them.**
   The steps that replace or change a library file (an override of a rejection or of
   `existing_file`, the season-dub policies `replace` and `version`, a merge into a film's
@@ -206,10 +211,20 @@ stops more:
   overwrite an earlier subtitle of the same language and flags (as its own upgrades do). A
   subtitle is cheap to get again, and Bazarr's history records the upload.
 - **A compromised worker can choose what Radarr imports for its own job** (a merge it
-  "verified", files it "extracted"), and read the whole library through its read-only
-  mount. It cannot reach the network or the keys. Until #114 and #118 are done it can also
-  change other users' pending uploads and the library files that share an inode with a
-  job's files.
+  "verified", files it "extracted"). It cannot reach the network or the keys, and it cannot
+  change an upload, another job's files, or any file once the web process has moved it into
+  the job: those are on its read-only mount (#113, #114, #138).
+- **A compromised worker reads every job's files and the library roots.** It processes every
+  job, so its read-only mounts hold every user's uploads; it could put what it reads into
+  what it renders for its own job (a preview clip, a merge) and so show it to that job's
+  owner. Static mounts cannot narrow this to one job at a time (#118).
+- **A file the worker produced is not copied when it is handed over.** A worker that was
+  compromised before it wrote an extracted file or a merge can keep a descriptor to it and
+  change the file later, even after Radarr or Sonarr imported it (by a move or a hard link,
+  the library file is that inode). It reaches only files it wrote itself, whose content it
+  chose anyway, and no name of them stays writable to it; a copy would close this at the cost
+  of reading and writing a whole film (tens of gigabytes) at each hand-over, on top of the
+  merge's own copy (#114).
 - **`mode: combined`** puts the parser next to the keys and the network. It is for small,
   trusted installs and is documented as weaker.
 - **Same-host proxy on loopback.** If the proxy connects from a loopback address, `/readyz`
@@ -261,13 +276,13 @@ severity is open.
 | #111 | high | files left by a compromised worker could steer the subtitle hand-over's reads | fixed in the #63 pull request |
 | #137 | high | worker-controlled upload metadata could steer the web process's writes | fixed in the #63 pull request |
 | #112 | medium | a symlink at `jobs/<id>` redirects the web process's job-directory operations (the staging of episode versions is left to #113) | fixed in the #63 pull request |
-| #113 | medium | worker-written paths with symlinked parts handed to Radarr, Sonarr and `linkat` | open |
-| #114 | medium | hard links and a shared uid let a compromised worker change placed files | open |
+| #113 | medium | worker-written paths with symlinked parts handed to Radarr, Sonarr and `linkat` | fixed: no-follow opens, moves into the job, links from the open file |
+| #114 | medium | hard links and a shared uid let a compromised worker change placed files | fixed: the job directory is read-only to the worker; a descriptor kept to its own output is accepted (§6) |
 | #115 | medium | huge track titles wedge a job in probing | open |
 | #116 | medium | any user can replace library files (decided: admin-only by default, behind a setting) | fixed: `auth.libraryChangesRequireAdmin`, and a check before each submission |
 | #117 | medium | no memory limits | open |
-| #118 | medium | worker sees all of `/data` and every job; web has the library writable | open |
-| #138 | medium | worker should write only `intake/jobs` (follow-up of #137, part of #118) | open |
+| #118 | medium | worker sees all of `/data` and every job; web has the library writable | fixed: library roots and jobs read-only, nothing else; web read-only without versions; reading every job accepted (§6) |
+| #138 | medium | worker should write only `intake/jobs` (follow-up of #137, part of #118) | fixed: it writes only `intake/worker`, reads `intake/jobs`, has no `.incoming/` |
 | #119 | medium | API keys follow redirects to other hosts | open |
 | #120 | low | Sonarr's season folder cleaned instead of refused | open |
 | #121 | low | fullwidth characters pass the label checks | fixed: a label that is not NFKC-normal is refused (`version_label`) |

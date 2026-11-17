@@ -181,6 +181,8 @@ services:
       FUKKU_SONARR_API_KEY: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
       FUKKU_SUBTITLES_API_KEY: "cccccccccccccccccccccccccccccccc"
       FUKKU_MEDIA_SERVER_API_KEY: "dddddddddddddddddddddddddddddddd"
+    # The whole library filesystem, writable: versions are on in this stack (fukku.yaml), and
+    # a version is a hard link from the intake root, so both must be one writable mount.
     volumes:
       - ./fukku.yaml:/config/fukku.yaml:ro
       - ./.run/fukku/data:/var/lib/fukku
@@ -198,11 +200,32 @@ services:
     command: ["worker"]
     network_mode: none
     environment: *fukku-env
+    # The mounts of deploy/compose.example.yaml (docs/install.md): the worker writes only its
+    # own folder of the intake root, reads the jobs' files and the library roots, and sees
+    # nothing else of /data (no .incoming/, no sentinel). dev-up creates the folders as the
+    # user; a missing one is an error, never created as root.
     volumes:
       - ./fukku.yaml:/config/fukku.yaml:ro
       - ./.run/fukku/spool:/spool
-      - ./.run/data:/data:ro
-      - ./.run/data/intake:/data/intake
+      - type: bind
+        source: ./.run/data/intake/worker
+        target: /data/intake/worker
+        bind: {create_host_path: false}
+      - type: bind
+        source: ./.run/data/intake/jobs
+        target: /data/intake/jobs
+        read_only: true
+        bind: {create_host_path: false}
+      - type: bind
+        source: ./.run/data/media/movies
+        target: /data/media/movies
+        read_only: true
+        bind: {create_host_path: false}
+      - type: bind
+        source: ./.run/data/media/tv
+        target: /data/media/tv
+        read_only: true
+        bind: {create_host_path: false}
     healthcheck:
       test: ["CMD", "fukku", "healthcheck", "--worker"]
       interval: 10s

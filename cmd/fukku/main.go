@@ -27,6 +27,8 @@ import (
 	"github.com/segun-io/fukku/internal/arr"
 	"github.com/segun-io/fukku/internal/config"
 	"github.com/segun-io/fukku/internal/flows"
+	"github.com/segun-io/fukku/internal/fscheck"
+	"github.com/segun-io/fukku/internal/jobdir"
 	"github.com/segun-io/fukku/internal/mediaserver"
 	"github.com/segun-io/fukku/internal/metrics"
 	"github.com/segun-io/fukku/internal/retention"
@@ -135,6 +137,15 @@ func run(args []string, stdout, stderr io.Writer) int {
 	case "web":
 		err = runWeb(ctx, cfg, log)
 	case "worker":
+		// What the worker may write is what a parser exploit could change (#113, #114,
+		// #118, #138): only its own folder of the intake root.
+		if merr := worker.CheckMounts(cfg); merr != nil {
+			if cfg.Worker.RequireSeparateMounts {
+				log.Error("worker_mounts", "error", merr.Error(), "setting", "worker.requireSeparateMounts")
+				return 1
+			}
+			log.Warn("worker_mounts", "error", merr.Error(), "note", "worker.requireSeparateMounts is off")
+		}
 		err = worker.New(cfg, log, worker.Handlers(cfg)).Run(ctx)
 	case "combined":
 		err = runCombined(ctx, cfg, log, worker.Handlers(cfg))
@@ -156,6 +167,13 @@ func runWeb(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	st, err := store.Open(ctx, store.Options{Dir: cfg.Server.DataDir, Log: log})
 	if err != nil {
 		return err
+	}
+	// The folders the worker's container mounts on their own, as this user, so the container
+	// runtime never creates one as root (#138). Nothing is created under a missing mount.
+	if err := fscheck.Sentinels(cfg.Paths); err != nil {
+		log.Warn("intake_not_prepared", "error", err.Error())
+	} else if err := jobdir.Prepare(cfg.Paths.IntakeRoot); err != nil {
+		log.Warn("intake_not_prepared", "error", err.Error())
 	}
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()

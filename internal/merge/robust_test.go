@@ -177,7 +177,7 @@ func TestMergeSyncFailureUndone(t *testing.T) {
 	e := newEnv(t, nil)
 	restore := merge.SetSyncDir(func(*os.Root, string) error { return errors.New("disk on fire") })
 	defer restore()
-	_, err := merge.Run(context.Background(), e.job, []string{e.libRoot}, e.args(1), options())
+	_, err := merge.Run(context.Background(), e.job, e.job, []string{e.libRoot}, e.args(1), options())
 	if err == nil || !strings.Contains(err.Error(), "disk on fire") {
 		t.Fatalf("Run: %v", err)
 	}

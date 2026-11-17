@@ -73,7 +73,8 @@ Browser ──tus chunks──► web process ──spool task──► worker p
    └──── job status ◄──────└──► Media server API (refresh the changed path, optional)
 
 Storage:  <intake root>/.incoming/<upload>   (tus, in progress)
-          <intake root>/jobs/<job>/          (validated or extracted files, merge output)
+          <intake root>/jobs/<job>/          (uploads, accepted extracted files and merge output; read-only to the worker)
+          <intake root>/worker/<job>/        (all the worker writes; the web process moves what it accepts into jobs/)
           Radarr/Sonarr move files from jobs/ into the library themselves.
 ```
 

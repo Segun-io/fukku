@@ -194,7 +194,7 @@ func (s *Sweeper) deleteFinishedJobs(ctx context.Context, root *os.Root, now tim
 			s.log.Error("retention_tasks", "job", j.ID, "error", err.Error())
 			continue
 		}
-		if err := root.RemoveAll(path.Join(jobdir.Jobs, j.ID)); err != nil {
+		if err := removeJobDirs(root, j.ID); err != nil {
 			s.log.Error("retention_remove", "job", j.ID, "error", err.Error())
 			continue
 		}
@@ -206,6 +206,17 @@ func (s *Sweeper) deleteFinishedJobs(ctx context.Context, root *os.Root, now tim
 		}
 		s.audit(ctx, "job.deleted", j.ID, map[string]string{"reason": "finished_retention", "state": string(j.State)})
 	}
+}
+
+// removeJobDirs removes a job's directories through root, the intake root: the worker's
+// (worker/<id>) first and jobs/<id> last, as jobdir.Remove does.
+func removeJobDirs(root *os.Root, id string) error {
+	for _, top := range []string{jobdir.Worker, jobdir.Jobs} {
+		if err := root.RemoveAll(path.Join(top, id)); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // dropTasks cancels and then acknowledges every task id the job's runner may have used, so
@@ -252,13 +263,19 @@ func (s *Sweeper) sweepIncoming(ctx context.Context, root *os.Root, now time.Tim
 	}
 }
 
-// sweepJobsDir handles the directories in jobs/ that have no job row: logged as
-// orphan_job_dir, deleted only once older than upload.jobRetention.
+// sweepJobsDir handles the directories in jobs/ and worker/ that have no job row: logged
+// as orphan_job_dir, deleted only once older than upload.jobRetention.
 func (s *Sweeper) sweepJobsDir(ctx context.Context, root *os.Root, now time.Time) {
+	for _, top := range []string{jobdir.Worker, jobdir.Jobs} {
+		s.sweepTop(ctx, root, now, top)
+	}
+}
+
+func (s *Sweeper) sweepTop(ctx context.Context, root *os.Root, now time.Time, top string) {
 	limit := s.cfg.Upload.JobRetention.D()
-	for _, e := range s.entries(root, jobdir.Jobs) {
+	for _, e := range s.entries(root, top) {
 		name := e.Name()
-		rel := path.Join(jobdir.Jobs, name)
+		rel := path.Join(top, name)
 		info, err := e.Info()
 		if err != nil || !info.IsDir() || !jobdir.ValidID(name) {
 			s.ignore(rel, "not a job directory")

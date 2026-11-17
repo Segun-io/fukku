@@ -113,7 +113,8 @@ func TestPreviewThroughTheAPI(t *testing.T) {
 	if err := json.Unmarshal(tasks[0].Args, &a); err != nil {
 		t.Fatal(err)
 	}
-	dir := filepath.Join(jobdir.Dir(intake, j.ID), filepath.FromSlash(preview.Dir))
+	// The worker renders them into its own directory of the job.
+	dir := filepath.Join(intake, jobdir.Worker, j.ID, filepath.FromSlash(preview.Dir))
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		t.Fatal(err)
 	}
@@ -179,6 +180,17 @@ func TestPreviewThroughTheAPI(t *testing.T) {
 	}
 	if code, _ := e.call("GET", base+"/3", ""); code != http.StatusNotFound {
 		t.Errorf("linked clip: %d", code)
+	}
+	// A link that stays inside, to a file of the size reported, is not served either (#113).
+	clip2 := filepath.Join(dir, preview.ClipName(a.Request, 2))
+	if err := os.Rename(clip2, filepath.Join(dir, "other.mp4")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("other.mp4", clip2); err != nil {
+		t.Fatal(err)
+	}
+	if code, _ := e.call("GET", base+"/2", ""); code != http.StatusNotFound {
+		t.Errorf("clip linked inside: %d", code)
 	}
 
 	// Somebody else's job does not exist for them.

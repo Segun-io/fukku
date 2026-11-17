@@ -342,7 +342,7 @@ func TestVersionNeverOverwrites(t *testing.T) {
 		}
 	}
 	// linkVersion itself never replaces.
-	if err := linkVersion(x.versions, x.src(j, "files/Some Film (2001).es.mkv"), "Some Film (2001)", "Some Film (2001) - Mine.mkv"); !errors.Is(err, os.ErrExist) {
+	if err := linkVersion(x.versions, opened(t, x.src(j, "files/Some Film (2001).es.mkv")), "Some Film (2001)", "Some Film (2001) - Mine.mkv"); !errors.Is(err, os.ErrExist) {
 		t.Errorf("linking over a file: %v, want ErrExist", err)
 	}
 }
@@ -409,7 +409,7 @@ func TestVersionRepeatAfterCrash(t *testing.T) {
 	}
 	choice, _ := versionOf(c.Target)
 	src := x.src(j, "files/Some Film (2001).es.mkv")
-	if err := linkVersion(x.versions, src, choice.Folder, choice.Name); err != nil {
+	if err := linkVersion(x.versions, opened(t, src), choice.Folder, choice.Name); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := x.st.PutVersion(x.ctx, store.Version{JobID: j.ID, App: AppRadarr, TitleID: filmID, Path: choice.Path, Status: store.VersionPlacing}); err != nil {
@@ -522,4 +522,15 @@ func TestVersionLabels(t *testing.T) {
 	if got, p := checkLabel(decomposed, cfg); p != nil || got != "Espa"+string(rune(0x00f1))+"ol" {
 		t.Errorf("cleaned %q (%+v), want NFC without the control character", got, p)
 	}
+}
+
+// opened opens p for reading, until the end of the test.
+func opened(t *testing.T, p string) *os.File {
+	t.Helper()
+	f, err := os.Open(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = f.Close() })
+	return f
 }

@@ -766,47 +766,56 @@ func episodeFolderCheck(paths config.Paths, folder string) error {
 
 // ---- Sonarr's verdict ---------------------------------------------------------------------
 
-// stageEpisodeVersion hard-links the job's file src as jobs/<job>/versions/<row>/<name>, the
+// stageEpisodeVersion hard-links the job's file f as jobs/<job>/versions/<row>/<name>, the
 // file Sonarr is asked about, and removes anything else in that folder (an earlier label's).
-func (e *Engine) stageEpisodeVersion(jobID, src string, v episodeVersion) (string, error) {
+// Everything goes through the job's directory without following a link (#113): the file is
+// opened and checked first and the link made from the open file, into the folder opened
+// the same way.
+func (e *Engine) stageEpisodeVersion(jobID string, f store.File, v episodeVersion) error {
 	if !filepath.IsLocal(v.Row) || strings.ContainsAny(v.Row, `/\`) {
-		return "", fmt.Errorf("row id %q", v.Row)
+		return fmt.Errorf("row id %q", v.Row)
 	}
-	// Inside the job's folder only (os.Root: no "..", no link out of it). The folder must be
-	// readable by Sonarr, as the job's files/ is.
+	if !filepath.IsLocal(v.Name) || strings.ContainsAny(v.Name, `/\`) {
+		return fmt.Errorf("version name %q", v.Name)
+	}
+	// Inside the job's folder only. The folder must be readable by Sonarr, as the job's
+	// files/ is.
 	job, err := jobdir.Open(e.p.cfg.Paths.IntakeRoot, jobID)
 	if err != nil {
-		return "", err
+		return err
 	}
 	defer func() { _ = job.Close() }()
-	rel := filepath.Join(jobdir.Versions, v.Row)
-	if err := job.MkdirAll(rel, 0o755); err != nil {
-		return "", err
-	}
-	d, err := job.Open(rel)
+	src, srcInfo, err := jobdir.OpenFile(job, f.Path)
 	if err != nil {
-		return "", err
+		return err
 	}
+	defer func() { _ = src.Close() }()
+	if srcInfo.Size() != f.Size {
+		return fmt.Errorf("%w: %s is %d bytes, not %d", jobdir.ErrChanged, f.Path, srcInfo.Size(), f.Size)
+	}
+	rel := path.Join(jobdir.Versions, v.Row)
+	d, err := jobdir.MakeDir(job, rel)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = d.Close() }()
 	entries, err := d.ReadDir(-1)
-	_ = d.Close()
 	if err != nil {
-		return "", err
+		return err
 	}
 	for _, en := range entries {
 		if en.Name() != v.Name {
-			_ = job.RemoveAll(filepath.Join(rel, en.Name()))
+			_ = job.RemoveAll(path.Join(rel, en.Name()))
 		}
 	}
-	dst := filepath.Join(job.Name(), rel, v.Name)
-	if same, err := samePlaced(src, dst); err != nil {
-		return "", err
-	} else if same {
-		return dst, nil
+	dst := path.Join(rel, v.Name)
+	if at, err := job.Lstat(dst); err == nil && os.SameFile(at, srcInfo) {
+		return nil
 	}
-	if err := os.Remove(dst); err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return "", err
+	if err := job.Remove(dst); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
 	}
-	return dst, os.Link(src, dst)
+	return linkAt(src, d, v.Name)
 }
 
 // Verdict is Sonarr's verdict on an episode's version (EpisodeVerdict). Code is "" when the
@@ -832,11 +841,11 @@ func (e *Engine) sonarrVerdict(ctx context.Context, jobID string, t store.Target
 	if err != nil {
 		return Verdict{}, err
 	}
-	src, ok := jobVideo(files, v.FileID, e.p.cfg.Paths.IntakeRoot, jobID)
+	f, ok := jobVideo(files, v.FileID)
 	if !ok {
 		return unchecked("the job's video is no longer there"), nil
 	}
-	if _, err := e.stageEpisodeVersion(jobID, src, v); err != nil {
+	if err := e.stageEpisodeVersion(jobID, f, v); err != nil {
 		e.log.Warn("version_stage_failed", "job", jobID, "row", v.Row, "error", err)
 		return Verdict{}, refuse(CodeStorageUnavailable, "The job's folder cannot be written.")
 	}
@@ -919,15 +928,14 @@ func noUpgrades(reason string) bool {
 	return strings.Contains(strings.ToLower(reason), "does not allow upgrades")
 }
 
-// jobVideo is the job's video fileID as Fukku sees it, when it is an accepted video under
-// files/.
-func jobVideo(files []store.File, fileID int64, intakeRoot, jobID string) (string, bool) {
+// jobVideo is the job's video fileID, when it is an accepted video under files/.
+func jobVideo(files []store.File, fileID int64) (store.File, bool) {
 	for _, f := range files {
 		if f.ID == fileID && f.Kind == store.KindVideo && f.Status == store.FileOK && strings.HasPrefix(f.Path, jobdir.Files+"/") {
-			return filepath.Join(jobdir.Dir(intakeRoot, jobID), filepath.FromSlash(f.Path)), true
+			return f, true
 		}
 	}
-	return "", false
+	return store.File{}, false
 }
 
 // ---- the placement ------------------------------------------------------------------------
@@ -1096,13 +1104,21 @@ func (e *Engine) placeEpisodeVersion(ctx context.Context, job store.Job, t store
 	no := func(code, format string, args ...any) (bool, *EpisodeVersionFailure, error) {
 		return false, &EpisodeVersionFailure{Code: code, Reason: fmt.Sprintf(format, args...)}, nil
 	}
-	src, ok := jobVideo(files, v.FileID, e.p.cfg.Paths.IntakeRoot, job.ID)
+	f, ok := jobVideo(files, v.FileID)
 	if !ok {
 		return no(CodeVersionFailed, "the job's video for %s is no longer there", v.Name)
 	}
 	if v.Path != filepath.Join(v.Folder, v.Name) {
 		return no(CodeVersionFailed, "the stored version is inconsistent: %s", v.Path)
 	}
+	// The job's file, opened without following a link and checked: what is linked is this
+	// open file (#113).
+	src, srcInfo, err := openJobFile(e.p.cfg.Paths.IntakeRoot, job.ID, f.Path, f.Size)
+	if err != nil {
+		e.log.Warn("version_refused", "job", job.ID, "file", f.Path, "error", err)
+		return no(CodeVersionFailed, "the job's video for %s is no longer there, or not the job's file", v.Name)
+	}
+	defer func() { _ = src.Close() }()
 	defer e.locks.Lock(VersionLock(v.Path))()
 	rec, err := e.st.VersionByPath(ctx, v.Path)
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
@@ -1111,7 +1127,7 @@ func (e *Engine) placeEpisodeVersion(ctx context.Context, job store.Job, t store
 	if rec.ID != 0 && rec.JobID != job.ID {
 		return no(CodeVersionExists, "%s is recorded for job %s (status %s): nothing is taken over", v.Path, rec.JobID, rec.Status)
 	}
-	there, err := samePlaced(src, v.Path)
+	there, err := samePlaced(srcInfo, v.Path)
 	if err != nil {
 		return no(CodeVersionFailed, "%v", err)
 	}
@@ -1186,10 +1202,10 @@ func episodeVersionRecord(rec store.Version, job store.Job, t store.Target, c ep
 	return rec
 }
 
-// linkEpisodeVersion hard-links src as folder/name. folder must be inside one of roots
-// (paths.libraryRoots) and is opened through an os.Root of that root (no "..", no link out
-// of it); it is never created. The link never replaces a file (fs.ErrExist).
-func linkEpisodeVersion(roots []string, src, folder, name string) error {
+// linkEpisodeVersion hard-links the open file src as folder/name. folder must be inside one
+// of roots (paths.libraryRoots) and is opened through an os.Root of that root (no "..", no
+// link out of it); it is never created. The link never replaces a file (fs.ErrExist).
+func linkEpisodeVersion(roots []string, src *os.File, folder, name string) error {
 	root, rel, ok := media.LibraryPath(roots, folder)
 	if !ok {
 		return fmt.Errorf("%s is not inside paths.libraryRoots", folder)
@@ -1211,12 +1227,7 @@ func linkEpisodeVersion(roots []string, src, folder, name string) error {
 		return err
 	}
 	defer func() { _ = dir.Close() }()
-	sd, err := os.Open(filepath.Dir(src))
-	if err != nil {
-		return err
-	}
-	defer func() { _ = sd.Close() }()
-	return linkAt(sd, filepath.Base(src), dir, name)
+	return linkAt(src, dir, name)
 }
 
 // ---- the result ---------------------------------------------------------------------------

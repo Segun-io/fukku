@@ -8,8 +8,8 @@ import (
 )
 
 // linkAt is not available on this platform (the image runs on Linux): second versions are
-// placed with linkat(2), which never replaces a file.
-func linkAt(*os.File, string, *os.File, string) error {
+// placed with linkat(2) from the open file, which never replaces a file.
+func linkAt(*os.File, *os.File, string) error {
 	return errors.New("placing a second version is not supported on this platform")
 }
 

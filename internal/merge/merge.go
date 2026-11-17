@@ -94,16 +94,18 @@ type plan struct {
 	tracks        []int // sorted
 }
 
-// Run merges args.Tracks of the upload into a copy of the library file, verifies the copy
-// and renames it to <Dest>/<OutputName(Library)>. roots are the worker's
-// paths.libraryRoots. An error means the task could not run; a refusal is an Output with
+// Run merges args.Tracks of the upload, read from the job directory (in), into a copy of
+// the library file, verifies the copy and renames it to <Dest>/<OutputName(Library)>. Dest,
+// the partial file and the lock are in job, the worker's directory of the job; the web
+// process moves the verified file into the job afterwards (jobdir.Seal). roots are the
+// worker's paths.libraryRoots. An error means the task could not run; a refusal is an Output with
 // OK false. Whatever the outcome, the partial file is gone when Run returns, and Dest
 // holds the verified file only when OK is true.
 //
 // While it runs, Run holds an exclusive lock for Dest (PartialFor), so no other merge into
 // the same dest uses the partial file or Dest meanwhile; under the lock, what is found
 // there was left by an earlier run, whose process is gone, and is removed first.
-func Run(ctx context.Context, job *os.Root, roots []string, args Args, opt Options) (Output, error) {
+func Run(ctx context.Context, in, job *os.Root, roots []string, args Args, opt Options) (Output, error) {
 	p, err := check(args, opt)
 	if err != nil {
 		return Output{}, err
@@ -127,7 +129,7 @@ func Run(ctx context.Context, job *os.Root, roots []string, args Args, opt Optio
 	if err := ctx.Err(); err != nil {
 		return Output{}, err
 	}
-	m := &merger{job: job, roots: roots, p: p, opt: opt}
+	m := &merger{in: in, job: job, roots: roots, p: p, opt: opt}
 	out, err := m.run(ctx)
 	if m.dst != nil {
 		if !m.placed {
@@ -254,7 +256,8 @@ func ValidDest(dest string) bool {
 }
 
 type merger struct {
-	job   *os.Root
+	in    *os.Root // the job directory: the upload is read from it
+	job   *os.Root // the worker's directory of the job: everything is written into it
 	roots []string
 	p     plan
 	opt   Options
@@ -325,7 +328,7 @@ func (m *merger) run(ctx context.Context) (Output, error) {
 	}
 
 	// 2. The upload: opened, probed as at upload time, identified, the chosen tracks found.
-	up, _ := openRegular(m.job, a.Upload)
+	up, _ := openRegular(m.in, a.Upload)
 	if up == nil {
 		return refuse(RefusalUploadUnreadable, "the upload %q cannot be opened", a.Upload), nil
 	}

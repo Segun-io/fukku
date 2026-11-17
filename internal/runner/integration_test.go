@@ -57,8 +57,10 @@ func newStack(t *testing.T, handlers map[string]worker.Handler, tweak ...func(*c
 	for _, fn := range tweak {
 		fn(&cfg)
 	}
-	if err := os.MkdirAll(filepath.Join(cfg.Paths.IntakeRoot, jobdir.Jobs), 0o750); err != nil {
-		t.Fatal(err)
+	for _, d := range []string{jobdir.Jobs, jobdir.Worker} {
+		if err := os.MkdirAll(filepath.Join(cfg.Paths.IntakeRoot, d), 0o750); err != nil {
+			t.Fatal(err)
+		}
 	}
 	q, err := spool.Open(cfg.Worker.SpoolDir)
 	if err != nil {
@@ -508,7 +510,7 @@ func referenceOutput(t *testing.T, base, built, name string, cfg config.Config) 
 		t.Fatal(err)
 	}
 	defer func() { _ = root.Close() }()
-	out, err := extract.Run(t.Context(), root, extract.Args{
+	out, err := extract.Run(t.Context(), root, root, extract.Args{
 		Archive: jobdir.Archives + "/" + name,
 		Dest:    jobdir.Files + "/" + strings.TrimSuffix(name, ".zip"),
 	}, extract.LimitsFrom(cfg))
@@ -523,7 +525,7 @@ func referenceOutput(t *testing.T, base, built, name string, cfg config.Config) 
 func TestIntegrationCancelMidTask(t *testing.T) {
 	started := make(chan struct{}, 1)
 	s := newStack(t, map[string]worker.Handler{
-		spool.KindExtract: func(ctx context.Context, _ *os.Root, _ json.RawMessage) (any, error) {
+		spool.KindExtract: func(ctx context.Context, _, _ *os.Root, _ json.RawMessage) (any, error) {
 			started <- struct{}{}
 			<-ctx.Done()
 			return nil, ctx.Err()

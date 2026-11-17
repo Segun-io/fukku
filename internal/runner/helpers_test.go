@@ -353,6 +353,7 @@ type fakeWorker struct {
 	ran      []string                // task ids, in the order they finished
 	noRoom   map[string]int          // by archive path: how many runs are refused free_space first
 	args     []extract.Args          // of every extraction, in order
+	tamper   func(dest string)       // called with the extraction's dest on disk, once written
 }
 
 type extractPlan struct {
@@ -384,11 +385,13 @@ func (w *fakeWorker) work() {
 	}
 }
 
+// root is the worker's directory of the task's job, where it writes.
 func (w *fakeWorker) root(t spool.Task) string {
-	return jobdir.Dir(w.e.cfg.Paths.IntakeRoot, t.Job)
+	return filepath.Join(w.e.cfg.Paths.IntakeRoot, jobdir.Worker, t.Job)
 }
 
-// extract does what extract.Run does to the disk: Dest is replaced.
+// extract does what extract.Run does to the disk: Dest is replaced, in the worker's
+// directory of the job.
 func (w *fakeWorker) extract(t spool.Task) extract.Output {
 	var a extract.Args
 	if err := json.Unmarshal(t.Args, &a); err != nil {
@@ -420,6 +423,9 @@ func (w *fakeWorker) extract(t spool.Task) extract.Output {
 			w.e.t.Fatal(err)
 		}
 		out.Files = append(out.Files, extract.Entry{Path: a.Dest + "/" + name, Size: int64(len(plan.files[name]))})
+	}
+	if w.tamper != nil {
+		w.tamper(dest)
 	}
 	return out
 }

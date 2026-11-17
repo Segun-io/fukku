@@ -224,7 +224,7 @@ func TestRunsTask(t *testing.T) {
 	e := newEnv(t)
 	job := e.job()
 	e.submit("t-1", spool.KindExtract, job)
-	e.start(map[string]Handler{spool.KindExtract: func(_ context.Context, root *os.Root, args json.RawMessage) (any, error) {
+	e.start(map[string]Handler{spool.KindExtract: func(_ context.Context, root, _ *os.Root, args json.RawMessage) (any, error) {
 		if string(args) != `{}` {
 			return nil, fmt.Errorf("args %s", args)
 		}
@@ -254,7 +254,7 @@ func TestOldestFirst(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	e.start(map[string]Handler{"k": func(context.Context, *os.Root, json.RawMessage) (any, error) {
+	e.start(map[string]Handler{"k": func(context.Context, *os.Root, *os.Root, json.RawMessage) (any, error) {
 		return nil, nil
 	}})
 	eventually(t, func() bool { return len(e.logs.attrs("task_finished", "task")) == 3 })
@@ -274,7 +274,7 @@ func TestCrashHelper(t *testing.T) {
 	cfg.Worker.SpoolDir = spoolDir
 	cfg.Paths.IntakeRoot = os.Getenv("FUKKU_TEST_CRASH_INTAKE")
 	cfg.Worker.PollInterval = config.Duration(5 * time.Millisecond)
-	err := New(cfg, slog.New(slog.DiscardHandler), map[string]Handler{spool.KindProbe: func(_ context.Context, root *os.Root, _ json.RawMessage) (any, error) {
+	err := New(cfg, slog.New(slog.DiscardHandler), map[string]Handler{spool.KindProbe: func(_ context.Context, root, _ *os.Root, _ json.RawMessage) (any, error) {
 		if err := root.WriteFile("files/started", nil, 0o600); err != nil {
 			return nil, err
 		}
@@ -312,7 +312,7 @@ func TestCrashRunsAgain(t *testing.T) {
 	}
 
 	var calls atomic.Int32
-	e.start(map[string]Handler{spool.KindProbe: func(context.Context, *os.Root, json.RawMessage) (any, error) {
+	e.start(map[string]Handler{spool.KindProbe: func(context.Context, *os.Root, *os.Root, json.RawMessage) (any, error) {
 		calls.Add(1)
 		return "second", nil
 	}})
@@ -338,7 +338,7 @@ func TestSecondWorkerRefused(t *testing.T) {
 	e.submit("t-1", spool.KindProbe, job)
 	started := make(chan struct{})
 	release := make(chan struct{})
-	stop := e.start(map[string]Handler{spool.KindProbe: func(context.Context, *os.Root, json.RawMessage) (any, error) {
+	stop := e.start(map[string]Handler{spool.KindProbe: func(context.Context, *os.Root, *os.Root, json.RawMessage) (any, error) {
 		close(started)
 		<-release // a hung worker: its handler ignores the context
 		return "first", nil
@@ -346,7 +346,7 @@ func TestSecondWorkerRefused(t *testing.T) {
 	<-started
 
 	var calls atomic.Int32
-	err := New(e.cfg, slog.New(e.logs), map[string]Handler{spool.KindProbe: func(context.Context, *os.Root, json.RawMessage) (any, error) {
+	err := New(e.cfg, slog.New(e.logs), map[string]Handler{spool.KindProbe: func(context.Context, *os.Root, *os.Root, json.RawMessage) (any, error) {
 		calls.Add(1)
 		return "second", nil
 	}}).Run(context.Background())
@@ -373,7 +373,7 @@ func TestShutdownRunsAgain(t *testing.T) {
 	job := e.job()
 	e.submit("t-1", spool.KindProbe, job)
 	started := make(chan struct{})
-	stop := e.start(map[string]Handler{spool.KindProbe: func(ctx context.Context, _ *os.Root, _ json.RawMessage) (any, error) {
+	stop := e.start(map[string]Handler{spool.KindProbe: func(ctx context.Context, _, _ *os.Root, _ json.RawMessage) (any, error) {
 		close(started)
 		<-ctx.Done()
 		return nil, ctx.Err()
@@ -386,7 +386,7 @@ func TestShutdownRunsAgain(t *testing.T) {
 	if got := e.files("running"); !slices.Equal(got, []string{"t-1.json"}) {
 		t.Fatalf("running/ holds %v", got)
 	}
-	e.start(map[string]Handler{spool.KindProbe: func(context.Context, *os.Root, json.RawMessage) (any, error) {
+	e.start(map[string]Handler{spool.KindProbe: func(context.Context, *os.Root, *os.Root, json.RawMessage) (any, error) {
 		return nil, nil
 	}})
 	if r := e.result("t-1"); r.Status != spool.StatusOK {
@@ -413,7 +413,7 @@ func TestIgnoredFiles(t *testing.T) {
 	}
 	e.submit("good", spool.KindProbe, job)
 	var calls atomic.Int32
-	e.start(map[string]Handler{spool.KindProbe: func(context.Context, *os.Root, json.RawMessage) (any, error) {
+	e.start(map[string]Handler{spool.KindProbe: func(context.Context, *os.Root, *os.Root, json.RawMessage) (any, error) {
 		calls.Add(1)
 		return nil, nil
 	}})
@@ -447,7 +447,7 @@ func TestCancelWaiting(t *testing.T) {
 	if err := e.q.Cancel(context.Background(), "t-1"); err != nil {
 		t.Fatal(err)
 	}
-	e.start(map[string]Handler{spool.KindProbe: func(context.Context, *os.Root, json.RawMessage) (any, error) {
+	e.start(map[string]Handler{spool.KindProbe: func(context.Context, *os.Root, *os.Root, json.RawMessage) (any, error) {
 		return nil, nil
 	}})
 	e.result("t-2")
@@ -466,7 +466,7 @@ func TestCancelRunning(t *testing.T) {
 	e.submit("t-1", spool.KindProbe, job)
 	started := make(chan struct{})
 	var handlerErr atomic.Value
-	e.start(map[string]Handler{spool.KindProbe: func(ctx context.Context, _ *os.Root, _ json.RawMessage) (any, error) {
+	e.start(map[string]Handler{spool.KindProbe: func(ctx context.Context, _, _ *os.Root, _ json.RawMessage) (any, error) {
 		close(started)
 		<-ctx.Done()
 		handlerErr.Store(ctx.Err())
@@ -505,7 +505,7 @@ func TestCancelBeforeStart(t *testing.T) {
 		t.Fatal(err)
 	}
 	var calls atomic.Int32
-	e.start(map[string]Handler{spool.KindProbe: func(context.Context, *os.Root, json.RawMessage) (any, error) {
+	e.start(map[string]Handler{spool.KindProbe: func(context.Context, *os.Root, *os.Root, json.RawMessage) (any, error) {
 		calls.Add(1)
 		return nil, nil
 	}})
@@ -520,7 +520,7 @@ func TestTimeout(t *testing.T) {
 	e.cfg.Worker.TaskTimeout = config.Duration(50 * time.Millisecond)
 	job := e.job()
 	e.submit("t-1", spool.KindProbe, job)
-	e.start(map[string]Handler{spool.KindProbe: func(ctx context.Context, _ *os.Root, _ json.RawMessage) (any, error) {
+	e.start(map[string]Handler{spool.KindProbe: func(ctx context.Context, _, _ *os.Root, _ json.RawMessage) (any, error) {
 		<-ctx.Done()
 		return nil, ctx.Err()
 	}})
@@ -540,15 +540,15 @@ func TestErrorCodes(t *testing.T) {
 	e.submit("bad-args", "badargs", job)
 	e.submit("output", "unmarshalable", job)
 	e.start(map[string]Handler{
-		"ok":    func(context.Context, *os.Root, json.RawMessage) (any, error) { return nil, nil },
-		"panic": func(context.Context, *os.Root, json.RawMessage) (any, error) { panic("boom") },
-		"fail": func(context.Context, *os.Root, json.RawMessage) (any, error) {
+		"ok":    func(context.Context, *os.Root, *os.Root, json.RawMessage) (any, error) { return nil, nil },
+		"panic": func(context.Context, *os.Root, *os.Root, json.RawMessage) (any, error) { panic("boom") },
+		"fail": func(context.Context, *os.Root, *os.Root, json.RawMessage) (any, error) {
 			return nil, errors.New("disk on fire")
 		},
-		"badargs": func(_ context.Context, _ *os.Root, args json.RawMessage) (any, error) {
+		"badargs": func(_ context.Context, _, _ *os.Root, args json.RawMessage) (any, error) {
 			return nil, fmt.Errorf("args %s: %w", args, ErrBadTask)
 		},
-		"unmarshalable": func(context.Context, *os.Root, json.RawMessage) (any, error) {
+		"unmarshalable": func(context.Context, *os.Root, *os.Root, json.RawMessage) (any, error) {
 			return func() {}, nil
 		},
 	})
@@ -591,7 +591,7 @@ func TestRootIsConfined(t *testing.T) {
 		t.Fatal(err)
 	}
 	e.submit("t-1", "escape", job)
-	e.start(map[string]Handler{"escape": func(_ context.Context, root *os.Root, _ json.RawMessage) (any, error) {
+	e.start(map[string]Handler{"escape": func(_ context.Context, root, _ *os.Root, _ json.RawMessage) (any, error) {
 		got := map[string]string{}
 		for _, name := range []string{"../other", "../" + other + "/secret", "files/link", "/etc/hostname", "files"} {
 			f, err := root.Open(name)
@@ -629,7 +629,7 @@ func TestConcurrency(t *testing.T) {
 	var active, peak atomic.Int32
 	started := make(chan struct{}, n)
 	release := make(chan struct{})
-	e.start(map[string]Handler{spool.KindProbe: func(context.Context, *os.Root, json.RawMessage) (any, error) {
+	e.start(map[string]Handler{spool.KindProbe: func(context.Context, *os.Root, *os.Root, json.RawMessage) (any, error) {
 		now := active.Add(1)
 		for {
 			p := peak.Load()

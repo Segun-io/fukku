@@ -20,10 +20,13 @@ test.afterEach(async () => {
 const hostileDir = path.join(fixturesDir, "hostile");
 const mediaDir = path.join(fixturesDir, "media");
 
-/** Everything of /data that is not the job's own directory (the job id is known by now). */
+/**
+ * Everything of /data that is not the job's own: its directory and the worker's folder of it
+ * (the job id is known by now).
+ */
 function outsideJob(id: string) {
-  const own = `intake/jobs/${id}`;
-  return (rel: string) => rel === own || rel.startsWith(`${own}/`);
+  const own = [`intake/jobs/${id}`, `intake/worker/${id}`];
+  return (rel: string) => own.some((o) => rel === o || rel.startsWith(`${o}/`));
 }
 
 // ---- The hostile corpus, end to end ----------------------------------------------------
@@ -138,12 +141,17 @@ test.describe("hostile corpus", () => {
         expect(f.status).toBe("refused");
       }
 
-      // On disk: nothing changed outside the job's directory, and nothing in it is a link or a
-      // special file.
+      // On disk: nothing changed outside the job's directory and the worker's folder of it,
+      // and nothing in either is a link or a special file.
       const after = await data.list(outsideJob(id));
-      expect(diff(before, after), "changes outside intake/jobs/<job>").toEqual([]);
+      expect(
+        diff(before, after),
+        "changes outside intake/jobs/<job> and intake/worker/<job>",
+      ).toEqual([]);
       const tree: Listing = await data.jobTree(id);
       expect(data.oddEntries(tree), "symlinks or special files in the job directory").toEqual([]);
+      const own: Listing = await data.jobTree(id, "worker");
+      expect(data.oddEntries(own), "symlinks or special files in the worker's folder").toEqual([]);
       if (want.refused) {
         const left = [...tree.keys()].filter((k) => k.startsWith("files/"));
         expect(left, "a refused archive leaves nothing extracted").toEqual([]);
@@ -348,6 +356,48 @@ test.describe("worker isolation", () => {
     // The failures above are the network's, not a missing shell.
     const tool = await stack.exec("fukku-worker", ["bash", "-c", "echo ok"]);
     expect(tool.stdout.trim()).toBe("ok");
+  });
+
+  test("it writes only its own folder of the intake root, and sees no other part of /data", async () => {
+    // What a parser exploit could change (#113, #114, #118, #138): the mounts of
+    // deploy/compose.example.yaml, which the worker also checks when it starts.
+    const create = async (dir: string) =>
+      (
+        await stack.exec("fukku-worker", [
+          "bash",
+          "-c",
+          'f="$0/.isolation-probe-$$" && : > "$f" && rm -f "$f"',
+          dir,
+        ])
+      ).code;
+    for (const dir of [
+      "/data",
+      "/data/intake",
+      "/data/intake/jobs",
+      "/data/intake/.incoming",
+      "/data/media/movies",
+      "/data/media/tv",
+    ]) {
+      expect(await create(dir), `the worker created a file in ${dir}`).not.toBe(0);
+    }
+    expect(await create("/data/intake/worker"), "its own folder").toBe(0);
+    for (const p of [
+      "/data/.mounted",
+      "/data/blackhole",
+      "/data/media/versions",
+      "/data/intake/.incoming",
+    ]) {
+      const res = await stack.exec("fukku-worker", ["test", "-e", p]);
+      expect(res.code, `${p} is visible to the worker`).not.toBe(0);
+    }
+    // A job's file (an upload, or a placed version's other name) cannot be opened for
+    // writing, though it has the worker's own user id.
+    const res = await stack.exec("fukku-worker", [
+      "bash",
+      "-c",
+      'for f in /data/intake/jobs/*/files/*; do [ -f "$f" ] || continue; if : >> "$f"; then echo writable; else echo refused; fi; exit; done; echo none',
+    ]);
+    expect(res.stdout.trim(), res.stderr).not.toBe("writable");
   });
 
   test("its environment holds no API key", async () => {

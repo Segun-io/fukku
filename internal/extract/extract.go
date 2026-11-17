@@ -103,15 +103,18 @@ func LimitsFrom(cfg config.Config) Limits {
 	}
 }
 
-// Run unpacks args.Archive into args.Dest. An error means the task could not run (I/O,
-// cancelled); a refused archive is a normal Output with Refused set.
+// Run unpacks args.Archive, read from the job directory (job), into args.Dest in the
+// worker's directory of the job (out), where everything it writes goes; the web process
+// moves the extracted files into the job afterwards (jobdir.Seal). An error means the task
+// could not run (I/O, cancelled); a refused archive is a normal Output with Refused set.
 //
 // Run is safe to repeat: it first removes <Dest> and its scratch directory (Args.Scratch,
 // by default <Dest>.partial), unpacks into the scratch directory and renames that to
 // <Dest> at the end. A refused, cancelled or failed run removes its scratch directory, so
 // it leaves nothing.
-func Run(ctx context.Context, job *os.Root, args Args, lim Limits) (Output, error) {
-	x := newExtractor(job, args, lim)
+func Run(ctx context.Context, job, out *os.Root, args Args, lim Limits) (Output, error) {
+	x := newExtractor(out, args, lim)
+	x.in = job
 	return x.run(ctx)
 }
 
@@ -126,7 +129,8 @@ type seenPath struct {
 }
 
 type extractor struct {
-	job     *os.Root
+	in      *os.Root // the job directory: the archive is read from it
+	job     *os.Root // the worker's directory of the job: everything is written into it
 	args    Args
 	lim     Limits
 	partial string
@@ -148,7 +152,7 @@ type extractor struct {
 
 func newExtractor(job *os.Root, args Args, lim Limits) *extractor {
 	return &extractor{
-		job: job, args: args, lim: lim, partial: scratchOf(args),
+		in: job, job: job, args: args, lim: lim, partial: scratchOf(args),
 		freeSpace: freeSpace, checkEvery: freeSpaceCheckInterval,
 		fold: cases.Fold(), buf: make([]byte, copyBufferSize),
 		seen: map[string]seenPath{},
@@ -203,7 +207,7 @@ func (x *extractor) unpack(ctx context.Context) (Output, error) {
 	if err := ctx.Err(); err != nil {
 		return Output{}, err
 	}
-	f, err := x.job.Open(x.args.Archive)
+	f, err := x.in.Open(x.args.Archive)
 	if err != nil {
 		return Output{}, fmt.Errorf("open archive: %w", err)
 	}

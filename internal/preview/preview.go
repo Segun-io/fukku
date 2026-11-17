@@ -28,7 +28,7 @@ import (
 // (fd 3: the library file, opened confined to its root, read-only; fd 4: the upload,
 // opened through the job's os.Root) with the probe's demuxer and protocol whitelists, so
 // it can open no other file and no URL, and writes the MP4 to its standard output. The
-// worker copies that into a temporary file in the job's work/previews/, up to a size cap,
+// worker copies that into a temporary file in its work/previews/ of the job, up to a size cap,
 // and renames it into place once ffmpeg has succeeded. Each run has a deadline
 // (merge.previewTimeout) and runs at worker.nice; at the deadline, or when the task is
 // cancelled, the whole process group is killed.
@@ -112,10 +112,11 @@ func uploadPath(p string) bool {
 	return ok && rest != "" && path.Clean(p) == p && !strings.Contains(p, "\\") && fs.ValidPath(p)
 }
 
-// Run renders the clips of args into the job's Dir. A file that cannot be used is a
-// refusal in the output (OK false); an error means the task could not run (bad args,
-// ffmpeg missing, the job directory not writable, the task cancelled).
-func Run(ctx context.Context, job *os.Root, roots []string, args Args, opt Options) (Output, error) {
+// Run renders the clips of args, from the upload in the job directory (in), into Dir of the
+// worker's directory of the job (job), where the web process serves them from. A file that
+// cannot be used is a refusal in the output (OK false); an error means the task could not
+// run (bad args, ffmpeg missing, the directory not writable, the task cancelled).
+func Run(ctx context.Context, in, job *os.Root, roots []string, args Args, opt Options) (Output, error) {
 	if err := Check(args); err != nil {
 		return Output{}, fmt.Errorf("%w: %w", ErrBadArgs, err)
 	}
@@ -138,7 +139,7 @@ func Run(ctx context.Context, job *os.Root, roots []string, args Args, opt Optio
 		return out, nil
 	}
 	defer func() { _ = lib.Close() }()
-	up, _, ok := media.OpenRegular(job, args.Upload)
+	up, _, ok := media.OpenRegular(in, args.Upload)
 	if !ok {
 		out.Refusal = RefusalUploadUnreadable
 		return out, nil

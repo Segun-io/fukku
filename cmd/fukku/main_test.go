@@ -57,7 +57,7 @@ func TestCombined(t *testing.T) {
 	done := make(chan error, 1)
 	go func() {
 		done <- runCombined(ctx, cfg, slog.New(slog.NewTextHandler(logs, nil)), map[string]worker.Handler{
-			spool.KindProbe: func(_ context.Context, root *os.Root, _ json.RawMessage) (any, error) {
+			spool.KindProbe: func(_ context.Context, root, _ *os.Root, _ json.RawMessage) (any, error) {
 				return root.Name(), nil
 			},
 		})

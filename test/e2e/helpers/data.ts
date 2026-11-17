@@ -34,10 +34,16 @@ export const data = {
     return out;
   },
 
-  /** What a job's directory holds, as the same kind of listing, relative to it. */
-  async jobTree(jobId: string): Promise<Listing> {
+  /**
+   * What a job's directory holds (or, with top "worker", the worker's folder of the job), as
+   * the same kind of listing, relative to it.
+   */
+  async jobTree(jobId: string, top: "jobs" | "worker" = "jobs"): Promise<Listing> {
     const out: Listing = new Map();
-    await walk(path.join(dataDir, "intake", "jobs", jobId), "", out, () => false);
+    const dir = path.join(dataDir, "intake", top, jobId);
+    // The worker's folder exists once a task of the job ran.
+    if (top === "worker" && !(await lstat(dir).catch(() => null))) return out;
+    await walk(dir, "", out, () => false);
     return out;
   },
 

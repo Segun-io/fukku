@@ -88,7 +88,7 @@ func TestCheck(t *testing.T) {
 		if preview.Check(a) == nil {
 			t.Errorf("%s: accepted", name)
 		}
-		if _, err := preview.Run(context.Background(), nil, nil, a, opts()); !errors.Is(err, preview.ErrBadArgs) {
+		if _, err := preview.Run(context.Background(), nil, nil, nil, a, opts()); !errors.Is(err, preview.ErrBadArgs) {
 			t.Errorf("%s: Run error %v, want ErrBadArgs", name, err)
 		}
 	}
@@ -192,7 +192,7 @@ func TestRunSync(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := newFixture(t, 12*time.Second, tc.shift)
-			out, err := preview.Run(ctx, f.job, []string{f.lib}, f.args(tc.request, tc.offset, clips...), opts())
+			out, err := preview.Run(ctx, f.job, f.job, []string{f.lib}, f.args(tc.request, tc.offset, clips...), opts())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -237,7 +237,7 @@ func TestRunReplacesEarlierClips(t *testing.T) {
 	clip := preview.Clip{StartMs: 0, LengthMs: 1000}
 	first, second := "1111111111111111", "2222222222222222"
 	for _, req := range []string{first, first, second, second} {
-		if out, err := preview.Run(ctx, f.job, roots, f.args(req, 0, clip), opts()); err != nil || !out.OK {
+		if out, err := preview.Run(ctx, f.job, f.job, roots, f.args(req, 0, clip), opts()); err != nil || !out.OK {
 			t.Fatalf("%s: %+v %v", req, out, err)
 		}
 	}
@@ -287,7 +287,7 @@ func TestRunConfinement(t *testing.T) {
 	} {
 		a := f.args("3333333333333333", 0, clip)
 		a.Library, a.Upload = tc.library, tc.upload
-		out, err := preview.Run(ctx, f.job, tc.roots, a, opts())
+		out, err := preview.Run(ctx, f.job, f.job, tc.roots, a, opts())
 		if err != nil || out.OK || out.Refusal != tc.refusal {
 			t.Errorf("%s: %+v %v, want refusal %s", tc.name, out, err, tc.refusal)
 		}
@@ -295,7 +295,7 @@ func TestRunConfinement(t *testing.T) {
 	// A stream that is not audio cannot be the audio track.
 	a := f.args("4444444444444444", 0, clip)
 	a.AudioIndex = 0
-	if out, err := preview.Run(ctx, f.job, []string{f.lib}, a, opts()); err != nil || out.Refusal != preview.RefusalRenderFailed || out.Detail == "" {
+	if out, err := preview.Run(ctx, f.job, f.job, []string{f.lib}, a, opts()); err != nil || out.Refusal != preview.RefusalRenderFailed || out.Detail == "" {
 		t.Errorf("video stream as the audio: %+v %v", out, err)
 	}
 	if _, err := os.Stat(f.clipPath("4444444444444444", 1)); !os.IsNotExist(err) {
@@ -323,7 +323,7 @@ func TestRunHungFFmpegIsKilled(t *testing.T) {
 	o.FFmpeg = fakeFFmpeg(t, "sleep 60 &\necho $! > "+pidFile+"\nwait")
 	o.Timeout = 300 * time.Millisecond
 	start := time.Now()
-	out, err := preview.Run(context.Background(), f.job, []string{f.lib}, f.args("5555555555555555", 0, preview.Clip{LengthMs: 1000}), o)
+	out, err := preview.Run(context.Background(), f.job, f.job, []string{f.lib}, f.args("5555555555555555", 0, preview.Clip{LengthMs: 1000}), o)
 	if err != nil || out.OK || out.Refusal != preview.RefusalTimeout {
 		t.Fatalf("%+v %v", out, err)
 	}
@@ -353,7 +353,7 @@ func TestRunHungFFmpegIsKilled(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
 	defer cancel()
 	o.Timeout = time.Minute
-	if _, err := preview.Run(ctx, f.job, []string{f.lib}, f.args("5555555555555555", 0, preview.Clip{LengthMs: 1000}), o); !errors.Is(err, context.DeadlineExceeded) {
+	if _, err := preview.Run(ctx, f.job, f.job, []string{f.lib}, f.args("5555555555555555", 0, preview.Clip{LengthMs: 1000}), o); !errors.Is(err, context.DeadlineExceeded) {
 		t.Errorf("cancelled task: %v", err)
 	}
 }
@@ -377,17 +377,17 @@ func TestRunLimits(t *testing.T) {
 	o := opts()
 	o.VideoKbps = 100
 	o.FFmpeg = fakeFFmpeg(t, "exec head -c 50000000 /dev/zero")
-	out, err := preview.Run(context.Background(), f.job, []string{f.lib}, f.args("6666666666666666", 0, preview.Clip{LengthMs: 1000}), o)
+	out, err := preview.Run(context.Background(), f.job, f.job, []string{f.lib}, f.args("6666666666666666", 0, preview.Clip{LengthMs: 1000}), o)
 	if err != nil || out.Refusal != preview.RefusalTooLarge {
 		t.Errorf("too large: %+v %v", out, err)
 	}
 	o.FFmpeg = fakeFFmpeg(t, "exit 0")
-	out, err = preview.Run(context.Background(), f.job, []string{f.lib}, f.args("6666666666666666", 0, preview.Clip{LengthMs: 1000}), o)
+	out, err = preview.Run(context.Background(), f.job, f.job, []string{f.lib}, f.args("6666666666666666", 0, preview.Clip{LengthMs: 1000}), o)
 	if err != nil || out.Refusal != preview.RefusalRenderFailed {
 		t.Errorf("nothing written: %+v %v", out, err)
 	}
 	o.FFmpeg = filepath.Join(t.TempDir(), "no-such-ffmpeg")
-	if _, err := preview.Run(context.Background(), f.job, []string{f.lib}, f.args("6666666666666666", 0, preview.Clip{LengthMs: 1000}), o); err == nil {
+	if _, err := preview.Run(context.Background(), f.job, f.job, []string{f.lib}, f.args("6666666666666666", 0, preview.Clip{LengthMs: 1000}), o); err == nil {
 		t.Error("a missing ffmpeg is not an error")
 	}
 }
@@ -421,11 +421,11 @@ func TestRunLibraryFormats(t *testing.T) {
 		t.Fatalf("worker.libraryFormats not taken: %v", o.LibraryFormats)
 	}
 	o.Timeout = time.Minute
-	if out, err := preview.Run(ctx, job, []string{lib}, args, o); err != nil || !out.OK {
+	if out, err := preview.Run(ctx, job, job, []string{lib}, args, o); err != nil || !out.OK {
 		t.Errorf("flv library file: %+v %v", out, err)
 	}
 	o.LibraryFormats = nil
-	if out, err := preview.Run(ctx, job, []string{lib}, args, o); err != nil || out.Refusal != preview.RefusalRenderFailed {
+	if out, err := preview.Run(ctx, job, job, []string{lib}, args, o); err != nil || out.Refusal != preview.RefusalRenderFailed {
 		t.Errorf("flv with the upload's formats: %+v %v", out, err)
 	}
 }
