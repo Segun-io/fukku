@@ -463,6 +463,26 @@ func TestMergeFreeSpace(t *testing.T) {
 	}
 }
 
+// The space check uses the upload's real size, not the statistics tags its uploader wrote:
+// room for the library file and all but one byte of the upload is not enough.
+func TestMergeFreeSpaceCountsUploadSize(t *testing.T) {
+	e := newEnv(t, nil)
+	st, err := os.Stat(filepath.Join(e.jobDir, uploadPath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	opt := options()
+	opt.FreeSpaceMargin = 0
+	opt.FreeSpace = func(*os.File) (int64, error) { return e.before.size + st.Size() - 1, nil }
+	if out := e.run(t, e.args(1), opt); out.OK || out.Refusal != merge.RefusalFreeSpace {
+		t.Errorf("one byte short: %+v", out)
+	}
+	opt.FreeSpace = func(*os.File) (int64, error) { return e.before.size + st.Size(), nil }
+	if out := e.run(t, e.args(1), opt); !out.OK {
+		t.Errorf("with room: %+v", out)
+	}
+}
+
 // The library file is read only inside the library roots: not outside them, not through a
 // link that leads out of a root. Chosen tracks must be audio or subtitle tracks of the
 // upload.

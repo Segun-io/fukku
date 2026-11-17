@@ -356,8 +356,13 @@ func (m *merger) run(ctx context.Context) (Output, error) {
 	}
 	libDefaults := m.libraryDefaults(libProbe, libID)
 
-	// 3. Room for the output: the library file plus the added tracks, and the margin.
-	if out, err := m.checkFreeSpace(libInfo.Size(), upProbe.Size, added); err != nil || out.Refusal != "" {
+	// 3. Room for the output: the library file plus the upload, and the margin; the sizes are
+	// those of the opened files.
+	upInfo, err := up.Stat()
+	if err != nil {
+		return Output{}, fmt.Errorf("merge: stat the upload: %w", err)
+	}
+	if out, err := m.checkFreeSpace(libInfo.Size(), upInfo.Size()); err != nil || out.Refusal != "" {
 		return out, err
 	}
 
@@ -515,20 +520,12 @@ func chooseTracks(p media.Probe, id identification, indexes []int) ([]track, str
 }
 
 // checkFreeSpace refuses the merge unless the work directory's filesystem has room for the
-// output (about the library file plus the added tracks) and upload.freeSpaceMargin.
-// A track's size is mkvmerge's statistics tag when the upload has one for each; otherwise
-// the whole upload is counted.
-func (m *merger) checkFreeSpace(libSize, upSize int64, added []track) (Output, error) {
-	var tracks int64
-	for _, t := range added {
-		n, err := strconv.ParseInt(t.Properties.TagNumberOfBytes, 10, 64)
-		if err != nil || n < 0 {
-			tracks = upSize
-			break
-		}
-		tracks += n
-	}
-	need := libSize + min(tracks, upSize) + m.opt.FreeSpaceMargin
+// output (the library file plus, at most, the upload) and upload.freeSpaceMargin. Both sizes
+// come from fstat of the opened files: the upload's own statistics tags (mkvmerge's
+// NUMBER_OF_BYTES) are written by the uploader and are not trusted. The whole upload is an
+// upper bound for the added tracks.
+func (m *merger) checkFreeSpace(libSize, upSize int64) (Output, error) {
+	need := libSize + upSize + m.opt.FreeSpaceMargin
 	dir, err := m.job.Open(jobdir.Work)
 	if err != nil {
 		return Output{}, err
@@ -543,7 +540,7 @@ func (m *merger) checkFreeSpace(libSize, upSize int64, added []track) (Output, e
 		return Output{}, fmt.Errorf("merge: free space: %w", err)
 	}
 	if free < need {
-		return refuse(RefusalFreeSpace, "%d bytes free, the merge needs about %d (the library file, the added tracks and upload.freeSpaceMargin)", free, need), nil
+		return refuse(RefusalFreeSpace, "%d bytes free, the merge needs about %d (the library file, the upload and upload.freeSpaceMargin)", free, need), nil
 	}
 	return Output{}, nil
 }
