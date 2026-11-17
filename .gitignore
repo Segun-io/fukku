@@ -12,6 +12,12 @@ test/e2e/test-results/
 test/e2e/playwright-report/
 test/e2e/container-logs.txt
 
+# secrets of a local deployment tried from deploy/ (deploy/compose.example.yaml), and .env files
+/deploy/secrets/
+/deploy/fukku.yaml
+.env
+.env.*
+
 # core dumps of crashed tools or tests
 core
 core.[0-9]*

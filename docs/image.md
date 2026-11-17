@@ -132,6 +132,6 @@ internet, so it is not part of `make check`. **Fails:** a vulnerability in a Go 
 calls (govulncheck's own rule), or a high or critical advisory in a production npm dependency of
 `ui/`. **Warns:** vulnerable Go packages that are imported but not called, and moderate or low npm
 advisories or any in dev dependencies and `test/e2e`. A scan that cannot run (no network) fails.
-`dependabot.yml` (in the `.github` folder) proposes updates of the Go modules, npm packages and actions; images and tools are pinned through `FROM ${ARG}` lines that Dependabot cannot read, so they are bumped by hand (and ffmpeg by the weekly pin check). Not
+`dependabot.yml` (in the `.github` folder) proposes updates of the Go modules, npm packages and actions; images and tools are pinned through `FROM ${ARG}` lines that Dependabot cannot read, so they are bumped by hand (and ffmpeg by the weekly pin check), as are the QEMU (binfmt) and BuildKit images the CI image build uses (`.github/actions/build-image`). Not
 covered yet: the Debian packages (a grype scan of the SBOM) and ffmpeg itself (`ffmpeg-pin.yml`
 follows its releases).
