@@ -59,7 +59,7 @@ export type SeasonDubSeason = { season: number; episodes: number; existing: numb
  * What to do with rows whose episodes already have a file (#57); absent when there are none.
  * `ask`: the confirmation must send one of `offers` as `seasonDub`. `decided`: the server's
  * setting fixes the policy and the question is skipped. With neither, those rows are left out.
- * Offers are `replace`, `subtitlesOnly` and `version` (#58, whose UI is #97).
+ * Offers are `replace`, `subtitlesOnly` and `version` (#58).
  */
 export type SeasonDubNotOffered = { offer: string; reason: string };
 
@@ -71,8 +71,34 @@ export type SeasonDub = {
   seasons: SeasonDubSeason[];
   /** Why a policy of the server's order is not among the offers (#58): `version`, with a reason. */
   notOffered?: SeasonDubNotOffered[];
-  /** What second versions would be (#94); the UI for it is #97. */
-  version?: unknown;
+  /** What keeping the rows as second versions would be (#58); present while `version` is offered. */
+  version?: EpisodeVersionsView;
+};
+
+/** One row whose episode has a file, as a second version would be. */
+export type EpisodeVersionRow = {
+  row: string;
+  episodeId: number;
+  seasonNumber: number;
+  episodeNumber: number;
+  /** The version's file name; empty while the label or the row has a problem. */
+  name: string;
+  /** Empty, or why the row cannot be a version (`double_episode`, `shared_file`, `no_file`...). */
+  problem: string;
+};
+
+/** Why the proposed label cannot be used (`label_empty`, `label_episode`...); `message` is English. */
+export type EpisodeLabelProblem = { reason: string; token?: string; message: string };
+
+export type EpisodeVersionsView = {
+  /** The proposed label; empty when none can be proposed. */
+  label: string;
+  language: string;
+  problem: EpisodeLabelProblem | null;
+  /** The rows whose episode has a file. */
+  rows: EpisodeVersionRow[];
+  /** `untracked_by_sonarr`, `adopted_without_episode_file`, `subtitles_not_handed_over`. */
+  notices: string[];
 };
 
 export type Proposal = {

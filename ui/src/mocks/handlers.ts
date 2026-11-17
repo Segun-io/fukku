@@ -44,6 +44,7 @@ import {
   type Scenario,
   seasonFiles,
   seasonJob,
+  versionsJobs,
 } from "./scenarios";
 import { filesOf, pendingOf, resetUploads, uploadHandlers } from "./uploads";
 
@@ -81,6 +82,7 @@ export function applyScenarios(scenarios: readonly Scenario[]) {
   if (scenarios.includes("mapping")) jobs.push(...structuredClone(mappingJobs));
   if (scenarios.includes("importing")) jobs.push(...structuredClone(importingJobs));
   if (scenarios.includes("dub")) jobs.push(...structuredClone(dubJobs));
+  if (scenarios.includes("versions")) jobs.push(...structuredClone(versionsJobs));
   if (scenarios.includes("flow2")) {
     jobs.push(...structuredClone(flow2Jobs));
     Object.assign(flow2s, initialFlow2s());

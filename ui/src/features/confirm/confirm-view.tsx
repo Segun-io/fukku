@@ -10,9 +10,10 @@ import { StatusLabel } from "@/components/patterns/status-label";
 import { Notice } from "@/components/shell/notice";
 import { Button } from "@/components/ui/button";
 import { useT } from "@/i18n";
+import { EpisodeVersionsSection, isVersionRefusal, type VersionRefusal } from "./episode-versions";
 import { hasIssues, hintText, issueSignature } from "./notices";
 import { RowCard } from "./row-card";
-import { hasExistingFile, replacedRow, SeasonDubSection, usableDub } from "./season-dub";
+import { hasExistingFile, replacedRow, SeasonDubSection } from "./season-dub";
 import { guessChoices, isLanguage, SubtitlesSection, subtitleFiles } from "./subtitles-section";
 
 const appName: Record<Proposal["app"], string> = {
@@ -42,12 +43,15 @@ export function ConfirmView({ job, proposal, subtitleManager }: Props) {
   const [missing, setMissing] = useState<string[]>([]);
   const [badLanguage, setBadLanguage] = useState(false);
   // The season-dub choice (#57): asked when the server's policy is `ask`; else it is the server's.
-  const dub = proposal.seasonDub && usableDub(proposal.seasonDub);
+  const dub = proposal.seasonDub;
   const [choice, setChoice] = useState("");
   const [dubMissing, setDubMissing] = useState(false);
   // Rows whose file holds episodes outside the upload (`shared_file`), and the ones agreed to.
   const [sharedRows, setSharedRows] = useState<string[]>([]);
   const [sharedAgreed, setSharedAgreed] = useState<string[]>([]);
+  // The label of the second versions (`version`, #58): the proposed one until the user types.
+  const [label, setLabel] = useState(dub?.version?.label ?? "");
+  const [refusal, setRefusal] = useState<VersionRefusal | null>(null);
 
   const app = appName[proposal.app];
   const titleText = proposal.target
@@ -61,6 +65,11 @@ export function ConfirmView({ job, proposal, subtitleManager }: Props) {
   );
   const leftIn = rows.filter((r) => !r.skip);
   const subtitlesOnly = policy === "subtitlesOnly";
+  // With `version` the rows that have a file stay out of the import and are kept next to their
+  // episode's file: the server lists them in `seasonDub.version`. They count as a result too.
+  const isVersion = policy === "version";
+  const versionRows = isVersion ? (dub?.version?.rows ?? []) : [];
+  const nothingNew = subtitlesOnly || isVersion;
   const overridable = (id: string) => {
     const row = rows.find((r) => r.id === id);
     return !!row && !row.skip && hasIssues(row) && agreed[id] === issueSignature(row);
@@ -70,7 +79,7 @@ export function ConfirmView({ job, proposal, subtitleManager }: Props) {
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (confirm.isPending || edit.isPending || (leftIn.length === 0 && !subtitlesOnly)) return;
+    if (confirm.isPending || edit.isPending || (leftIn.length === 0 && !nothingNew)) return;
     if (dub?.ask && choice === "") {
       setDubMissing(true);
       form.current?.querySelector<HTMLInputElement>("[data-policy]")?.focus();
@@ -95,11 +104,14 @@ export function ConfirmView({ job, proposal, subtitleManager }: Props) {
         ],
         ...(subtitleManager ? { subtitles: choices } : {}),
         ...(dub?.ask ? { seasonDub: choice } : {}),
+        ...(isVersion ? { version: label.trim() === "" ? {} : { label: label.trim() } } : {}),
       },
       {
         onSuccess: () => void navigate({ to: "/jobs/$id", params: { id: job.id } }),
         onError: (err) => {
-          if (err instanceof ApiError && err.code === "shared_file") setSharedRows(err.rows);
+          if (!(err instanceof ApiError)) return;
+          if (err.code === "shared_file") setSharedRows(err.rows);
+          if (isVersionRefusal(err.code)) setRefusal({ code: err.code, rows: err.rows });
         },
       },
     );
@@ -159,6 +171,8 @@ export function ConfirmView({ job, proposal, subtitleManager }: Props) {
             setDubMissing(false);
             setSharedRows([]);
             setSharedAgreed([]);
+            setRefusal(null);
+            confirm.reset();
           }}
           missing={dubMissing}
           shared={rows.filter((r) => sharedRows.includes(r.id))}
@@ -166,6 +180,21 @@ export function ConfirmView({ job, proposal, subtitleManager }: Props) {
           onAgree={(id, on) =>
             setSharedAgreed((cur) => (on ? [...cur, id] : cur.filter((x) => x !== id)))
           }
+        />
+      )}
+
+      {isVersion && (
+        <EpisodeVersionsSection
+          view={dub?.version}
+          rows={proposal.rows}
+          label={label}
+          onLabel={(value) => {
+            setLabel(value);
+            setRefusal(null);
+            confirm.reset();
+          }}
+          labelRefused={confirm.error instanceof ApiError && confirm.error.code === "version_label"}
+          refusal={refusal}
         />
       )}
 
@@ -203,7 +232,9 @@ export function ConfirmView({ job, proposal, subtitleManager }: Props) {
       <div className="grid gap-4">
         {leftIn.length === 0 ? (
           <p role="status" className="max-w-[65ch] text-ink-2">
-            {t(subtitlesOnly ? "confirm.dub.subtitlesOnly.count" : "confirm.nothing")}
+            {isVersion
+              ? t("confirm.version.only", { count: versionRows.length })
+              : t(subtitlesOnly ? "confirm.dub.subtitlesOnly.count" : "confirm.nothing")}
           </p>
         ) : (
           <ul aria-label={t("confirm.count.label")} className="flex flex-wrap gap-x-6 gap-y-1">
@@ -212,10 +243,19 @@ export function ConfirmView({ job, proposal, subtitleManager }: Props) {
                 {t("confirm.count.in", { count: leftIn.length })}
               </StatusLabel>
             </li>
-            {rows.length > leftIn.length && (
+            {versionRows.length > 0 && (
+              <li>
+                <StatusLabel tone="done" className="text-base">
+                  {t("confirm.version.count", { count: versionRows.length })}
+                </StatusLabel>
+              </li>
+            )}
+            {rows.length - versionRows.length > leftIn.length && (
               <li>
                 <StatusLabel tone="waiting" icon={Ban} className="text-base">
-                  {t("confirm.count.out", { count: rows.length - leftIn.length })}
+                  {t("confirm.count.out", {
+                    count: rows.length - versionRows.length - leftIn.length,
+                  })}
                 </StatusLabel>
               </li>
             )}
@@ -231,7 +271,7 @@ export function ConfirmView({ job, proposal, subtitleManager }: Props) {
           <Button
             type="submit"
             size="lg"
-            disabled={leftIn.length === 0 && !subtitlesOnly}
+            disabled={leftIn.length === 0 && !nothingNew}
             aria-disabled={confirm.isPending}
             aria-busy={confirm.isPending}
           >

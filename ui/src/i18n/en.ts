@@ -896,7 +896,7 @@ const en = {
     "The film’s file in Radarr changed since you chose the film. Choose the film again so Fukku compares the new file.",
   "errors.version_label": "That label cannot be used. Change it and try again.",
   "errors.version_unavailable":
-    "A second version is not possible right now: it is switched off, or the folder for versions cannot be used. Ask whoever runs Fukku.",
+    "A second version is not possible right now: it is switched off, a folder cannot be used, or some files cannot be versions. Ask whoever runs Fukku.",
   "errors.version_exists": "A version with this name already exists. Choose another label.",
   "errors.season_dub_choice": "Some episodes already have a file. Choose what to do with them.",
   "errors.shared_file":
@@ -1010,6 +1010,95 @@ const en = {
   "import.merge.warning.language_unknown_to_radarr.title": "Radarr does not know the new language",
   "import.merge.warning.language_unknown_to_radarr":
     "{app} has no language for the added tracks, so it lists the merged file with the existing languages only. The tracks are tagged in the file, but custom formats and searches by language in {app} do not see them.",
+  "confirm.dub.version": "Keep as second versions",
+  "confirm.dub.version.body":
+    "Each of these episodes keeps its own file, and your file is kept next to it as a second version. The media server lists both under the episode. {app} does not track the second files.",
+  "flow2.version.problem.label_episode":
+    "The label must not contain a season or episode number (such as S02E05, 2x05 or E03): the media server would read the file as another episode.",
+  "flow2.version.notice.untracked_by_sonarr":
+    "Sonarr does not track the second files. It never renames or upgrades them, an upgrade of an episode replaces only its own file, and deleting the series with its files deletes the versions too.",
+  "flow2.version.notice.adopted_without_episode_file":
+    "If an episode’s own file is deleted, Sonarr takes the second file for the episode’s file on its next scan.",
+  "confirm.version.title": "Second versions",
+  "confirm.version.label": "Version label",
+  "confirm.version.label.hint":
+    "Shown with each episode in the media server, for example Español. Do not use quality words such as 1080p or WEB-DL, or a season or episode number.",
+  "confirm.version.rows": "Episodes kept as second versions",
+  "confirm.version.row.episode": "Season {season}, episode {episode}",
+  "confirm.version.row.waiting": "The file name is set from this label when you confirm.",
+  "confirm.version.row.double_episode":
+    "This file holds several episodes, so it cannot be a second version.",
+  "confirm.version.row.shared_file":
+    "The episode’s file in the library also holds other episodes, so this cannot be a second version.",
+  "confirm.version.row.no_file": "Sonarr lists no file for this episode.",
+  "confirm.version.row.outside_library":
+    "The episode’s folder is outside the library folders Fukku may use.",
+  "confirm.version.row.name_too_long": "The file name would be too long. Use a shorter label.",
+  "confirm.version.row.version_exists":
+    "A file or an earlier version with this name already exists. Use another label.",
+  "confirm.version.row.name_unreadable":
+    "The file name would not read as exactly this episode. Ask whoever runs Fukku.",
+  "confirm.version.row.folder_unreadable": "Fukku cannot read the episode’s folder.",
+  "confirm.version.row.unknown": "This file cannot be a second version (code: {code}).",
+  "confirm.version.count.one": "{count} episode is kept as a second version",
+  "confirm.version.count.other": "{count} episodes are kept as second versions",
+  "confirm.version.only.one":
+    "Nothing new will be imported. {count} episode is kept as a second version.",
+  "confirm.version.only.other":
+    "Nothing new will be imported. {count} episodes are kept as second versions.",
+  "confirm.version.refused.title": "These files cannot be kept as second versions",
+  "confirm.version.refused.hint":
+    "Choose another option above, change the label, or go back and change the match.",
+  "confirm.version.refusal.version_upgrade":
+    "Sonarr would take this file for an upgrade of the episode’s own file on its next scan.",
+  "confirm.version.refusal.version_unchecked":
+    "Sonarr gives no verdict on this file: it does not offer it, or reads it as another episode.",
+  "confirm.version.refusal.version_unavailable": "This file cannot be a second version.",
+  "confirm.version.refusal.version_exists":
+    "A file or an earlier version with this name already exists.",
+  "import.row.version": "Second version",
+  "import.step.mediaServerEpisodeVersions":
+    "Group the second versions with the episodes in the media server",
+  "import.step.mediaServerEpisodeVersions.failed":
+    "The media server did not group the versions with the episodes. Fukku tries again by itself; until then the two show as separate entries.",
+  "import.episodeVersion.title": "Second versions",
+  "import.episodeVersion.label": "Label: {label}",
+  "import.episodeVersion.item": "S{season}E{episode}",
+  "import.episodeVersion.done.title": "The second versions of {title} are in place",
+  "import.episodeVersion.done.body.one": "{count} file is kept next to its episode’s own file.",
+  "import.episodeVersion.done.body.other":
+    "{count} files are kept next to their episodes’ own files.",
+  "import.episodeVersion.status.placing": "The file is being placed.",
+  "import.episodeVersion.status.linked": "The file is in place. The media server groups it next.",
+  "import.episodeVersion.status.grouped": "The media server lists it with the episode.",
+  "import.episodeVersion.status.waiting":
+    "The media server has not grouped it yet. Fukku tries again by itself.",
+  "import.episodeVersion.status.missing": "The version file is no longer on disk.",
+  "import.episodeVersion.status.refused": "Not placed.",
+  "import.episodeVersion.status.adopted":
+    "Sonarr now tracks this file as the episode’s own, so it can rename, upgrade or delete it.",
+  "import.episodeVersion.status.adoptable":
+    "Sonarr would take this file for the episode’s own on its next scan.",
+  "import.episodeVersion.status.episode_file_missing":
+    "The episode’s own file is gone, so Sonarr takes this one for it on its next scan.",
+  "import.episodeVersion.status.series_moved":
+    "Sonarr moved the series without this file. The version stays where it was.",
+  "import.episodeVersion.status.series_deleted":
+    "Sonarr no longer has this series. The version stays on disk; remove it by hand.",
+  "import.episodeVersion.status.unknown": "State of the version: {status}.",
+  "import.episodeVersion.refusal.version_upgrade":
+    "Sonarr would take this file for the episode’s own, so it was not placed.",
+  "import.episodeVersion.refusal.version_unchecked":
+    "Sonarr gave no verdict on this file, so it was not placed.",
+  "import.episodeVersion.refusal.version_exists":
+    "A file with this name already exists, so nothing was replaced.",
+  "import.episodeVersion.refusal.version_failed":
+    "It could not be placed. Tell the person who runs the server.",
+  "import.episodeVersion.refusal.unknown": "It was not placed (code: {code}).",
+  "errors.version_upgrade":
+    "Sonarr would take some of these files for the episodes’ own files, so they cannot be kept as second versions.",
+  "errors.version_unchecked":
+    "Sonarr gives no verdict on some of these files, so they cannot be kept as second versions.",
 };
 
 export default en;

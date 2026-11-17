@@ -62,6 +62,8 @@ export const flow2ErrorCodes = [
   "version_label",
   "version_unavailable",
   "version_exists",
+  "version_upgrade",
+  "version_unchecked",
   "season_dub_choice",
   "shared_file",
 ] as const;
@@ -280,6 +282,7 @@ export type Target = { app: AppName; titleId: number; title: string; year: numbe
 /** How far the import is (#40). `status` is `running` while the app works. */
 export type ImportInfo = {
   status: string;
+  /** `result`: empty, `imported`, `failed`, `skipped`, or `version` (kept as a second version, #58). */
   rows: { id: string; name: string; result: string }[];
   /** The merge of a flow 2 job (#55); null for every other job. */
   merge?: MergeInfo | null;
@@ -321,6 +324,31 @@ export type VersionResult = {
   notices: string[];
 };
 
+/**
+ * One episode kept as a second version (#58). `status` is the record's (`placing`, `linked`,
+ * `grouped`, `waiting`, `missing`, and from #96 `adopted`, `adoptable`, `episode_file_missing`,
+ * `series_moved`, `series_deleted`), or `refused` when the placement did not place it, with the
+ * code in `refusal` (`version_upgrade`, `version_unchecked`, `version_exists`, `version_failed`).
+ * `detail` is for admins.
+ */
+export type EpisodeVersionResult = {
+  row: string;
+  seasonNumber: number;
+  episodeNumber: number;
+  name: string;
+  status: string;
+  refusal: string;
+  detail: string;
+  groupedAt: string | null;
+};
+
+/** The episodes a job kept as second versions (#58), and how the media server groups them. */
+export type EpisodeVersionsResult = {
+  label: string;
+  versions: EpisodeVersionResult[];
+  notices: string[];
+};
+
 /** What the season-dub choice did (#57): `replace` covers `seasons`; `subtitlesOnly` imported nothing. */
 export type SeasonDubResult = { policy: string; seasons: number[] };
 
@@ -341,6 +369,8 @@ export type ImportResult = {
   version?: VersionResult | null;
   /** The merged file (#55), with what can still replace it; null for every other job. */
   merge?: MergeResult | null;
+  /** The episodes kept as second versions (#58); null for every other job. */
+  episodeVersions?: EpisodeVersionsResult | null;
 };
 
 // ---- Flow 2 (#52, #56) ------------------------------------------------------------------
@@ -499,6 +529,8 @@ export type ConfirmRequest = {
   subtitles?: SubtitleChoice[];
   /** The season-dub choice (#57), one of the proposal's `seasonDub.offers`. */
   seasonDub?: string;
+  /** The label of the episodes kept as second versions (`seasonDub` `version`, #58); optional. */
+  version?: { label?: string };
 };
 
 /** The merge of a flow 2 job (#55). Every field is optional; the server fills the gaps. */

@@ -12,6 +12,7 @@ const problemReasons = [
   "label_extra",
   "label_quality",
   "label_unchecked",
+  "label_episode",
 ] as const;
 
 /** The notices of a version the UI has a sentence for (`flow2.version.notice.<code>`). */
@@ -20,6 +21,8 @@ const noticeCodes = [
   "regrouped_after_changes",
   "kept_on_delete",
   "subtitles_not_handed_over",
+  "untracked_by_sonarr",
+  "adopted_without_episode_file",
 ] as const;
 
 export function problemText(
@@ -53,4 +56,63 @@ export function offerReasonText(reason: string): { key: TKey; params?: { code: s
   return (offerReasonCodes as readonly string[]).includes(reason)
     ? { key: `flow2.reason.${reason}` as TKey }
     : { key: "flow2.reason.unknown", params: { code: reason } };
+}
+
+/** Why a row cannot be kept as an episode's version (`confirm.version.row.<problem>`). */
+const rowProblems = [
+  "double_episode",
+  "shared_file",
+  "no_file",
+  "outside_library",
+  "name_too_long",
+  "version_exists",
+  "name_unreadable",
+  "folder_unreadable",
+];
+
+export function rowProblemText(problem: string): { key: TKey; params?: { code: string } } {
+  return rowProblems.includes(problem)
+    ? { key: `confirm.version.row.${problem}` as TKey }
+    : { key: "confirm.version.row.unknown", params: { code: problem } };
+}
+
+/** What the placement says of a version it refused (`import.episodeVersion.refusal.<code>`). */
+const placementRefusals = [
+  "version_upgrade",
+  "version_unchecked",
+  "version_exists",
+  "version_failed",
+];
+
+export function placementRefusalText(code: string): { key: TKey; params?: { code: string } } {
+  return placementRefusals.includes(code)
+    ? { key: `import.episodeVersion.refusal.${code}` as TKey }
+    : { key: "import.episodeVersion.refusal.unknown", params: { code } };
+}
+
+/**
+ * The states of an episode's version (`import.episodeVersion.status.<status>`): the record's,
+ * `refused`, and the ones of the periodic re-check (#96). Another one gets a generic sentence.
+ */
+const episodeVersionStatuses = [
+  "placing",
+  "linked",
+  "grouped",
+  "waiting",
+  "missing",
+  "refused",
+  "adopted",
+  "adoptable",
+  "episode_file_missing",
+  "series_moved",
+  "series_deleted",
+];
+
+export function episodeVersionStatusText(status: string): {
+  key: TKey;
+  params?: { status: string };
+} {
+  return episodeVersionStatuses.includes(status)
+    ? { key: `import.episodeVersion.status.${status}` as TKey }
+    : { key: "import.episodeVersion.status.unknown", params: { status } };
 }
