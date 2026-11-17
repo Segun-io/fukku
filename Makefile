@@ -45,7 +45,11 @@ ACTIONLINT := rhysd/actionlint:1.7.12@sha256:b1934ee5f1c509618f2508e6eb47ee0d352
 .PHONY: check
 check: $(DEV_DEP) ## format check, lint, unit tests, UI checks, workflow lint, secret scan
 	$(IN_DEV) make --no-print-directory _check
-	$(MAKE) --no-print-directory ci-lint
+	$(MAKE) --no-print-directory ci-lint check-tracked
+
+.PHONY: check-tracked
+check-tracked: ## fail on a tracked core dump or ELF binary (runs on the host: needs only git and bash)
+	@tools/check-tracked.sh
 
 .PHONY: ci-lint
 ci-lint: ## lint the GitHub Actions workflows (actionlint, pinned)
