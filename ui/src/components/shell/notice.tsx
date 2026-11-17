@@ -25,7 +25,7 @@ type NoticeProps = Omit<React.ComponentProps<"div">, "title"> & {
   icon: LucideIcon;
   title: React.ReactNode;
   /** Set when the notice opens a part of the page and its title belongs in the outline. */
-  titleAs?: "p" | "h2" | "h3";
+  titleAs?: "p" | "h2" | "h3" | "h4";
   /** One or two buttons or links, shown under the text. */
   action?: React.ReactNode;
 };

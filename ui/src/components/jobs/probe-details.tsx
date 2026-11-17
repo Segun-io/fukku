@@ -3,7 +3,7 @@ import type { Probe } from "@/api/types";
 import { useT } from "@/i18n";
 import { summarizeProbe, type TrackLine } from "@/lib/job-text";
 
-function Tracks({ lines, empty }: { lines: TrackLine[]; empty: string }) {
+export function Tracks({ lines, empty }: { lines: TrackLine[]; empty: string }) {
   const { t } = useT();
   if (lines.length === 0) return <span className="text-muted-foreground">{empty}</span>;
   return (

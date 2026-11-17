@@ -52,6 +52,23 @@ export type ProposalRow = {
   importable: boolean;
 };
 
+/** One season of the upload's rows: how many of its episodes already have a file (#57). */
+export type SeasonDubSeason = { season: number; episodes: number; existing: number; new: number };
+
+/**
+ * What to do with rows whose episodes already have a file (#57); absent when there are none.
+ * `ask`: the confirmation must send one of `offers` as `seasonDub`. `decided`: the server's
+ * setting fixes the policy and the question is skipped. With neither, those rows are left out.
+ * Offers are `replace` and `subtitlesOnly`; `version` (#58) comes later.
+ */
+export type SeasonDub = {
+  policy: string;
+  ask: boolean;
+  decided?: string;
+  offers: string[];
+  seasons: SeasonDubSeason[];
+};
+
 export type Proposal = {
   /** `pending` while the match step has not finished. */
   state: "pending" | "ready";
@@ -59,6 +76,7 @@ export type Proposal = {
   target: { titleId: number; title: string; year: number } | null;
   rows: ProposalRow[];
   hints: Notice[];
+  seasonDub?: SeasonDub;
   /** Absent for a film. */
   episodes?: SeriesEpisode[];
   qualities: Ref[];

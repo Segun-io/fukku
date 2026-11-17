@@ -45,17 +45,28 @@ export function MatchSection({ job, className }: { job: JobDetail; className?: s
             app: appName[job.target.app],
           })}
         </p>
+        {job.flow2 && <p className="max-w-[65ch] text-ink-2">{t("job.flow2.body")}</p>}
         <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
-          <Button asChild size="lg">
-            <Link to="/jobs/$id/mapping" params={{ id: job.id }}>
-              {t("job.mapping")}
-            </Link>
-          </Button>
-          <Button asChild size="lg" variant="outline">
-            <Link to="/jobs/$id/confirm" params={{ id: job.id }}>
-              {t("job.review")}
-            </Link>
-          </Button>
+          {job.flow2 ? (
+            <Button asChild size="lg">
+              <Link to="/jobs/$id/flow2" params={{ id: job.id }}>
+                {t("job.flow2")}
+              </Link>
+            </Button>
+          ) : (
+            <>
+              <Button asChild size="lg">
+                <Link to="/jobs/$id/mapping" params={{ id: job.id }}>
+                  {t("job.mapping")}
+                </Link>
+              </Button>
+              <Button asChild size="lg" variant="outline">
+                <Link to="/jobs/$id/confirm" params={{ id: job.id }}>
+                  {t("job.review")}
+                </Link>
+              </Button>
+            </>
+          )}
           <Button
             type="button"
             size="lg"

@@ -199,7 +199,7 @@ export function MatchView({ job, apps }: Props) {
         </fieldset>
       )}
 
-      {hit?.hasFile && <ExistsNotice jobId={job.id} />}
+      {hit?.hasFile && <ExistsNotice key={hit.id} jobId={job.id} tmdbId={hit.id} />}
       {hit && !hit.hasFile && (
         <MatchOptions key={`${hit.app}-${hit.id}`} jobId={job.id} hit={hit} infos={apps} />
       )}

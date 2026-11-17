@@ -14,28 +14,55 @@ import type { AppInfos, Hit } from "./hits";
 const appName: Record<AppName, string> = { radarr: "Radarr", sonarr: "Sonarr" };
 export const nameOf = (app: AppName) => appName[app];
 
-/** The film that already has a file (M2 refuses it until M3): what it means and the way out. */
-export function ExistsNotice({ jobId }: { jobId: string }) {
+/**
+ * The film that already has a file (flow 2): the upload may be another language of it. The
+ * button chooses the film for the job, which the server marks as flow 2, and the next page
+ * compares the upload with the library file.
+ */
+export function ExistsNotice({ jobId, tmdbId }: { jobId: string; tmdbId: number }) {
   const { t } = useT();
+  const navigate = useNavigate();
+  const match = useMatchAction(jobId);
   return (
-    <Notice
-      role="note"
-      tone="caution"
-      icon={TriangleAlert}
-      titleAs="h2"
-      title={t("match.exists.title")}
-      action={
-        <Link
-          to="/jobs/$id"
-          params={{ id: jobId }}
-          className="inline-flex min-h-11 items-center font-medium underline underline-offset-4"
-        >
-          {t("match.manual")}
-        </Link>
-      }
-    >
-      {t("match.exists.body")}
-    </Notice>
+    <div className="grid gap-3">
+      <Notice
+        role="note"
+        tone="caution"
+        icon={TriangleAlert}
+        titleAs="h2"
+        title={t("match.exists.title")}
+        action={
+          <>
+            <Button
+              type="button"
+              size="lg"
+              disabled={match.isPending}
+              onClick={() =>
+                match.mutate(
+                  { app: "radarr", tmdbId, monitored: true },
+                  {
+                    onSuccess: () =>
+                      void navigate({ to: "/jobs/$id/flow2", params: { id: jobId } }),
+                  },
+                )
+              }
+            >
+              {t("match.exists.action")}
+            </Button>
+            <Link
+              to="/jobs/$id"
+              params={{ id: jobId }}
+              className="inline-flex min-h-11 items-center font-medium underline underline-offset-4"
+            >
+              {t("match.manual")}
+            </Link>
+          </>
+        }
+      >
+        {t("match.exists.body")}
+      </Notice>
+      {match.isError && <ErrorMessage error={match.error} />}
+    </div>
   );
 }
 

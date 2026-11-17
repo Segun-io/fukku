@@ -2,10 +2,33 @@
 // `uploads.ts`). State changes are kept in memory; `resetMocks()` puts the fixtures back.
 
 import { HttpResponse, http } from "msw";
-import type { ConfirmRequest, Job, JobAction, JobState, MatchRequest, Target } from "@/api/types";
+import type {
+  ConfirmRequest,
+  Flow2,
+  Flow2ConfirmRequest,
+  Job,
+  JobAction,
+  JobState,
+  MatchRequest,
+  Preview,
+  PreviewRequest,
+  Target,
+} from "@/api/types";
 import { adminSettings, adminStatus } from "./admin-fixtures";
 import { confirmRefusal, type ImportProgress, importAt } from "./confirm-fixtures";
 import { jobs as fixtureJobs, jobDetail, session } from "./fixtures";
+import {
+  type Flow2Progress,
+  flow2Fixture,
+  flow2ImportAt,
+  flow2Jobs,
+  flow2Target,
+  initialFlow2s,
+  labelProblem,
+  noPreview,
+  previewRefusal,
+  readyPreview,
+} from "./flow2-fixtures";
 import {
   applyMappingScenarios,
   currentProposal,
@@ -28,11 +51,19 @@ let jobs: Job[] = structuredClone(fixtureJobs);
 let targets: Record<string, Target> = {};
 let admin = false;
 let imports: Record<string, ImportProgress> = {};
+// Flow 2: the comparison of each job that has one, its sync-check clips, and what a confirmed
+// merge or version has reached. A preview is `pending` for one read, then `ready`.
+let flow2s: Record<string, Flow2> = {};
+let previews: Record<string, Preview> = {};
+let flow2Progress: Record<string, Flow2Progress> = {};
 
 export function resetMocks() {
   jobs = structuredClone(fixtureJobs);
   targets = {};
   imports = {};
+  flow2s = {};
+  previews = {};
+  flow2Progress = {};
   admin = false;
   resetUploads();
   resetMapping();
@@ -50,6 +81,11 @@ export function applyScenarios(scenarios: readonly Scenario[]) {
   if (scenarios.includes("mapping")) jobs.push(...structuredClone(mappingJobs));
   if (scenarios.includes("importing")) jobs.push(...structuredClone(importingJobs));
   if (scenarios.includes("dub")) jobs.push(...structuredClone(dubJobs));
+  if (scenarios.includes("flow2")) {
+    jobs.push(...structuredClone(flow2Jobs));
+    Object.assign(flow2s, initialFlow2s());
+    for (const j of flow2Jobs) targets[j.id] = { ...flow2Target };
+  }
   if (scenarios.includes("admin")) admin = true;
   applyMappingScenarios(scenarios);
 }
@@ -137,6 +173,18 @@ export const handlers = [
     Object.assign(detail, structuredClone(importDetails[job.id] ?? {}));
     const target = targets[job.id];
     if (target) detail.target = target;
+    const flow2 = flow2s[job.id];
+    if (flow2) detail.flow2 = flow2;
+    const moved = flow2Progress[job.id];
+    if (moved) {
+      const at = flow2ImportAt(job.state === "done" ? { ...moved, tick: 99 } : moved);
+      if (job.state !== "done") moved.tick += 1;
+      move(job, at.state);
+      detail.state = job.state;
+      detail.actions = job.actions;
+      detail.import = at.import;
+      detail.result = at.result;
+    }
     const progress = imports[job.id];
     if (progress && !["done", "failed", "cancelled"].includes(job.state)) {
       const at = importAt(progress);
@@ -223,14 +271,22 @@ export const handlers = [
     const body = (await request.json()) as MatchRequest;
     const info = apps[body.app];
     if (!info) return failure(404, "app_not_configured", "That app is not configured.");
-    if (!info.rootFolders.some((f) => f.path === body.rootFolder)) {
+    // The server fills in a missing folder from the settings, and uses it only to add a title.
+    if (
+      body.rootFolder !== undefined &&
+      !info.rootFolders.some((f) => f.path === body.rootFolder)
+    ) {
       return failure(400, "bad_request", "That root folder is not one the app lists.");
     }
     if (body.app === "radarr") {
       const hit = movieHits.find((h) => h.tmdbId === body.tmdbId);
       if (!hit) return failure(404, "title_not_found", "The app does not know that title.");
-      if (hit.hasFile) return failure(409, "already_in_library", "The film already has a file.");
       targets[job.id] = { app: "radarr", titleId: hit.tmdbId, title: hit.title, year: hit.year };
+      if (hit.hasFile) {
+        // The film has a file: the job is flow 2, and goes straight to the comparison.
+        flow2s[job.id] = flow2Fixture("match");
+        return HttpResponse.json(move(job, "awaiting-confirmation"));
+      }
     } else {
       const hit = seriesHits.find((h) => h.tvdbId === body.tvdbId);
       if (!hit) return failure(404, "title_not_found", "The app does not know that title.");
@@ -246,7 +302,64 @@ export const handlers = [
       return failure(409, "wrong_state", "The job has no title chosen.");
     }
     delete targets[job.id];
+    delete flow2s[job.id];
+    delete previews[job.id];
     return HttpResponse.json(move(job, "probed"));
+  }),
+
+  // ---- Flow 2: the sync check (#53) ----
+
+  http.get("/api/jobs/:id/preview", ({ params }) => {
+    const job = jobs.find((j) => j.id === params.id && j.owner === session.user.name);
+    if (!job) return notFound();
+    if (!flow2s[job.id]) return failure(409, "not_flow2", "The job is not flow 2.");
+    const current = previews[job.id] ?? noPreview;
+    if (current.state !== "pending") return HttpResponse.json(current);
+    // The worker is done by the next read.
+    const ready = readyPreview(
+      job.id,
+      { offsetMs: current.offsetMs ?? 0, audioTrack: current.audioTrack ?? 0 },
+      current.requestedAt ?? "",
+    );
+    previews[job.id] = ready;
+    return HttpResponse.json(current);
+  }),
+
+  http.post("/api/jobs/:id/preview", async ({ params, request }) => {
+    const job = jobs.find((j) => j.id === params.id && j.owner === session.user.name);
+    if (!job) return notFound();
+    const flow2 = flow2s[job.id];
+    if (!flow2) return failure(409, "not_flow2", "The job is not flow 2.");
+    if (job.state !== "awaiting-confirmation") {
+      return failure(409, "wrong_state", "The job is not awaiting confirmation.");
+    }
+    const text = await request.text();
+    const body = (text.trim() === "" ? {} : JSON.parse(text)) as PreviewRequest;
+    const refusal = previewRefusal(flow2, body);
+    if (refusal)
+      return failure(refusal.code === "bad_request" ? 400 : 409, refusal.code, "Refused.");
+    const track =
+      body.audioTrack ??
+      (flow2.upload?.audio.find((a) => a.default) ?? flow2.upload?.audio[0])?.index ??
+      0;
+    const pending: Preview = {
+      ...noPreview,
+      state: "pending",
+      offsetMs: body.offsetMs ?? 0,
+      audioTrack: track,
+      requestedAt: new Date().toISOString(),
+      requestedBy: session.user.name,
+    };
+    previews[job.id] = pending;
+    return HttpResponse.json(pending, { status: 202 });
+  }),
+
+  http.get("/api/jobs/:id/preview/:n", ({ params }) => {
+    const ready = previews[String(params.id)];
+    if (ready?.state !== "ready" || !ready.clips.some((c) => String(c.n) === params.n)) {
+      return failure(404, "not_found", "No such clip.");
+    }
+    return new HttpResponse(new Uint8Array(), { headers: { "Content-Type": "video/mp4" } });
   }),
 
   // ---- Confirm (#40) ----
@@ -254,6 +367,53 @@ export const handlers = [
   http.post("/api/jobs/:id/confirm", async ({ params, request }) => {
     const job = jobs.find((j) => j.id === params.id && j.owner === session.user.name);
     if (!job) return notFound();
+    const flow2 = flow2s[job.id];
+    if (flow2) {
+      if (job.state !== "awaiting-confirmation") {
+        return failure(409, "wrong_state", "The job is not waiting for confirmation.");
+      }
+      const body = (await request.json()) as Flow2ConfirmRequest | ConfirmRequest;
+      if (!("flow2" in body)) {
+        return failure(409, "flow2", "The film has a file: merge it or keep a second version.");
+      }
+      if (!flow2.offers.includes(body.flow2)) {
+        return body.flow2 === "merge"
+          ? failure(409, "merge_not_offered", "Not offered.")
+          : failure(409, "version_unavailable", "Not offered.");
+      }
+      if (body.flow2 === "version") {
+        const label = body.version.label?.trim() || flow2.version?.label || "";
+        if (labelProblem(label)) return failure(409, "version_label", "The label is refused.");
+        flow2Progress[job.id] = {
+          kind: "version",
+          label,
+          name: `Sintel (2010) - ${label}.mkv`,
+          tick: 0,
+        };
+      } else {
+        const preview = previews[job.id];
+        const merge = body.merge;
+        const track = merge.audioTracks?.[0];
+        if (
+          preview?.state !== "ready" ||
+          (merge.offsetMs ?? preview.offsetMs) !== preview.offsetMs ||
+          (track ?? preview.audioTrack) !== preview.audioTrack
+        ) {
+          return failure(409, "preview_required", "The sync check is missing.");
+        }
+        flow2Progress[job.id] = {
+          kind: "merge",
+          offsetMs: preview.offsetMs ?? 0,
+          audioTracks: [preview.audioTrack ?? 0],
+          subtitleTracks: merge.subtitleTracks ?? [],
+          languageTag: merge.languageTag ?? "es-419",
+          trackName: merge.trackName ?? "Español (Latino)",
+          keepOriginalDefault: merge.keepOriginalDefault ?? true,
+          tick: 0,
+        };
+      }
+      return HttpResponse.json(move(job, "importing"), { status: 202 });
+    }
     const proposal = currentProposal(job.id);
     if (job.state !== "awaiting-confirmation" || !proposal) {
       return failure(409, "wrong_state", "The job is not waiting for confirmation.");

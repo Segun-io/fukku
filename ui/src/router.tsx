@@ -9,6 +9,7 @@ import {
 import { AppShell } from "@/components/shell/app-shell";
 import { NotFound } from "@/components/shell/states";
 import { ConfirmPage } from "@/features/confirm/confirm-page";
+import { Flow2Page } from "@/features/flow2/flow2-page";
 import { AdminPage } from "@/pages/admin";
 import { JobDetailPage } from "@/pages/job-detail";
 import { JobsPage } from "@/pages/jobs";
@@ -65,6 +66,12 @@ const confirmRoute = createRoute({
   component: ConfirmPage,
 });
 
+const flow2Route = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/jobs/$id/flow2",
+  component: Flow2Page,
+});
+
 // The pattern examples (docs/design.md) exist in development builds only: `npm run dev`.
 // In a production build this branch, and the page behind it, are removed.
 const devRoutes = import.meta.env.DEV
@@ -86,6 +93,7 @@ const routeTree = rootRoute.addChildren([
   mappingRoute,
   adminRoute,
   confirmRoute,
+  flow2Route,
   ...devRoutes,
 ]);
 
