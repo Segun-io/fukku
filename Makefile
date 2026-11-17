@@ -177,16 +177,18 @@ dev-logs: ## follow the logs of Fukku and its proxy
 	docker compose --env-file test/env/.run/.env --env-file test/env/.run/dev.env -f test/env/compose.yaml --profile fukku logs -f fukku-web fukku-worker fukku-proxy
 
 .PHONY: probes
-probes: $(DEV_DEP) ## run the behaviour probes that need no internet
+probes: $(DEV_DEP) ## run the behaviour probes that need no internet, then judge them with the gate
 	test/env/run-probes.sh offline
+	@$(MAKE) --no-print-directory probes-gate
 
 .PHONY: probes-online
-probes-online: $(DEV_DEP) ## run every behaviour probe, including those that add titles (internet)
+probes-online: $(DEV_DEP) ## run every behaviour probe, including those that add titles (internet), then judge them
 	test/env/run-probes.sh online
+	@$(MAKE) --no-print-directory probes-gate
 
 .PHONY: probes-gate
 probes-gate: $(DEV_DEP) ## CI rule on probe results: fail on new differs or error, warn on accepted ones and upstream skips
-	$(IN_DEV) go run ./test/probes/cmd/compat -gate -results test/env/.run/results
+	$(IN_DEV) go run ./test/probes/cmd/compat -gate -results test/env/.run/results -gotest test/env/.run/go-test.log
 
 .PHONY: compat
 compat: $(DEV_DEP) ## write the latest probe results into docs/compatibility.md

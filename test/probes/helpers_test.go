@@ -91,7 +91,7 @@ func (s spec) probe(t *testing.T) *probe {
 func newProbe(t *testing.T, id, title, claim string, needsOnline bool, apps ...string) *probe {
 	t.Helper()
 	p := &probe{t: t, ctx: t.Context(), start: time.Now(), r: Result{
-		ID: id, Title: title, Claim: claim, Apps: apps, Online: needsOnline, Evidence: map[string]any{},
+		ID: id, Test: t.Name(), Title: title, Claim: claim, Apps: apps, Online: needsOnline, Evidence: map[string]any{},
 	}}
 	t.Cleanup(func() {
 		if p.r.Verdict == "" {
