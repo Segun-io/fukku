@@ -12,12 +12,14 @@
 //   /jobs?mock=mapping,failing    every change fails to be checked
 //   /jobs?mock=importing      adds an import that is running and one that waits for the app
 //   /jobs?mock=dub            adds a finished import of a dub: unmonitored, one step failed
+//   /jobs?mock=versions       adds a finished import that kept episodes as second versions
 //   /jobs?mock=flow2          adds three uploads of a film that has a file: same cut, PAL, different cut
 //
 // The choice is kept for the tab (sessionStorage), so it survives a reload; `?mock=` with
 // nothing after it clears it. Names are made up.
 
 import type { Job, JobDetail, JobFile, JobState } from "@/api/types";
+import { versionResult, versionsResult } from "./episode-version-fixtures";
 import { mappingFilmJobId, mappingJobId } from "./mapping-fixtures";
 
 export const scenarioNames = [
@@ -31,6 +33,7 @@ export const scenarioNames = [
   "failing",
   "importing",
   "dub",
+  "versions",
   "flow2",
 ] as const;
 export type Scenario = (typeof scenarioNames)[number];
@@ -139,6 +142,7 @@ const hex = (n: number) => n.toString(16).padStart(32, "0");
 export const importingJobId = hex(0x4b01);
 export const waitingJobId = hex(0x4b02);
 export const dubJobId = hex(0x4b03);
+export const versionsJobId = hex(0x4b04);
 
 function importJob(id: string, state: JobState, name: string, hour: number): Job {
   const at = (minute: number) => `2026-01-02T${String(hour).padStart(2, "0")}:${minute}:00Z`;
@@ -190,11 +194,14 @@ const waiting: Job = {
   error: { code: "arr_unavailable", message: "The app is not answering." },
 };
 const dub = importJob(dubJobId, "done", "Sintel.2010.1080p.Spanish.mkv", 10);
+const versions = importJob(versionsJobId, "done", "Lighthouse Letters - Season 1 (Spanish).zip", 9);
 
 /** `importing`: one import that moves and one that waits for the app. */
 export const importingJobs: Job[] = [importing, waiting];
 /** `dub`: a finished import that left the title unmonitored, with one step that failed. */
 export const dubJobs: Job[] = [dub];
+/** `versions`: a finished import that kept episodes as second versions of their own files. */
+export const versionsJobs: Job[] = [versions];
 
 /** What `GET /api/jobs/{id}` adds for the jobs above. */
 export const importDetails: Record<string, Partial<JobDetail>> = {
@@ -207,6 +214,28 @@ export const importDetails: Record<string, Partial<JobDetail>> = {
     target: lighthouse,
     history: historyTo(waiting, ["importing", "stalled"]),
     import: { status: "running", rows: importRows(["imported", "", "", ""]) },
+  },
+  [versionsJobId]: {
+    target: lighthouse,
+    history: historyTo(versions, ["importing", "imported", "post-processing", "done"]),
+    import: {
+      status: "done",
+      rows: [
+        { id: "r1", name: "Lighthouse.Letters.S01E07.Spanish.mkv", result: "version" },
+        { id: "r2", name: "Lighthouse.Letters.S01E08.Spanish.mkv", result: "imported" },
+      ],
+    },
+    result: {
+      titleLink: "https://media.example.com/web/index.html#!/details?id=0a1b2d",
+      monitored: true,
+      unmonitorReason: "",
+      seasonDub: { policy: "version", seasons: [1] },
+      episodeVersions: versionsResult([versionResult("r1", 7)]),
+      postProcessing: [
+        { step: "mediaServerRefresh", status: "ok", detail: "" },
+        { step: "mediaServerEpisodeVersions", status: "ok", detail: "" },
+      ],
+    },
   },
   [dubJobId]: {
     target: { app: "radarr", titleId: 20, title: "Sintel", year: 2010 },

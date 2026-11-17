@@ -1,23 +1,39 @@
 import { Ban, Check, ExternalLink, Hourglass, Info, TriangleAlert } from "lucide-react";
-import type { JobDetail, MergeInfo, PostStepInfo, VersionResult } from "@/api/types";
+import type {
+  EpisodeVersionsResult,
+  JobDetail,
+  MergeInfo,
+  PostStepInfo,
+  VersionResult,
+} from "@/api/types";
 import { StatusLabel, type StatusTone } from "@/components/patterns/status-label";
 import { Notice } from "@/components/shell/notice";
 import { Button } from "@/components/ui/button";
 import type { TKey } from "@/i18n";
 import { useT } from "@/i18n";
-import { versionNoticeText } from "@/lib/flow2-text";
+import {
+  episodeVersionStatusText,
+  placementRefusalText,
+  versionNoticeText,
+} from "@/lib/flow2-text";
 import { mergeRefusalText } from "@/lib/job-text";
 import { cn } from "@/lib/utils";
 
 const appName = { radarr: "Radarr", sonarr: "Sonarr" } as const;
 
 /** The post-processing steps the UI names (`import.step.<name>`); others show their own name. */
-const knownSteps = ["mediaServerRefresh", "mediaServerVersions", "subtitles"] as const;
-const knownResults = ["imported", "skipped", "failed"] as const;
+const knownSteps = [
+  "mediaServerRefresh",
+  "mediaServerVersions",
+  "mediaServerEpisodeVersions",
+  "subtitles",
+] as const;
+const knownResults = ["imported", "version", "skipped", "failed"] as const;
 
 /** The meaning of each result of a file and of each status of a step (docs/design.md, §3). */
 const rowTone: Record<string, StatusTone> = {
   imported: "done",
+  version: "done",
   skipped: "waiting",
   failed: "error",
 };
@@ -167,6 +183,76 @@ function VersionStatus({ version }: { version: VersionResult }) {
   );
 }
 
+const episodeVersionTone = (status: string): StatusTone =>
+  status === "grouped"
+    ? "done"
+    : status === "refused"
+      ? "error"
+      : [
+            "missing",
+            "adopted",
+            "adoptable",
+            "episode_file_missing",
+            "series_moved",
+            "series_deleted",
+          ].includes(status)
+        ? "caution"
+        : "waiting";
+
+/** The episodes kept as second versions (#58): each one's state, with the notices of the lot. */
+function EpisodeVersionsStatus({ versions }: { versions: EpisodeVersionsResult }) {
+  const { t } = useT();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return (
+    <div className="grid gap-3">
+      <h3>{t("import.episodeVersion.title")}</h3>
+      {versions.label !== "" && (
+        <p translate="no" className="text-sm text-ink-2">
+          {t("import.episodeVersion.label", { label: versions.label })}
+        </p>
+      )}
+      <ul aria-label={t("import.episodeVersion.title")} className="divide-y border-y">
+        {versions.versions.map((v) => {
+          const status = episodeVersionStatusText(v.status);
+          const refusal = v.status === "refused" ? placementRefusalText(v.refusal) : null;
+          return (
+            <li key={v.row} data-version-row={v.row} className="grid gap-1 py-3">
+              <p translate="no" className="min-w-0 font-medium [overflow-wrap:anywhere]">
+                {t("import.episodeVersion.item", {
+                  season: pad(v.seasonNumber),
+                  episode: pad(v.episodeNumber),
+                })}
+                {v.name !== "" && ` ${v.name}`}
+              </p>
+              <StatusLabel
+                tone={episodeVersionTone(v.status)}
+                icon={v.status === "refused" ? Ban : undefined}
+                className="whitespace-normal"
+              >
+                {refusal ? t(refusal.key, refusal.params) : t(status.key, status.params)}
+              </StatusLabel>
+              {v.detail !== "" && (
+                <p className="font-mono text-sm text-muted-foreground [overflow-wrap:anywhere]">
+                  {v.detail}
+                </p>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+      {versions.notices.length > 0 && (
+        <ul className="grid list-disc gap-1 pl-5 text-sm text-ink-2">
+          {versions.notices.map((code) => (
+            <li key={code} className="max-w-[65ch]">
+              {t(versionNoticeText(code).key, versionNoticeText(code).params)}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 /** The merge warnings of B6: what can still replace the merged file. One notice for each. */
 const mergeWarningCodes = [
   "search_can_replace",
@@ -201,9 +287,18 @@ export function ImportSection({ job, className }: { job: JobDetail; className?: 
   const subtitlesOnly = result?.seasonDub?.policy === "subtitlesOnly";
   const anyImported = imp?.rows.some((r) => r.result === "imported") ?? false;
   const nothingImported = subtitlesOnly && !anyImported;
+  // Every row of the upload that had a file was kept as a second version, and nothing else imported.
+  const versionsOnly = result?.episodeVersions != null && !anyImported;
+  const versionList = result?.episodeVersions?.versions ?? [];
+  const refusedVersions = versionList.filter((v) => v.status === "refused").length;
+  const placedVersions = versionList.length - refusedVersions;
+  // Some versions were placed and some refused: the result is not a plain success.
+  const partialVersions = refusedVersions > 0 && placedVersions > 0;
   const seasonList = result?.seasonDub?.seasons ?? [];
   const failedSteps = steps.filter((s) => s.status === "failed");
-  const imported = imp?.rows.filter((r) => r.result === "imported").length ?? 0;
+  // A row kept as an episode's second version (#58) is in the library as well.
+  const imported =
+    imp?.rows.filter((r) => r.result === "imported" || r.result === "version").length ?? 0;
   const total = imp?.rows.length ?? 0;
 
   return (
@@ -228,17 +323,24 @@ export function ImportSection({ job, className }: { job: JobDetail; className?: 
       {finished && (
         <div className="grid gap-3">
           <Notice
-            tone="done"
-            icon={nothingImported ? Info : Check}
+            tone={versionsOnly && partialVersions ? "caution" : "done"}
+            icon={nothingImported ? Info : versionsOnly && partialVersions ? TriangleAlert : Check}
             role="status"
             title={
               nothingImported
                 ? t("import.seasonDub.subtitlesOnly.title")
-                : result?.version
-                  ? t("import.version.done.title", { title: job.target?.title ?? "" })
-                  : result?.merge
-                    ? t("import.merge.done.title")
-                    : t("import.done.title", { title: job.target?.title ?? "" })
+                : versionsOnly
+                  ? partialVersions
+                    ? t("import.episodeVersion.partial.title", {
+                        placed: placedVersions,
+                        total: versionList.length,
+                      })
+                    : t("import.episodeVersion.done.title", { title: job.target?.title ?? "" })
+                  : result?.version
+                    ? t("import.version.done.title", { title: job.target?.title ?? "" })
+                    : result?.merge
+                      ? t("import.merge.done.title")
+                      : t("import.done.title", { title: job.target?.title ?? "" })
             }
             action={
               result?.titleLink ? (
@@ -254,17 +356,21 @@ export function ImportSection({ job, className }: { job: JobDetail; className?: 
             <p>
               {nothingImported
                 ? t("import.seasonDub.subtitlesOnly")
-                : result?.version
-                  ? t("import.version.done.body", {
-                      name: result.version.name,
-                      label: result.version.label,
-                    })
-                  : result?.merge
-                    ? t("import.merge.done.body", {
-                        app: app || t("import.app"),
-                        name: result.merge.name,
-                      })
-                    : t("import.done.body", { app: app || t("import.app") })}
+                : versionsOnly && partialVersions
+                  ? t("import.episodeVersion.partial.body", { count: refusedVersions })
+                  : versionsOnly && result?.episodeVersions
+                    ? t("import.episodeVersion.done.body", { count: placedVersions })
+                    : result?.version
+                      ? t("import.version.done.body", {
+                          name: result.version.name,
+                          label: result.version.label,
+                        })
+                      : result?.merge
+                        ? t("import.merge.done.body", {
+                            app: app || t("import.app"),
+                            name: result.merge.name,
+                          })
+                        : t("import.done.body", { app: app || t("import.app") })}
               {failedSteps.length > 0 && <> {t("import.done.failedSteps")}</>}
             </p>
             {result?.seasonDub?.policy === "replace" && (
@@ -273,6 +379,11 @@ export function ImportSection({ job, className }: { job: JobDetail; className?: 
                   count: seasonList.length,
                   seasons: seasonList.join(", "),
                 })}
+              </p>
+            )}
+            {!versionsOnly && refusedVersions > 0 && (
+              <p className="mt-1">
+                {t("import.episodeVersion.partial.body", { count: refusedVersions })}
               </p>
             )}
             {subtitlesOnly && anyImported && (
@@ -320,6 +431,8 @@ export function ImportSection({ job, className }: { job: JobDetail; className?: 
               )}
         </div>
       )}
+
+      {result?.episodeVersions && <EpisodeVersionsStatus versions={result.episodeVersions} />}
 
       {showRows && imp && (
         <div className="grid gap-3">

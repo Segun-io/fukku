@@ -20,6 +20,10 @@ export const jobErrorCodes = [
   "merge_failed",
   "merge_rejected",
   "version_failed",
+  // Episodes' versions (#58): every version was refused at the placement.
+  "version_upgrade",
+  "version_unchecked",
+  "version_exists",
 ] as const;
 
 /** Refusal codes of the merge task (#54): `import.merge.refusal.<code>`. */

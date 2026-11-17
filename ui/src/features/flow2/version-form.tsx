@@ -1,6 +1,6 @@
 import { Link, useNavigate } from "@tanstack/react-router";
 import { Info, TriangleAlert } from "lucide-react";
-import { useId, useState } from "react";
+import { useId, useRef, useState } from "react";
 import { ApiError } from "@/api/client";
 import { useConfirmFlow2 } from "@/api/flow2";
 import { useSession } from "@/api/session";
@@ -25,6 +25,7 @@ export function VersionForm({ jobId, offer }: { jobId: string; offer: VersionOff
   const session = useSession();
   const confirm = useConfirmFlow2(jobId);
   const [label, setLabel] = useState(offer.label);
+  const field = useRef<HTMLInputElement>(null);
 
   const proposed = label.trim() === offer.label;
   const problem = proposed ? offer.problem : null;
@@ -38,7 +39,12 @@ export function VersionForm({ jobId, offer }: { jobId: string; offer: VersionOff
     const chosen = label.trim();
     confirm.mutate(
       { flow2: "version", version: chosen === "" ? {} : { label: chosen } },
-      { onSuccess: () => void navigate({ to: "/jobs/$id", params: { id: jobId } }) },
+      {
+        onSuccess: () => void navigate({ to: "/jobs/$id", params: { id: jobId } }),
+        onError: (e) => {
+          if (e instanceof ApiError && e.code === "version_label") field.current?.focus();
+        },
+      },
     );
   }
 
@@ -54,6 +60,7 @@ export function VersionForm({ jobId, offer }: { jobId: string; offer: VersionOff
           {t("flow2.version.label")}
         </label>
         <input
+          ref={field}
           id={`${id}-label`}
           name="label"
           type="text"
@@ -63,7 +70,13 @@ export function VersionForm({ jobId, offer }: { jobId: string; offer: VersionOff
           className={inputClass}
           value={label}
           aria-invalid={problem || refused ? true : undefined}
-          aria-describedby={`${id}-label-hint`}
+          aria-describedby={[
+            `${id}-label-hint`,
+            problem ? `${id}-problem` : "",
+            refused ? `${id}-label-error` : "",
+          ]
+            .filter(Boolean)
+            .join(" ")}
           onChange={(e) => {
             setLabel(e.target.value);
             confirm.reset();
@@ -81,6 +94,7 @@ export function VersionForm({ jobId, offer }: { jobId: string; offer: VersionOff
 
       {problem && (
         <Notice
+          id={`${id}-problem`}
           role="alert"
           tone="caution"
           icon={TriangleAlert}
@@ -133,7 +147,7 @@ export function VersionForm({ jobId, offer }: { jobId: string; offer: VersionOff
 
       {err && (
         <div>
-          <ErrorMessage error={err} />
+          <ErrorMessage error={err} id={refused ? `${id}-label-error` : undefined} />
           {changed && (
             <p>
               <Link

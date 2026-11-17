@@ -8,11 +8,11 @@ export function errorKey(error: Error): TKey {
   return isKnownErrorCode(code) ? (`errors.${code}` as TKey) : "errors.unknown";
 }
 
-/** An API error in the user's language, by its code. */
-export function ErrorMessage({ error }: { error: Error }) {
+/** An API error in the user's language, by its code. `id` lets a field point to it. */
+export function ErrorMessage({ error, id }: { error: Error; id?: string }) {
   const { t } = useT();
   return (
-    <p role="alert" className="mt-2 text-sm text-destructive">
+    <p id={id} role="alert" className="mt-2 text-sm text-destructive">
       {t(errorKey(error))}
     </p>
   );

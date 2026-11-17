@@ -915,7 +915,7 @@ const es: Record<keyof typeof en, string> = {
     "El archivo de la película en Radarr cambió desde que la elegiste. Elige la película otra vez para que Fukku compare el archivo nuevo.",
   "errors.version_label": "Esa etiqueta no se puede usar. Cámbiala e inténtalo de nuevo.",
   "errors.version_unavailable":
-    "Ahora no es posible una segunda versión: está desactivada, o la carpeta de versiones no se puede usar. Pregunta a quien administra Fukku.",
+    "Ahora no es posible una segunda versión: está desactivada, una carpeta no se puede usar, o algunos archivos no pueden ser versiones. Pregunta a quien administra Fukku.",
   "errors.version_exists": "Ya existe una versión con este nombre. Elige otra etiqueta.",
   "errors.season_dub_choice": "Algunos episodios ya tienen un archivo. Elige qué hacer con ellos.",
   "errors.shared_file":
@@ -1031,6 +1031,112 @@ const es: Record<keyof typeof en, string> = {
   "import.merge.warning.language_unknown_to_radarr.title": "Radarr no conoce el idioma nuevo",
   "import.merge.warning.language_unknown_to_radarr":
     "{app} no tiene un idioma para las pistas añadidas, así que muestra el archivo fusionado solo con los idiomas que ya tenía. Las pistas están etiquetadas en el archivo, pero los formatos personalizados y las búsquedas por idioma de {app} no las ven.",
+  "confirm.dub.version": "Conservar como segundas versiones",
+  "confirm.dub.version.body":
+    "Cada uno de estos episodios conserva su propio archivo, y tu archivo se guarda junto a él como segunda versión. El servidor multimedia muestra ambos bajo el episodio. {app} no hace seguimiento de los segundos archivos.",
+  "flow2.version.problem.label_episode":
+    "La etiqueta no puede contener un número de temporada o de episodio (como S02E05, 2x05 o E03): el servidor multimedia leería el archivo como otro episodio.",
+  "flow2.version.notice.untracked_by_sonarr":
+    "Sonarr no hace seguimiento de los segundos archivos. Nunca los renombra ni los mejora, la mejora de un episodio sustituye solo su propio archivo, y borrar la serie con sus archivos borra también las versiones.",
+  "flow2.version.notice.adopted_without_episode_file":
+    "Si se borra el archivo propio de un episodio, Sonarr toma el segundo archivo como el del episodio en su próximo escaneo.",
+  "confirm.version.title": "Segundas versiones",
+  "confirm.version.label": "Etiqueta de la versión",
+  "confirm.version.label.hint":
+    "Se muestra con cada episodio en el servidor multimedia, por ejemplo Español. No uses palabras de calidad como 1080p o WEB-DL, ni un número de temporada o de episodio.",
+  "confirm.version.rows": "Episodios que se conservan como segundas versiones",
+  "confirm.version.row.episode": "Temporada {season}, episodio {episode}",
+  "confirm.version.row.waiting": "El nombre del archivo se fija con esta etiqueta al confirmar.",
+  "confirm.version.row.double_episode":
+    "Este archivo contiene varios episodios, así que no puede ser una segunda versión.",
+  "confirm.version.row.shared_file":
+    "El archivo del episodio en la biblioteca contiene también otros episodios, así que esto no puede ser una segunda versión.",
+  "confirm.version.row.no_file": "Sonarr no tiene ningún archivo para este episodio.",
+  "confirm.version.row.outside_library":
+    "La carpeta del episodio está fuera de las carpetas de la biblioteca que Fukku puede usar.",
+  "confirm.version.row.name_too_long":
+    "El nombre del archivo sería demasiado largo. Usa una etiqueta más corta.",
+  "confirm.version.row.version_exists":
+    "Ya existe un archivo o una versión anterior con este nombre. Usa otra etiqueta.",
+  "confirm.version.row.name_unreadable":
+    "El nombre del archivo no se leería como exactamente este episodio. Pregunta a quien administra Fukku.",
+  "confirm.version.row.folder_unreadable": "Fukku no puede leer la carpeta del episodio.",
+  "confirm.version.row.unknown": "Este archivo no puede ser una segunda versión (código: {code}).",
+  "confirm.version.count.one": "{count} episodio se conserva como segunda versión",
+  "confirm.version.count.other": "{count} episodios se conservan como segundas versiones",
+  "confirm.version.only.one":
+    "No se importará nada nuevo. {count} episodio se conserva como segunda versión.",
+  "confirm.version.only.other":
+    "No se importará nada nuevo. {count} episodios se conservan como segundas versiones.",
+  "confirm.version.refused.title": "Estos archivos no se pueden conservar como segundas versiones",
+  "confirm.version.refused.hint.fixed":
+    "Este servidor lo decide por sí mismo. Cambia la etiqueta, o vuelve atrás y cambia la correspondencia.",
+  "jobError.version_upgrade":
+    "Sonarr tomaría todas las segundas versiones por los archivos propios de los episodios, así que no se guardó ninguna. La biblioteca no se cambió.",
+  "jobError.version_unchecked":
+    "Sonarr no dio un veredicto sobre ninguna segunda versión, así que no se guardó ninguna. La biblioteca no se cambió.",
+  "jobError.version_exists":
+    "Todas las segundas versiones ya existen con su nombre, así que no se guardó ninguna. La biblioteca no se cambió.",
+  "import.episodeVersion.partial.title": "{placed} de {total} segundas versiones están en su sitio",
+  "import.episodeVersion.partial.body.one":
+    "{count} no se pudo guardar. Mira cada versión más abajo.",
+  "import.episodeVersion.partial.body.other":
+    "{count} no se pudieron guardar. Mira cada versión más abajo.",
+  "confirm.version.label.proposed": "Si esto queda vacío, el servidor usa «{label}».",
+  "confirm.version.refused.hint":
+    "Elige otra opción arriba, cambia la etiqueta, o vuelve atrás y cambia la correspondencia.",
+  "confirm.version.refusal.version_upgrade":
+    "Sonarr tomaría este archivo por una mejora del archivo propio del episodio en su próximo escaneo.",
+  "confirm.version.refusal.version_unchecked":
+    "Sonarr no da un veredicto sobre este archivo: no lo ofrece, o lo lee como otro episodio.",
+  "confirm.version.refusal.version_unavailable": "Este archivo no puede ser una segunda versión.",
+  "confirm.version.refusal.version_exists":
+    "Ya existe un archivo o una versión anterior con este nombre.",
+  "import.row.version": "Segunda versión",
+  "import.step.mediaServerEpisodeVersions":
+    "Agrupar las segundas versiones con los episodios en el servidor multimedia",
+  "import.step.mediaServerEpisodeVersions.failed":
+    "El servidor multimedia no agrupó las versiones con los episodios. Fukku lo intenta de nuevo solo; mientras tanto aparecen como entradas separadas.",
+  "import.episodeVersion.title": "Segundas versiones",
+  "import.episodeVersion.label": "Etiqueta: {label}",
+  "import.episodeVersion.item": "S{season}E{episode}",
+  "import.episodeVersion.done.title": "Las segundas versiones de {title} están en su sitio",
+  "import.episodeVersion.done.body.one":
+    "Se conserva {count} archivo junto al archivo propio de su episodio.",
+  "import.episodeVersion.done.body.other":
+    "Se conservan {count} archivos junto a los archivos propios de sus episodios.",
+  "import.episodeVersion.status.placing": "El archivo se está guardando.",
+  "import.episodeVersion.status.linked":
+    "El archivo está en su sitio. Ahora lo agrupa el servidor multimedia.",
+  "import.episodeVersion.status.grouped": "El servidor multimedia la muestra con el episodio.",
+  "import.episodeVersion.status.waiting":
+    "El servidor multimedia aún no la ha agrupado. Fukku lo intenta de nuevo solo.",
+  "import.episodeVersion.status.missing": "El archivo de la versión ya no está en el disco.",
+  "import.episodeVersion.status.refused": "No se guardó.",
+  "import.episodeVersion.status.adopted":
+    "Sonarr ahora hace seguimiento de este archivo como el propio del episodio, así que puede renombrarlo, mejorarlo o borrarlo.",
+  "import.episodeVersion.status.adoptable":
+    "Sonarr tomaría este archivo como el propio del episodio en su próximo escaneo.",
+  "import.episodeVersion.status.episode_file_missing":
+    "El archivo propio del episodio ya no está, así que Sonarr toma este en su lugar en su próximo escaneo.",
+  "import.episodeVersion.status.series_moved":
+    "Sonarr movió la serie sin este archivo. La versión se queda donde estaba.",
+  "import.episodeVersion.status.series_deleted":
+    "Sonarr ya no tiene esta serie. La versión sigue en el disco; bórrala a mano.",
+  "import.episodeVersion.status.unknown": "Estado de la versión: {status}.",
+  "import.episodeVersion.refusal.version_upgrade":
+    "Sonarr tomaría este archivo como el propio del episodio, así que no se guardó.",
+  "import.episodeVersion.refusal.version_unchecked":
+    "Sonarr no dio un veredicto sobre este archivo, así que no se guardó.",
+  "import.episodeVersion.refusal.version_exists":
+    "Ya existe un archivo con este nombre, así que no se sustituyó nada.",
+  "import.episodeVersion.refusal.version_failed":
+    "No se pudo guardar. Avisa a quien administra el servidor.",
+  "import.episodeVersion.refusal.unknown": "No se guardó (código: {code}).",
+  "errors.version_upgrade":
+    "Sonarr tomaría algunos de estos archivos por los archivos propios de los episodios, así que no se pueden conservar como segundas versiones.",
+  "errors.version_unchecked":
+    "Sonarr no da un veredicto sobre algunos de estos archivos, así que no se pueden conservar como segundas versiones.",
 };
 
 export default es;

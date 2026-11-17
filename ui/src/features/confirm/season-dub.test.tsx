@@ -225,15 +225,6 @@ describe("the season-dub choice", () => {
     expect(screen.queryByRole("radio")).not.toBeInTheDocument();
   });
 
-  // `version` (#58, #94) is built in #97: until then the page does not offer it.
-  it("does not offer the version policy even when the server lists it", async () => {
-    serve([existing, fresh], { ...asking, offers: ["replace", "subtitlesOnly", "version"] });
-    open();
-    expect(await screen.findByRole("radio", { name: /Replace the files/ })).toBeVisible();
-    expect(screen.queryByRole("radio", { name: /second versions/ })).not.toBeInTheDocument();
-    expect(screen.getAllByRole("radio")).toHaveLength(2);
-  });
-
   it.each([
     ["series_folder_unusable", /folder name for the series cannot be part of a file name/],
     ["season_folder_unavailable", /season folder cannot take the versions/],
@@ -244,18 +235,6 @@ describe("the season-dub choice", () => {
     open();
     expect(await screen.findByText(/Second versions|Keep as second versions/)).toBeVisible();
     expect(screen.getByText(text)).toBeVisible();
-  });
-
-  it("asks for no choice when the only option is one it cannot offer", async () => {
-    const bodies = recordConfirm();
-    const user = userEvent.setup();
-    serve([existing, fresh], { ...asking, offers: ["version"] });
-    open();
-    expect(await screen.findByText(/Nothing is offered for these episodes/)).toBeVisible();
-    expect(screen.queryByRole("radio")).not.toBeInTheDocument();
-    await user.click(await importButton());
-    await waitFor(() => expect(bodies).toHaveLength(1));
-    expect(bodies[0]).not.toHaveProperty("seasonDub");
   });
 
   it("names an option it does not know instead of hiding it", async () => {
