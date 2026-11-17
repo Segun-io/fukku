@@ -6,7 +6,7 @@ require (
 	github.com/tus/tusd/v2 v2.10.1
 	go.yaml.in/yaml/v3 v3.0.6
 	golang.org/x/exp v0.0.0-20260611194520-c48552f49976
-	golang.org/x/sys v0.49.0
+	golang.org/x/sys v0.50.0
 	golang.org/x/text v0.44.0
 	modernc.org/sqlite v1.62.0
 )
