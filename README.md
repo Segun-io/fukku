@@ -28,7 +28,9 @@ a normal download.
 The plan, the three flows and the milestones are in [docs/plan.md](docs/plan.md). How the
 pinned versions of Radarr, Sonarr, Bazarr and Jellyfin behave is in
 [docs/compatibility.md](docs/compatibility.md). How the UI looks and sounds, and which
-component or token to use, is in [docs/design.md](docs/design.md).
+component or token to use, is in [docs/design.md](docs/design.md). What Fukku defends
+against, and what it accepts, is in [docs/threat-model.md](docs/threat-model.md); how to
+report a vulnerability is in [SECURITY.md](SECURITY.md).
 
 ## What it needs
 
