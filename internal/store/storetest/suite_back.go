@@ -102,6 +102,44 @@ func testBackToConfirmation(t *testing.T, s store.Store) {
 		t.Errorf("back of an unknown job: %v, want ErrNotFound", err)
 	}
 
+	// The retention date: a date that is set becomes c.ExpiresAt when that is later, and
+	// never moves earlier; a job without a date keeps none.
+	soon := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
+	later := soon.Add(14 * 24 * time.Hour)
+	withDate := func(date time.Time, until time.Time) time.Time {
+		j := importing()
+		if !date.IsZero() {
+			if _, err := s.Transition(ctx, j.ID, store.Importing, store.Stalled, store.Change{ErrorCode: "x", ExpiresAt: &date}); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := s.Transition(ctx, j.ID, store.Stalled, store.Importing, store.Change{}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		got, err := s.BackToConfirmation(ctx, j.ID, target, opts, audit, store.Change{Actor: "system", ExpiresAt: &until})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if stored := must(s.Job(ctx, j.ID))(t); !stored.ExpiresAt.Equal(got.ExpiresAt) {
+			t.Errorf("stored expiry %s, returned %s", stored.ExpiresAt, got.ExpiresAt)
+		}
+		return got.ExpiresAt
+	}
+	if got := withDate(soon, later); !got.Equal(later) {
+		t.Errorf("a date about to pass became %s, want %s", got, later)
+	}
+	if got := withDate(later, soon); !got.Equal(later) {
+		t.Errorf("a later date became %s, want it kept (%s)", got, later)
+	}
+	if got := withDate(time.Time{}, later); !got.IsZero() {
+		t.Errorf("a job without a date got %s", got)
+	}
+
+	// The guarded pair is refused first, whatever else is wrong with the call.
+	if _, err := s.TransitionFor(ctx, unknownJob, store.Target{App: "radarr", TitleID: 99}, store.Importing, store.AwaitingConfirmation, store.Change{}); !errors.Is(err, store.ErrInvalidTransition) {
+		t.Errorf("TransitionFor of an unknown job, guarded pair: %v, want ErrInvalidTransition", err)
+	}
+
 	// The state machine allows the move, but Transition and TransitionFor do not make it.
 	if !store.CanTransition(store.Importing, store.AwaitingConfirmation) {
 		t.Error("importing → awaiting-confirmation is not in the state machine")

@@ -190,6 +190,9 @@ func (f *Fake) PutProposal(ctx context.Context, jobID string, from, to store.Sta
 }
 
 func (f *Fake) TransitionFor(ctx context.Context, jobID string, t store.Target, from, to store.State, c store.Change) (store.Job, error) {
+	if store.OnlyBack(from, to) {
+		return store.Job{}, fmt.Errorf("%w: %s → %s is BackToConfirmation's", store.ErrInvalidTransition, from, to)
+	}
 	if err := f.lock(ctx); err != nil {
 		return store.Job{}, err
 	}
@@ -200,9 +203,6 @@ func (f *Fake) TransitionFor(ctx context.Context, jobID string, t store.Target, 
 	if !f.hasTarget(jobID, t) {
 		return store.Job{}, store.ErrConflict
 	}
-	if store.OnlyBack(from, to) {
-		return store.Job{}, fmt.Errorf("%w: %s → %s is BackToConfirmation's", store.ErrInvalidTransition, from, to)
-	}
 	return f.transition(jobID, from, to, c)
 }
 
@@ -211,9 +211,6 @@ func (f *Fake) BackToConfirmation(ctx context.Context, jobID string, t store.Tar
 		return store.Job{}, err
 	}
 	defer f.mu.Unlock()
-	if c.ExpiresAt != nil {
-		return store.Job{}, errors.New("storetest: BackToConfirmation does not change the retention date")
-	}
 	if options == nil || audit.Action == "" {
 		return store.Job{}, errors.New("storetest: BackToConfirmation needs options and an audit action")
 	}
@@ -228,6 +225,11 @@ func (f *Fake) BackToConfirmation(ctx context.Context, jobID string, t store.Tar
 	}
 	if _, err := json.Marshal(audit.Detail); err != nil {
 		return store.Job{}, err
+	}
+	if old := f.jobs[jobID].ExpiresAt; old.IsZero() {
+		c.ExpiresAt = nil
+	} else if c.ExpiresAt != nil && old.After(norm(*c.ExpiresAt)) {
+		c.ExpiresAt = &old
 	}
 	next, err := f.transition(jobID, store.Importing, store.AwaitingConfirmation, c)
 	if err != nil {

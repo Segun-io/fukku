@@ -498,9 +498,6 @@ func (s *sqliteStore) insertAudit(ctx context.Context, tx *sql.Tx, jobID string,
 }
 
 func (s *sqliteStore) BackToConfirmation(ctx context.Context, jobID string, t Target, options json.RawMessage, audit AuditEntry, c Change) (Job, error) {
-	if c.ExpiresAt != nil {
-		return Job{}, errors.New("store: BackToConfirmation does not change the retention date")
-	}
 	if options == nil || audit.Action == "" {
 		return Job{}, errors.New("store: BackToConfirmation needs options and an audit action")
 	}
@@ -522,6 +519,17 @@ func (s *sqliteStore) BackToConfirmation(ctx context.Context, jobID string, t Ta
 	}
 	if !fromNanos(submitted).IsZero() {
 		return Job{}, ErrConflict
+	}
+	// The retention date is never moved earlier, and a date that is set is not left to pass
+	// while the job waits again: c.ExpiresAt is the earliest it may be.
+	var expires sql.NullInt64
+	if err := tx.QueryRowContext(ctx, "SELECT expires_at FROM jobs WHERE id = ?", jobID).Scan(&expires); err != nil {
+		return Job{}, err
+	}
+	if old := fromNanos(expires); old.IsZero() {
+		c.ExpiresAt = nil
+	} else if c.ExpiresAt != nil && old.After(normTime(*c.ExpiresAt)) {
+		c.ExpiresAt = &old
 	}
 	next, err := s.transitionTx(ctx, tx, jobID, Importing, AwaitingConfirmation, c)
 	if err != nil {

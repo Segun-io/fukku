@@ -811,19 +811,24 @@ func (e *Engine) useMerge(ctx context.Context, job store.Job, t store.Target, re
 		case merge.RefusalLibraryChanged:
 			return back(fmt.Errorf("the library file %q changed while it was merged (%s): rescan the film in Radarr, then match it again", rec.Library.Path, out.Detail))
 		}
-		refusal := out.Refusal
-		if refusal == "" {
-			refusal = merge.RefusalMuxFailed
-		}
-		if merge.IsRepeatable(refusal) {
+		// An empty code is not a known refusal: it is transient (it fails the job).
+		if merge.IsRepeatable(out.Refusal) {
 			// The same choice is refused again: the user chooses again (#95).
 			if err := drop(); err != nil {
 				return err
 			}
-			if err := e.refuseMerge(ctx, job, t, c, refusal, out.Detail); err != nil {
+			stuck, err := e.refuseMerge(ctx, job, t, c, out.Refusal, out.Detail)
+			if err != nil {
 				return err
 			}
+			if stuck {
+				return fail(CodeMergeFailed, out.Refusal, out.Refusal+": "+out.Detail)
+			}
 			return q.Ack(ctx, res.ID)
+		}
+		refusal := out.Refusal
+		if refusal == "" {
+			refusal = merge.RefusalMuxFailed
 		}
 		return fail(CodeMergeFailed, refusal, refusal+": "+out.Detail)
 	}
@@ -1009,15 +1014,17 @@ func (e *Engine) failMerge(ctx context.Context, job store.Job, t store.Target, c
 // refuseMerge sends a merge job whose task made a repeatable refusal back to awaiting
 // confirmation (see the top of this file), under the job's lock, only while the job is
 // still importing the same choice and no import is submitted (the store checks that in the
-// move's transaction). Nothing happens when the job changed meanwhile.
-func (e *Engine) refuseMerge(ctx context.Context, job store.Job, t store.Target, c mergeChoice, refusal, detail string) error {
+// move's transaction). Nothing happens when the job changed meanwhile. stuck is true when
+// the store refused the move but the job is still importing this choice: the caller fails
+// the job, so that it is not left with no choice and no result.
+func (e *Engine) refuseMerge(ctx context.Context, job store.Job, t store.Target, c mergeChoice, refusal, detail string) (stuck bool, err error) {
 	defer e.locks.Lock(job.ID)()
 	cur, ok, err := e.current(ctx, job, t)
 	if err != nil || !ok {
-		return err
+		return false, err
 	}
 	if now, ok := mergeOf(cur); !ok || now.Attempt != c.Attempt || now.Output != nil {
-		return nil
+		return false, nil
 	}
 	rec := MergeRefusal{
 		Code: refusal, Detail: detail, AudioTracks: c.AudioTracks, SubtitleTracks: c.SubtitleTracks,
@@ -1031,10 +1038,10 @@ func (e *Engine) refuseMerge(ctx context.Context, job store.Job, t store.Target,
 	}
 	opts, err := withOption(cur.Options, "merge", nil)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if opts, err = withOption(opts, "mergeRefusal", rec); err != nil {
-		return err
+		return false, err
 	}
 	audit := store.AuditEntry{Actor: actor, Action: "merge.refused", Detail: map[string]string{
 		"app": t.App, "titleId": strconv.Itoa(t.TitleID), "title": t.Title, "refusal": refusal, "detail": detail,
@@ -1042,17 +1049,27 @@ func (e *Engine) refuseMerge(ctx context.Context, job store.Job, t store.Target,
 		"offsetMs": strconv.FormatInt(c.OffsetMs, 10), "attempt": strconv.Itoa(c.Attempt),
 	}}
 	note := fmt.Sprintf("merge refused (%s): choose the tracks and the offset again", refusal)
-	_, err = e.st.BackToConfirmation(ctx, job.ID, cur, opts, audit, store.Change{Actor: actor, Note: note})
+	// Retention counts from now, as when the job first waited: it must not cancel at once a
+	// job whose date had nearly passed.
+	until := e.now().Add(e.p.cfg.Upload.JobRetention.D())
+	_, err = e.st.BackToConfirmation(ctx, job.ID, cur, opts, audit, store.Change{Actor: actor, Note: note, ExpiresAt: &until})
 	if errors.Is(err, store.ErrConflict) || errors.Is(err, store.ErrInvalidTransition) || errors.Is(err, store.ErrNotFound) {
-		return nil // the job moved on (a cancel, a rematch): that decides
+		// The job moved on (a cancel, a rematch): that decides. If it is still importing
+		// this choice, nothing else will deal with it.
+		if j, jerr := e.st.Job(ctx, job.ID); jerr == nil && j.State == store.Importing {
+			if now, ok := mergeOf(cur); ok && now.Attempt == c.Attempt {
+				return true, nil
+			}
+		}
+		return false, nil
 	}
 	if err != nil {
-		return err
+		return false, err
 	}
 	e.forget(job.ID)
 	e.log.Warn("merge_refused", "job", job.ID, "refusal", refusal, "detail", detail, "attempt", c.Attempt)
 	e.log.Info("job_state", "job", job.ID, "from", store.Importing, "to", store.AwaitingConfirmation, "note", note)
-	return nil
+	return false, nil
 }
 
 // mergeAppError ends a merge pass whose call to the app failed, as the proposal's do
