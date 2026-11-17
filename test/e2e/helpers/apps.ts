@@ -374,8 +374,8 @@ export class IndexerClient extends Rest {
     return this.call("DELETE", "/control/releases");
   }
 
-  requests(): Promise<IndexerRequest[]> {
-    return this.get<IndexerRequest[]>("/control/requests");
+  requests(): Promise<IndexerRequest[] | null> {
+    return this.get<IndexerRequest[] | null>("/control/requests");
   }
 
   forgetRequests(): Promise<unknown> {

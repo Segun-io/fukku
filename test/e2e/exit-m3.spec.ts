@@ -88,11 +88,28 @@ async function emptyBlackhole() {
 }
 
 test.afterEach(async () => {
+  const cancelled: string[] = [];
   for (const id of started.splice(0)) {
     const job = await api.job(id).catch(() => null);
     if (job && !["done", "failed", "cancelled"].includes(job.state)) {
       await api.cancel(id).catch(() => {});
+      cancelled.push(id);
     }
+  }
+  // The runner removes a cancelled job's folder on a later pass: wait for it, so that the
+  // next test (exit-stack.spec.ts lists the intake around its uploads) sees a quiet intake.
+  for (const id of cancelled) {
+    await expect
+      .poll(
+        () =>
+          stat(jobDir(id)).then(
+            () => true,
+            () => false,
+          ),
+        { timeout: 60_000 },
+      )
+      .toBe(false)
+      .catch(() => console.log(`the folder of the cancelled job ${id} is still there`));
   }
   if (!online || simulateOutage) return;
   await indexer.clear().catch(() => {});
@@ -301,7 +318,8 @@ async function tryGrab(movieId: number, command: string) {
     nzbs = await readdir(nzbDir).catch(() => []);
     if (nzbs.length === 0) await new Promise((r) => setTimeout(r, 250));
   }
-  const requests = (await indexer.requests()).filter((r) => r.agent.startsWith("Radarr"));
+  // The indexer answers null while it has seen no request.
+  const requests = ((await indexer.requests()) ?? []).filter((r) => r.agent.startsWith("Radarr"));
   const result = {
     command,
     status: `${cmd.status} ${cmd.message ?? ""}`.trim(),
