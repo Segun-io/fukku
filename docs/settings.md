@@ -139,7 +139,7 @@ same settings.
 | Setting | Environment | Default | Description |
 | --- | --- | --- | --- |
 | `paths.intakeRoot` | `FUKKU_PATHS_INTAKE_ROOT` | `/data/intake` | Where uploads (`.incoming/`) and jobs (`jobs/`) live. Must be on the library filesystem when `importMode=move` |
-| `paths.libraryRoots` | `FUKKU_PATHS_LIBRARY_ROOTS` | (empty) | Library root folders as Fukku sees them; used for the same-filesystem check and by the worker to read a film's library file in flow 2 (the runtime comparison): the worker reads a library file only when its path, as `paths.mappings.radarr` maps Radarr's, is a clean path inside one of these roots, and only through a read-only handle confined to that root (no `..`, no link out of it). A merge (flow 2a) reads the library file the same way and never writes it: its output is a new file in the job directory. With none set, a flow 2 job fails with `library_unreadable` |
+| `paths.libraryRoots` | `FUKKU_PATHS_LIBRARY_ROOTS` | (empty) | Library root folders as Fukku sees them; used for the same-filesystem check and by the worker to read a film's library file in flow 2 (the runtime comparison): the worker reads a library file only when its path, as `paths.mappings.radarr` maps Radarr's, is a clean path inside one of these roots, and only through a read-only handle confined to that root (no `..`, no link out of it). A merge (flow 2a) reads the library file the same way and never writes it: its output is a new file in the job directory. With none set, a flow 2 job fails with `library_unreadable`. Second versions of episodes (#58) are the one write the web process makes under these roots: a hard link into Sonarr's season folder, through a handle confined to the root |
 | `paths.mappings.radarr` | `FUKKU_PATHS_MAPPINGS_RADARR` | (empty) | How Radarr sees Fukku's paths; empty means the same paths |
 | `paths.mappings.sonarr` | `FUKKU_PATHS_MAPPINGS_SONARR` | (empty) | How Sonarr sees Fukku's paths |
 | `paths.mappings.subtitles` | `FUKKU_PATHS_MAPPINGS_SUBTITLES` | (empty) | How the subtitle manager sees Fukku's paths |
@@ -254,8 +254,26 @@ Radarr, or another instance), the version is never grouped with it and is treate
 film. A film deleted and added back to Radarr gets a new id: the version follows it by its TMDB
 id (audit `version.reattached`). A version whose placement was cut short by a crash, and whose
 job then ended, is settled by the next check: linked and grouped when the file is the job's
-upload, otherwise its record is removed (so the name is not refused for ever). Episodes (Sonarr)
-follow the plan's naming rules instead (#58).
+upload, otherwise its record is removed (so the name is not refused for ever).
+
+**Episodes** (#58, the season-dub policy `version`) follow the naming plan instead: the dub of an
+episode that already has a file is placed **next to that file**, in Sonarr's season folder, as
+`<series folder> - S01E02 - <label>.<ext>` (the series folder is the name of Sonarr's folder for the
+show). Jellyfin 12.4 groups the two as versions of one episode by the `SxxEyy` (probe B2), so no
+merge call is needed and Sonarr's renames and upgrades of the episode's own file do not undo it
+(probe M3-episode-versions); the keeper leaves episodes' versions alone. Sonarr does not track the
+version: it never renames it, an upgrade replaces only Sonarr's own file, and deleting the series
+with its files deletes the version too. On each rescan Sonarr judges the version against the
+episode's file and would adopt it if it were an upgrade (probe B3-sonarr), so before each version
+is linked Sonarr is asked for its verdict on the file under its version name
+(`versions.requireNotUpgradeVerdict`), and if the episode's own file is deleted, Sonarr takes the
+version for the episode's file on its next rescan. Episodes' versions are offered when
+`versions.enabled` is on and the media server is Jellyfin 12.4 or later (Fukku reads its version);
+`versions.root` is not used for them. They need the season folders **writable by the web process
+and on the same mount as the intake root** (each confirmation checks every season folder by the
+same trial link), and inside `paths.libraryRoots` as `paths.mappings.sonarr` maps Sonarr's paths.
+The job's subtitle files for those episodes are not handed over (the subtitle manager knows only
+Sonarr's file), and Sonarr's monitoring of them is left as it is.
 
 The file is placed by a hard link from the job's folder, which never replaces an existing file,
 so `versions.root` must be on **the same mount** as the intake root and writable by the web
@@ -276,19 +294,19 @@ outside the film folder, and episodes naming. A configuration that still sets it
 
 | Setting | Environment | Default | Description |
 | --- | --- | --- | --- |
-| `versions.enabled` | `FUKKU_VERSIONS_ENABLED` | `false` | Offer second versions (flow 2b), the one direct write into the library |
+| `versions.enabled` | `FUKKU_VERSIONS_ENABLED` | `false` | Offer second versions (flow 2b, and the season-dub policy `version` for episodes), the one direct write into the library |
 | `versions.root` | `FUKKU_VERSIONS_ROOT` | (empty) | Folder for films' second versions, as Fukku sees it. Required when `versions.enabled` is on. Must not overlap `paths.libraryRoots` or `paths.intakeRoot`, and before each version Fukku also checks it against Radarr's root folders (as `paths.mappings.radarr` maps them). Fukku creates one folder per film in it, never the root itself |
-| `versions.labelTemplate` | `FUKKU_VERSIONS_LABEL_TEMPLATE` | `{languageName}` | Label in `<film folder> - <label>.<ext>`, proposed to the user, who may change it. `{languageName}` is the upload's new audio language in that language (`Español` for a Spanish track the library file does not have), `{languageCode}` its ISO 639-1 code (`es`). Without a tagged audio language the user must type a label |
+| `versions.labelTemplate` | `FUKKU_VERSIONS_LABEL_TEMPLATE` | `{languageName}` | Label in `<film folder> - <label>.<ext>` (and `<series folder> - S01E02 - <label>.<ext>` for episodes), proposed to the user, who may change it. `{languageName}` is the upload's new audio language in that language (`Español` for a Spanish track the library file does not have; for episodes, the first tagged audio language that is not the series' original one), `{languageCode}` its ISO 639-1 code (`es`). Without a tagged audio language the user must type a label. An episode's label must not hold a season and episode number (`S02E05`, `2x05`) |
 | `versions.forbiddenLabelTokens` | `FUKKU_VERSIONS_FORBIDDEN_LABEL_TOKENS` | `2160p, 1080p, 720p, 576p, 480p, 4k, uhd, hd, sd, bluray, blu-ray, bdrip, brrip, remux, web, webdl, web-dl, webrip, hdtv, dvd, dvdrip, hdr, dv, proper, repack` | Words a label must not contain (whole words, any case; a token with `-` also matches with a space or `.`), so the version's name never reads as a quality or source (B3): such a label is refused with `version_label` |
-| `versions.requireNotUpgradeVerdict` | `FUKKU_VERSIONS_REQUIRE_NOT_UPGRADE_VERDICT` | `true` | Before a version is placed, ask the app what it reads in the version's name. Films: Radarr's `GET /parse` of `<film folder> - <label>` (no extension: with `.mkv` Radarr reads WEBDL-720p in any name) must read no quality, source, resolution, proper, real or repack beyond what it reads in `<film folder>` alone (so a film whose own title reads as a quality, such as `Cam (2018)`, can still have versions), else the label is refused (`version_label`). A name Radarr cannot parse at all gives no verdict, and is refused too: try another label, or turn this off. Episodes: Sonarr's "not an upgrade" verdict (#58) |
+| `versions.requireNotUpgradeVerdict` | `FUKKU_VERSIONS_REQUIRE_NOT_UPGRADE_VERDICT` | `true` | Before a version is placed, ask the app what it reads in the version's name. Films: Radarr's `GET /parse` of `<film folder> - <label>` (no extension: with `.mkv` Radarr reads WEBDL-720p in any name) must read no quality, source, resolution, proper, real or repack beyond what it reads in `<film folder>` alone (so a film whose own title reads as a quality, such as `Cam (2018)`, can still have versions), else the label is refused (`version_label`). A name Radarr cannot parse at all gives no verdict, and is refused too: try another label, or turn this off. Episodes (#58): the upload is hard-linked under the version's name into the job's folder (`jobs/<job>/versions/<row>/`), and Sonarr's Manual Import proposal for it, re-checked for the episode, must reject it as not an upgrade for the episode's file (the check Sonarr's rescan runs: quality from the name and the file's resolution, then the custom-format score), or because the quality profile allows no upgrade (Sonarr then never takes another file for the episode's). Else the rows are refused with `version_upgrade`: replace those episodes instead, or skip them. A file Sonarr does not offer, or reads as another episode, gives no verdict: `version_unchecked`, with the reason. Asked at the confirmation and again right before each link; a version refused there fails its row only (result `refused`, audit `version.refused`), and the other versions and episodes go on; only when every version is refused and nothing else is imported does the job fail. Off, nothing stops a version Sonarr would take for the episode's file |
 | `versions.regroupInterval` | `FUKKU_VERSIONS_REGROUP_INTERVAL` | `10m` | How often every film version's grouping is checked: Fukku asks Radarr for the film's current file and merges the version with it again when the grouping was lost (audit `version.regrouped`, which names the old and the new file). Files the media server does not list yet get one refresh per pass for all of them (with `mediaServer.refreshMethod: libraryScan`, one scan, skipped while a scan runs), and one wait of up to `mediaServer.itemWait` for all of them together; a file in no library of the media server is skipped (logged) and the others go on. A version still not listed after that backs off: the gap between its attempts doubles (1, 2, 4… passes), up to the hourly recheck (a nudge after an import tries at once; a restart starts over). Fukku also checks a film's versions right after each of its own imports for that film. `film_deleted` and `missing` versions are checked every six intervals (at least hourly). `0` turns the schedule off (then only the checks after imports run) |
 
 ## seasonDub
 
 | Setting | Environment | Default | Description |
 | --- | --- | --- | --- |
-| `seasonDub.policy` | `FUKKU_SEASON_DUB_POLICY` | `ask` | A dub of a season already in the library: `merge`, `version`, `replace`, `subtitlesOnly` or `ask`. A fixed policy skips the question; one that does not apply to the job (or is not available yet: `merge`, `version`) leaves the rows that already have a file skipped |
-| `seasonDub.order` | `FUKKU_SEASON_DUB_ORDER` | `merge, version, replace, subtitlesOnly` | Order of the options offered by `ask`. Only those that apply are shown: `replace` always; `subtitlesOnly` when the job has subtitle files and `subtitles.provider` and `subtitles.handOverUploads` allow the hand-over |
+| `seasonDub.policy` | `FUKKU_SEASON_DUB_POLICY` | `ask` | A dub of a season already in the library: `merge`, `version`, `replace`, `subtitlesOnly` or `ask`. A fixed policy skips the question; one that does not apply to the job (or is not available yet: `merge`) leaves the rows that already have a file skipped. `version` keeps them as second versions of their episodes (see versions above) |
+| `seasonDub.order` | `FUKKU_SEASON_DUB_ORDER` | `merge, version, replace, subtitlesOnly` | Order of the options offered by `ask`. Only those that apply are shown: `version` when `versions.enabled` is on, the media server is Jellyfin 12.4 or later, Sonarr's folder name for the series can be part of a file name, and every season folder of the rows takes a hard link from the intake root (tried, and reused for a minute; else the proposal's `seasonDub.notOffered` says why: `versions_disabled`, `versions_unsupported`, `media_server_too_old`, `media_server_unknown`, `series_folder_unusable`, `season_folder_unavailable`); `replace` always; `subtitlesOnly` when the job has subtitle files and `subtitles.provider` and `subtitles.handOverUploads` allow the hand-over |
 
 ## worker
 

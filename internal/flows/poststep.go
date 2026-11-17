@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 
 	"github.com/segun-io/fukku/internal/store"
 )
@@ -84,10 +85,19 @@ func (e *Engine) AddVersionStep(s PostStep) { e.versionSteps = append(e.versionS
 // f must not block. Call it before the runner starts.
 func (e *Engine) OnDone(f func(store.Target)) { e.onDone = append(e.onDone, f) }
 
+// AddEpisodeVersionStep registers a post-processing step that a job keeping episodes as
+// second versions (#58) runs after the import's steps. Call it before the runner starts.
+func (e *Engine) AddEpisodeVersionStep(s PostStep) {
+	e.episodeVersionSteps = append(e.episodeVersionSteps, s)
+}
+
 // stepsFor is the post-processing steps of a job with target t.
 func (e *Engine) stepsFor(t store.Target) []PostStep {
 	if IsVersion(t) {
 		return e.versionSteps
+	}
+	if HasEpisodeVersions(t) {
+		return append(slices.Clone(e.steps), e.episodeVersionSteps...)
 	}
 	return e.steps
 }

@@ -35,7 +35,9 @@ services:
       - fukku-data:/var/lib/fukku          # SQLite database: local disk, never network storage
       - fukku-spool:/spool
       # The filesystem that holds downloads, the library and the intake root. Mount it at
-      # the same path Radarr and Sonarr use, or set paths.mappings.* in fukku.yaml.
+      # the same path Radarr and Sonarr use, or set paths.mappings.* in fukku.yaml. Writable:
+      # the web process writes the intake root and, with versions.enabled, second versions
+      # (versions.root, and Sonarr's season folders for episodes).
       - /path/to/data:/data
     # Reach Radarr, Sonarr, Bazarr and Jellyfin, and be reachable by the reverse proxy only.
     networks: [media]

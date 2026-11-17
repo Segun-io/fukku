@@ -25,6 +25,7 @@ type ConfirmRequest struct {
 	// Flow2 is what to do with a flow 2 job (#52): "merge" adds the upload's tracks to the
 	// film's file (#55, merge.go), with Merge; "version" keeps the upload as a second
 	// version of the film (#56), with Version. Empty: an import, which a flow 2 job refuses.
+	// Version also gives the label of episodes' versions (SeasonDub "version", #58).
 	Flow2   string          `json:"flow2,omitempty"`
 	Merge   *MergeRequest   `json:"merge,omitempty"`
 	Version *VersionRequest `json:"version,omitempty"`
@@ -42,6 +43,8 @@ type Confirmation struct {
 	SeasonDub string
 	Seasons   []int
 	DubRows   []string
+	// EpisodeVersions are the episodes' versions of the policy version (#58); nil otherwise.
+	EpisodeVersions *episodeVersions
 }
 
 // Overridden is a row imported despite its rejections or warnings.
@@ -102,7 +105,7 @@ func (e *Engine) confirm(ctx context.Context, user, email, jobID string, req Con
 		// Importing the upload would replace the film's file: flow 2 merges or adds a version.
 		return Confirmation{}, refuse(CodeFlow2, "The film already has a file in the library: this job can merge the new language into it or keep it as a second version, not import it.")
 	}
-	if req.Flow2 != "" || req.Merge != nil || req.Version != nil {
+	if req.Flow2 != "" || req.Merge != nil || (req.Version != nil && s.t.App != AppSonarr) {
 		return Confirmation{}, badRequest("flow2, merge and version apply only to a job whose film already has a file (flow 2).")
 	}
 	if s.t.App == AppRadarr {
@@ -129,17 +132,28 @@ func (e *Engine) confirm(ctx context.Context, user, email, jobID string, req Con
 		e.log.Warn("import_storage_unavailable", "job", jobID, "error", err)
 		return Confirmation{}, refuse(CodeStorageUnavailable, "The storage is not available: a mount is missing, or the intake and library folders are on different filesystems.")
 	}
+	if err := s.checkEpisodeVersions(ctx); err != nil { // #58: whether the policy version is offered
+		return Confirmation{}, err
+	}
 	dub, ex, err := s.chooseDub(req.SeasonDub)
 	if err != nil {
 		return Confirmation{}, err
 	}
 	s.dub = dub
+	var epv *episodeVersions // #58: the rows that have a file become second versions
+	if dub == PolicyVersion {
+		if epv, err = e.planEpisodeVersions(ctx, s, ex, req.Version); err != nil {
+			return Confirmation{}, err
+		}
+	} else if req.Version != nil {
+		return Confirmation{}, badRequest("version applies only to a flow 2 job, or to rows kept as second versions (seasonDub version).")
+	}
 	views, _, err := s.views(ctx)
 	if err != nil {
 		return Confirmation{}, err
 	}
 	var (
-		c          = Confirmation{Target: s.t, SeasonDub: dub, Seasons: ex.seasons, DubRows: ex.rows}
+		c          = Confirmation{Target: s.t, SeasonDub: dub, Seasons: ex.seasons, DubRows: ex.rows, EpisodeVersions: epv}
 		incomplete []string
 		needs      []string
 		sharing    []string
@@ -199,7 +213,7 @@ func (e *Engine) confirm(ctx context.Context, user, email, jobID string, req Con
 		err := refuse(CodeNeedsOverride, "Some rows have rejections or warnings: confirm them as overrides, or skip them.")
 		err.Rows = needs
 		return Confirmation{}, err
-	case len(c.Rows) == 0 && dub != PolicySubtitlesOnly:
+	case len(c.Rows) == 0 && dub != PolicySubtitlesOnly && dub != PolicyVersion:
 		return Confirmation{}, refuse(CodeNothingToImport, "Every row is skipped: there is nothing to import.")
 	}
 
@@ -247,6 +261,13 @@ func (e *Engine) confirm(ctx context.Context, user, email, jobID string, req Con
 	if opts, err = withOption(opts, "seasonDub", dubChoice); err != nil {
 		return Confirmation{}, err
 	}
+	var epvChoice any // nil: the key goes
+	if epv != nil {
+		epvChoice = *epv
+	}
+	if opts, err = withOption(opts, "episodeVersions", epvChoice); err != nil {
+		return Confirmation{}, err
+	}
 	if string(opts) == string(s.t.Options) {
 		opts = nil // unchanged
 	} else {
@@ -259,6 +280,8 @@ func (e *Engine) confirm(ctx context.Context, user, email, jobID string, req Con
 		note += fmt.Sprintf(", replacing the existing files of %s", seasonsText(ex.seasons))
 	case PolicySubtitlesOnly:
 		note = fmt.Sprintf("nothing to import for %s: only the subtitles of %s are handed over", s.t.App, seasonsText(ex.seasons))
+	case PolicyVersion:
+		note += fmt.Sprintf(", keeping %d file(s) of %s as second versions of their episodes", len(epv.Versions), seasonsText(ex.seasons))
 	}
 	if len(c.Overridden) > 0 {
 		var ids []string
@@ -302,8 +325,10 @@ func needsOverride(v RowView, replaced bool) bool {
 // audit is the confirmation's audit entries: import.confirmed, rejection.overridden for
 // each row imported despite its rejections or warnings, and language.overridden, with the
 // custom formats and scores, for each whose language warning (#39) was among them.
-// A season-dub policy adds season.replaced for each season whose files are replaced, and
-// season.subtitles_only for each season whose episodes get the upload's subtitles only.
+// A season-dub policy adds season.replaced for each season whose files are replaced,
+// season.subtitles_only for each season whose episodes get the upload's subtitles only, and
+// season.versions for each season kept as second versions, with version.confirmed for each
+// episode's version (#58).
 func (c Confirmation) audit(user, email string) []store.AuditEntry {
 	overrides := make([]string, 0, len(c.Overridden))
 	for _, o := range c.Overridden {
@@ -333,7 +358,15 @@ func (c Confirmation) audit(user, email string) []store.AuditEntry {
 				"app": c.Target.App, "titleId": strconv.Itoa(c.Target.TitleID), "title": c.Target.Title,
 				"season": strconv.Itoa(season), "rows": strings.Join(c.DubRows, ","), "policy": PolicySubtitlesOnly,
 			}))
+		case PolicyVersion:
+			out = append(out, entry("season.versions", map[string]string{
+				"app": c.Target.App, "titleId": strconv.Itoa(c.Target.TitleID), "title": c.Target.Title,
+				"season": strconv.Itoa(season), "rows": strings.Join(c.DubRows, ","), "policy": PolicyVersion,
+			}))
 		}
+	}
+	if v := c.EpisodeVersions; v != nil {
+		out = append(out, episodeVersionsAudit(user, email, c.Target, *v)...)
 	}
 	for _, o := range c.Overridden {
 		out = append(out, entry("rejection.overridden", map[string]string{

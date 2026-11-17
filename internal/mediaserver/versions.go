@@ -57,6 +57,11 @@ import (
 //     (GET /movie?tmdbId=), and the version follows it (audit version.reattached);
 //   - film_deleted and missing are checked again every finalRecheck, so a version comes back
 //     on its own once its film or its file does.
+//
+// Second versions of episodes (#58, App sonarr) are not the keeper's: Jellyfin groups them by
+// their SxxEyy, which no rename or upgrade of the episode's file undoes (probe B2), so a
+// pass only settles a record of theirs still placing whose job ended; their first check is
+// the job's step (EpisodeVersionStep).
 
 // VersionStepName is the name of the post-processing step of a second-version job.
 const VersionStepName = "mediaServerVersions"
@@ -138,6 +143,9 @@ func (k *Keeper) Nudge(t store.Target) {
 // A nudge for the film checks all of the film's, backoff or not. Records being placed are
 // settled apart (settle).
 func (k *Keeper) due(rec store.Version, titleID int) bool {
+	if rec.App != flows.AppRadarr { // an episode's version (#58): grouped by its name
+		return false
+	}
 	if titleID != 0 {
 		return rec.App == flows.AppRadarr && rec.TitleID == titleID && rec.Status != store.VersionPlacing
 	}
@@ -200,7 +208,7 @@ func (k *Keeper) pass(ctx context.Context, titleID int) {
 	var due []store.Version
 	for _, rec := range recs {
 		if rec.Status == store.VersionPlacing {
-			if linked := k.settle(ctx, rec.Path); linked && (titleID == 0 || rec.TitleID == titleID) {
+			if linked := k.settle(ctx, rec.Path); linked && rec.App == flows.AppRadarr && (titleID == 0 || rec.TitleID == titleID) {
 				due = append(due, rec)
 			}
 			continue

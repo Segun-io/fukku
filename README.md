@@ -11,7 +11,8 @@ logic stay in charge, and the media server, the subtitle manager and request app
 a normal download.
 
 - **Radarr and Sonarr stay the only writers of the library.** Fukku never renames or files
-  media itself.
+  media itself. The one exception is opt-in second versions (a dub kept next to the
+  original), placed as hard links that never replace a file.
 - **Built for untrusted uploads.** A separate worker process with no network and no
   credentials opens the uploaded files. Archives are extracted with limits, and nothing is
   ever overwritten.

@@ -71,13 +71,15 @@ func sameFilesystemRequired(cfg config.Config) bool {
 
 // CanLink checks by trial that a hard link from dir into other works: it creates an empty
 // file in dir, links it into other under a name of its own, and removes both. Second
-// versions (#56) are such links, from the intake root into versions.root. Comparing device
+// versions are such links, from the intake root into versions.root (films, #56) and into
+// Sonarr's season folders (episodes, #58). Comparing device
 // ids is not enough: two bind mounts of one filesystem report the same st_dev, yet a link
 // between them fails with EXDEV, so only the trial says "the same mount". Neither folder is
 // created. (The move-import check, SameFilesystem, stays a comparison: those moves are
-// Radarr's and Sonarr's, through their own mounts, and Fukku may see the library read-only.)
+// Radarr's and Sonarr's, through their own mounts, and with versions off Fukku may see the
+// library read-only.)
 func CanLink(dir, other string) error {
-	info, err := os.Stat(other) //nolint:gosec // versions.root, from the configuration
+	info, err := os.Stat(other) //nolint:gosec // versions.root or a season folder under paths.libraryRoots
 	switch {
 	case errors.Is(err, os.ErrNotExist):
 		return fmt.Errorf("%s does not exist", other)

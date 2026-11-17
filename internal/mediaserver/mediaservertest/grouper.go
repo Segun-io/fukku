@@ -26,24 +26,25 @@ func (f *Fake) MergeVersions(_ context.Context, ids []string) error {
 	return nil
 }
 
-// Sources returns the path of the item (from Items) and those of the items grouped with
-// it, in path order; nothing for an item Items does not list. Err["Sources"] makes it fail.
+// Sources returns the paths of the item (from Items: several paths of one id are the
+// versions the server grouped by their names, as Jellyfin does with episodes, #58) and those
+// of the items grouped with it, in path order; nothing for an item Items does not list.
+// Err["Sources"] makes it fail.
 func (f *Fake) Sources(_ context.Context, id string) ([]string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if err := f.Err["Sources"]; err != nil {
 		return nil, err
 	}
-	var own string
+	var out []string
 	for p, i := range f.Items {
 		if i == id {
-			own = p
+			out = append(out, p)
 		}
 	}
-	if own == "" {
+	if len(out) == 0 {
 		return nil, nil
 	}
-	out := []string{own}
 	if g, ok := f.groups[id]; ok {
 		for p, i := range f.Items {
 			if i != id && f.groups[i] == g {

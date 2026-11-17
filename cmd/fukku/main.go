@@ -181,6 +181,12 @@ func runWeb(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	keeper := mediaserver.NewKeeper(cfg, log, st, deps.Radarr, ms.Server, deps.Locks)
 	deps.Imports.AddVersionStep(&mediaserver.VersionStep{Keeper: keeper, Store: st, Config: cfg})
 	deps.Imports.OnDone(keeper.Nudge)
+	// Second versions of episodes (#58): offered from Jellyfin 12.4 on, and grouped by their
+	// names; the job's step checks the grouping.
+	if ms.Server != nil {
+		deps.Proposals.SetMediaServerVersion(ms.Server.Version)
+	}
+	deps.Imports.AddEpisodeVersionStep(&mediaserver.EpisodeVersionStep{Server: ms.Server, Series: deps.Sonarr, Store: st, Config: cfg, Log: log})
 	// The job runner (#29) drives jobs next to the HTTP server and stops with it, before
 	// the store closes.
 	rn := runner.New(cfg, log, st, q, time.Now)

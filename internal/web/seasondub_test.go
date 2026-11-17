@@ -39,7 +39,7 @@ func TestConfirmSeasonDub(t *testing.T) {
 		e, j, rows := setup(t)
 		path := "/api/jobs/" + j.ID + "/confirm"
 		rec := e.send("user1", "users", "GET", "/api/jobs/"+j.ID+"/proposal", "", false)
-		if !strings.Contains(rec.Body.String(), `"seasonDub":{"policy":"ask","ask":true,"offers":["replace","subtitlesOnly"],"seasons":[{"season":1,"episodes":3,"existing":2,"new":1}]}`) {
+		if !strings.Contains(rec.Body.String(), `"seasonDub":{"policy":"ask","ask":true,"offers":["replace","subtitlesOnly"],"seasons":[{"season":1,"episodes":3,"existing":2,"new":1}],"notOffered":[{"offer":"version","reason":"versions_disabled"}]}`) {
 			t.Errorf("proposal JSON %s", rec.Body)
 		}
 

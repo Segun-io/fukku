@@ -66,6 +66,35 @@ import (
 //	                       as the intake root (checked by a trial hard link)
 //	400 bad_request        flow2 or version on a job that is not flow 2, or with other fields
 //
+// A show's rows whose episodes already have a file are kept as second versions of those
+// episodes (#58, decision #20) with
+//
+//	POST /api/jobs/{id}/confirm  {"seasonDub": "version", "version": {"label": "Español"}}
+//	                              → 202 Job (state importing)
+//
+// when "version" is among the proposal's seasonDub.offers (versions.enabled, Jellyfin 12.4 or
+// later, Sonarr's series folder usable in a file name, every season folder taking a hard link
+// from the intake root; else seasonDub.notOffered says why). label is optional (empty: seasonDub.version.label). Each version goes next to the
+// episode's file, as "<series folder> - S01E02 - <label><ext>"; the other rows import as
+// usual. Audit: season.versions per season, version.confirmed per episode, then
+// version.linked once each file is in place. A version the placement refuses (Sonarr's
+// verdict changed, the name was taken, the episode lost its file) fails its row only
+// (import.rows[].result failed, result.episodeVersions[].status refused, audit
+// version.refused); the job fails only when every version is refused and nothing else is
+// imported. Errors besides the common ones:
+//
+//	409 version_unavailable  rows that cannot be versions (a double episode, a file holding
+//	                       other episodes, a folder outside paths.libraryRoots): "rows" lists them
+//	409 version_exists     a file or a record of a version's name is there: "rows" lists them
+//	409 version_label      the label is refused (as for films, or it holds an SxxEyy)
+//	409 version_upgrade    Sonarr does not reject these files, under their version names, as
+//	                       "not an upgrade": it would take them for the episodes' files on its
+//	                       next rescan (versions.requireNotUpgradeVerdict); "rows" lists them
+//	409 version_unchecked  Sonarr gives no verdict on these files (it does not offer them, or
+//	                       reads them as another episode); "rows" lists them, the message why
+//	503 storage_unavailable  a season folder is missing, not writable by Fukku, or not on the
+//	                       same mount as the intake root (a trial hard link)
+//
 // A flow 2 job whose upload is the same cut is confirmed as a merge (#55, flows/merge.go):
 //
 //	POST /api/jobs/{id}/confirm  {"flow2": "merge", "merge": {"audioTracks": [2], "subtitleTracks": [],
@@ -153,10 +182,15 @@ func (s *Server) confirmError(w http.ResponseWriter, r *http.Request, err error)
 		return
 	}
 	switch e.Code {
-	case flows.CodeNeedsOverride, flows.CodeIncompleteRows, flows.CodeSeasonDubChoice, flows.CodeSharedFile:
+	case flows.CodeNeedsOverride, flows.CodeIncompleteRows, flows.CodeSeasonDubChoice, flows.CodeSharedFile, flows.CodeVersionUpgrade, flows.CodeVersionUnchecked:
 		writeJSON(w, http.StatusConflict, rowsErrorBody{rowsError{Code: e.Code, Message: e.Message, Rows: e.Rows}})
-	case flows.CodeNothingToImport, flows.CodeVersionLabel, flows.CodeVersionUnavailable, flows.CodeVersionExists,
-		flows.CodeLibraryChanged, flows.CodeMergeNotOffered, flows.CodePreviewRequired:
+	case flows.CodeVersionUnavailable, flows.CodeVersionExists:
+		if len(e.Rows) > 0 { // episodes' versions (#58): the rows that cannot be one
+			writeJSON(w, http.StatusConflict, rowsErrorBody{rowsError{Code: e.Code, Message: e.Message, Rows: e.Rows}})
+			return
+		}
+		writeError(w, http.StatusConflict, e.Code, e.Message)
+	case flows.CodeNothingToImport, flows.CodeVersionLabel, flows.CodeLibraryChanged, flows.CodeMergeNotOffered, flows.CodePreviewRequired:
 		writeError(w, http.StatusConflict, e.Code, e.Message)
 	case flows.CodeStorageUnavailable:
 		writeError(w, http.StatusServiceUnavailable, e.Code, e.Message)

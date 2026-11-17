@@ -124,7 +124,15 @@ func (p *Proposals) View(ctx context.Context, job store.Job) (Proposal, error) {
 	if out.Rows, out.Hints, err = s.views(ctx); err != nil {
 		return Proposal{}, err
 	}
+	if err := s.checkEpisodeVersions(ctx); err != nil { // #58: whether the policy version is offered
+		return Proposal{}, err
+	}
 	out.SeasonDub = s.seasonDub()
+	if sd := out.SeasonDub; sd != nil && slices.Contains(sd.Offers, PolicyVersion) {
+		if sd.Version, err = s.episodeVersionsView(ctx); err != nil {
+			return Proposal{}, err
+		}
+	}
 	for _, q := range s.quals {
 		out.Qualities = append(out.Qualities, Ref(q))
 	}
@@ -165,9 +173,14 @@ type session struct {
 	idx   map[int]arr.Episode
 	quals []arr.Quality
 	langs []arr.Language
-	// dub is what the confirmation chose for the rows that have a file (PolicyReplace or
-	// PolicySubtitlesOnly); "" while the proposal is only viewed or edited.
+	// dub is what the confirmation chose for the rows that have a file (PolicyReplace,
+	// PolicySubtitlesOnly or PolicyVersion); "" while the proposal is only viewed or edited.
 	dub string
+	// epvChecked: whether episodes' versions are offered was settled (checkEpisodeVersions,
+	// #58), and epvNot says why not (nil: they are).
+	epvChecked bool
+	epvNot     *NotOffered
+	epvLib     *epvLibrary // Sonarr's series folder and episode files, once read
 }
 
 // open loads the job's rows and files, and from the app the series' episodes (for a show)

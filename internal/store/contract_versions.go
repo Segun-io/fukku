@@ -9,7 +9,9 @@ import (
 // Radarr's root folders and grouped with the film's file in the media server. Jellyfin loses
 // that grouping when Radarr renames or upgrades the film's file (probe B3e), so the record
 // outlives the job that placed it: the version keeper checks it on a schedule and groups it
-// again. DeleteJob leaves it (like audit entries); only DeleteVersion removes one, for a
+// again. Second versions of episodes (#58) are records too (App "sonarr", with the episode):
+// a file next to the episode's own in Sonarr's season folder, which Jellyfin groups by its
+// SxxEyy, so the keeper leaves them alone. DeleteJob leaves it (like audit entries); only DeleteVersion removes one, for a
 // record of a placement that failed before its file existed.
 
 // Version statuses.
@@ -26,8 +28,8 @@ const (
 type Version struct {
 	ID      int64
 	JobID   string // the job that placed it; the job itself may be gone
-	App     string // "radarr"
-	TitleID int    // Radarr's movie id
+	App     string // "radarr", or "sonarr" for an episode's version (#58)
+	TitleID int    // Radarr's movie id, or Sonarr's series id
 	TMDBID  int    // the film's TMDB id, to find it again under a new movie id; 0: unknown
 	Title   string
 	Year    int
@@ -47,6 +49,11 @@ type Version struct {
 	// PrimaryChangedAt is when the version was last grouped with another film file than
 	// before (Radarr renamed or upgraded it); zero: never.
 	PrimaryChangedAt time.Time
+	// An episode's version (#58): Sonarr's episode id, and the season and episode its name
+	// carries (SxxEyy). 0 for a film's.
+	EpisodeID     int
+	SeasonNumber  int
+	EpisodeNumber int
 }
 
 // Versions is the part of Store that #56 adds.

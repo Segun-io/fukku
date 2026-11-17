@@ -77,13 +77,17 @@ func (s *Step) Run(ctx context.Context, job store.Job, target store.Target, rows
 		return true, "", flows.Skip("no subtitle files")
 	}
 	var failed []string
-	sent := 0
+	sent, kept := 0, 0
 	for _, it := range items {
 		if s.isHandled(job.ID, it.file.Path) {
 			sent++
 			continue
 		}
 		err := it.problem
+		if errors.Is(err, errKeptAsVersion) { // not handed over, on purpose (#58)
+			kept++
+			continue
+		}
 		if err == nil {
 			err = s.handOver(ctx, job, it)
 		}
@@ -100,7 +104,23 @@ func (s *Step) Run(ctx context.Context, job store.Job, target store.Target, rows
 	if len(failed) > 0 {
 		return false, "", flows.GiveUp(fmt.Errorf("not written by the subtitle manager: %s", strings.Join(failed, "; ")))
 	}
-	return true, fmt.Sprintf("%d subtitle file(s) handed over", sent), nil
+	if kept > 0 && sent == 0 {
+		return true, "", flows.Skip(keptNote(kept))
+	}
+	detail := fmt.Sprintf("%d subtitle file(s) handed over", sent)
+	if kept > 0 {
+		detail += "; " + keptNote(kept)
+	}
+	return true, detail, nil
+}
+
+// errKeptAsVersion is the problem of a subtitle file whose video was kept as a second
+// version of its episode (#58): the subtitle manager knows only Sonarr's file, so it is not
+// handed over, and that is not a failure.
+var errKeptAsVersion = errors.New("its video is kept as a second version of the episode")
+
+func keptNote(n int) string {
+	return fmt.Sprintf("%d subtitle file(s) not handed over: their videos are second versions of the episodes, which the subtitle manager does not know", n)
 }
 
 func (s *Step) isHandled(jobID, p string) bool {
@@ -291,6 +311,8 @@ func uploadsFor(base Upload, row store.Row, target store.Target) ([]Upload, erro
 	switch {
 	case row.JobID == "":
 		return nil, errors.New("its video was not imported")
+	case slices.Contains(flows.EpisodeVersionRows(target), row.ID):
+		return nil, errKeptAsVersion
 	case slices.Contains(only, row.ID):
 	case row.Skip || row.Result != store.ResultImported:
 		if policy {
