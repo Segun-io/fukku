@@ -38,6 +38,23 @@ import (
 	"github.com/segun-io/fukku/internal/store"
 )
 
+// unsupportedHeaders are request headers the endpoint removes before tusd sees them:
+// X-HTTP-Method-Override, with which tusd lets a POST stand in for PATCH or DELETE (the
+// checks here go by r.Method), and the headers of the IETF resumable-upload drafts, which
+// tusd reads in part even with its experimental protocol off and which would reach
+// extensions the endpoint does not have (a deferred length). It speaks tus 1.0 only.
+var unsupportedHeaders = []string{
+	"X-HTTP-Method-Override",
+	"Upload-Draft-Interop-Version", "Upload-Complete", "Upload-Incomplete",
+}
+
+// dropUnsupportedHeaders removes unsupportedHeaders from h.
+func dropUnsupportedHeaders(h http.Header) {
+	for _, k := range unsupportedHeaders {
+		h.Del(k)
+	}
+}
+
 // BasePath is where the endpoint is mounted.
 const BasePath = "/api/uploads/"
 
@@ -150,7 +167,7 @@ func New(opts Options) (*Handler, error) {
 	}
 
 	composer := tusd.NewStoreComposer()
-	composer.UseCore(incomingStore{intakeRoot: h.root, fileMode: fileMode})
+	composer.UseCore(incomingStore{intakeRoot: h.root, fileMode: fileMode, sizeOf: h.rowSize})
 	h.locker.UseIn(composer)
 
 	tus, err := tusd.NewUnroutedHandler(tusd.Config{
@@ -217,8 +234,7 @@ func (h *Handler) prepare(ctx context.Context) error {
 // ServeHTTP answers the tus requests under BasePath.
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Tus-Resumable", "1.0.0")
-	// tusd would let a POST stand in for PATCH or DELETE; the checks below go by r.Method.
-	r.Header.Del("X-HTTP-Method-Override")
+	dropUnsupportedHeaders(r.Header)
 
 	rest, ok := strings.CutPrefix(r.URL.Path, BasePath)
 	if !ok {
@@ -401,6 +417,12 @@ func (h *Handler) notFoundByTus(w http.ResponseWriter, r *http.Request, iw *inte
 		h.log.Warn("upload_data_unreadable", "upload", id)
 	}
 	iw.finish(h.log)
+}
+
+// rowSize is the size an upload's row was created with (incomingStore.sizeOf).
+func (h *Handler) rowSize(ctx context.Context, id string) (int64, error) {
+	row, err := h.st.Upload(ctx, id)
+	return row.Size, err
 }
 
 // dataGone reports whether neither the data nor the .info file of an upload exists.
