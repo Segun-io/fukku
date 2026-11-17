@@ -24,6 +24,21 @@ export function guessChoices(files: readonly JobFile[]): SubtitleChoice[] {
   });
 }
 
+/**
+ * The choice for each file: the user's own where there is one, else what the name says. A file
+ * that arrived after the page opened (the job is read again while it is open) gets its guess,
+ * so every file shown has a choice.
+ */
+export function choicesFor(
+  files: readonly JobFile[],
+  edited: readonly SubtitleChoice[],
+): SubtitleChoice[] {
+  return files.flatMap((f) => {
+    const mine = edited.find((c) => c.fileId === f.id);
+    return mine ? [mine] : guessChoices([f]);
+  });
+}
+
 type Props = {
   files: JobFile[];
   choices: SubtitleChoice[];
