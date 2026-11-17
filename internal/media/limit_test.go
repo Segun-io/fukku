@@ -17,7 +17,7 @@ func TestWrap(t *testing.T) {
 	if err != nil {
 		t.Skip("nice or prlimit is not installed")
 	}
-	want := []string{"-n", "10", "prlimit", "--as=1073741824", "--", "/bin/tool", "a"}
+	want := []string{"-n", "10", "prlimit", "--core=0", "--as=1073741824", "--", "/bin/tool", "a"}
 	if len(args) < 3 {
 		t.Fatalf("args %v", args)
 	}
@@ -79,7 +79,8 @@ func TestMemoryExhaustedText(t *testing.T) {
 }
 
 func TestMemoryExhaustedEvidence(t *testing.T) {
-	err := exec.CommandContext(t.Context(), "sh", "-c", "kill -SEGV $$").Run()
+	// ulimit -c 0: the simulated crash must not leave a core dump in the package folder.
+	err := exec.CommandContext(t.Context(), "sh", "-c", "ulimit -c 0; kill -SEGV $$").Run()
 	if !MemoryExhausted(err, "", true) {
 		t.Error("a signal under a limit is a possibility")
 	}
