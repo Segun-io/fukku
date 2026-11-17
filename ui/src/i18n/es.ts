@@ -534,6 +534,9 @@ const es: Record<keyof typeof en, string> = {
   "mapping.quality.for": "Calidad de {name}",
   "mapping.quality.none": "No ofrecida",
   "mapping.skip.for": "Omitir {name}",
+  "mapping.skip.server": "Omitido por el servidor",
+  "mapping.skip.server.hint":
+    "El servidor omite esta fila porque su episodio ya tiene un archivo. Marca la casilla para omitirla tú.",
   "mapping.skip.label": "Omitir",
   "mapping.checking": "Revisando…",
   "mapping.failed": "El cambio no se revisó.",
@@ -1082,8 +1085,15 @@ const es: Record<keyof typeof en, string> = {
   "confirm.version.only.other":
     "No se importará nada nuevo. {count} episodios se conservan como segundas versiones.",
   "confirm.version.refused.title": "Estos archivos no se pueden conservar como segundas versiones",
-  "confirm.version.refused.leaveOut.hint":
-    "Puedes dejar estos archivos fuera. No tendrán segunda versión, sus episodios conservan sus propios archivos y el resto se confirma igual.",
+  "confirm.version.refused.leaveOut.hint.one":
+    "Puedes dejar este archivo fuera. No tendrá segunda versión y su episodio conserva su propio archivo. Después pulsa Importar de nuevo para confirmar el resto.",
+  "confirm.version.refused.leaveOut.hint.other":
+    "Puedes dejar estos archivos fuera. No tendrán segunda versión y sus episodios conservan sus propios archivos. Después pulsa Importar de nuevo para confirmar el resto.",
+  "confirm.version.leavingOut": "Dejando los archivos fuera…",
+  "confirm.version.leftOut.done.one":
+    "{count} archivo dejado fuera. Pulsa Importar para confirmar de nuevo.",
+  "confirm.version.leftOut.done.other":
+    "{count} archivos dejados fuera. Pulsa Importar para confirmar de nuevo.",
   "confirm.version.refused.leaveOut.one": "Dejar fuera {count} archivo",
   "confirm.version.refused.leaveOut.other": "Dejar fuera {count} archivos",
   "confirm.state.version": "Segunda versión",

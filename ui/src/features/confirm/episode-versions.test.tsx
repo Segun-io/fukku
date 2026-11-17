@@ -1,6 +1,6 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { HttpResponse, http } from "msw";
+import { delay, HttpResponse, http } from "msw";
 import { afterEach, describe, expect, it } from "vitest";
 import type { Proposal, ProposalRow, SeasonDub } from "@/api/proposal";
 import type { ConfirmRequest, JobDetail } from "@/api/types";
@@ -566,7 +566,8 @@ describe("leaving out the rows a refusal names (#102)", () => {
     await labelField();
     await user.click(await importButton());
     const notice = await refusedNotice();
-    expect(within(notice).getByText(/They get no second version/)).toBeVisible();
+    expect(within(notice).getByText(/You can leave this file out/)).toBeVisible();
+    expect(within(notice).getByText(/Then press Import again/)).toBeVisible();
     await user.click(within(notice).getByRole("button", { name: "Leave out 1 file" }));
     // The refusal is gone, the row is out for good (its own choice), and nothing else moved.
     await waitFor(() =>
@@ -581,9 +582,53 @@ describe("leaving out the rows a refusal names (#102)", () => {
     await waitFor(() => expect(within(card).getByText("Left out")).toBeVisible());
     expect(within(card).getByText(/Its own file stays as it is/)).toBeVisible();
 
+    // The result is announced, and focus is on Import, where the refusal's button was.
+    expect(
+      await screen.findByText("1 file left out. Press Import to confirm again."),
+    ).toBeVisible();
+    expect(await importButton()).toHaveFocus();
+
     await user.click(await importButton());
     await waitFor(() => expect(router.state.location.pathname).toBe(`/jobs/${mappingJobId}`));
     expect(bodies).toHaveLength(2);
+    expect(bodies[1]).toMatchObject({ overrides: [], version: { label: "Español" } });
+    expect(bodies[1]).not.toHaveProperty("seasonDub");
+  });
+
+  it("does not confirm while the proposal is read again after leaving a row out", async () => {
+    const user = userEvent.setup();
+    serveKeeping(fixed());
+    const bodies = recordConfirm();
+    open();
+    await labelField();
+    await user.click(await importButton());
+    const notice = await refusedNotice();
+    // From now on the proposal is slow to come back.
+    server.use(
+      http.get("/api/jobs/:id/proposal", async () => {
+        await delay(400);
+        return HttpResponse.json({
+          state: "ready",
+          app: "sonarr",
+          target: { titleId: 12, title: "Lighthouse Letters", year: 2019 },
+          rows: [{ ...existing, skippedBy: "user" }, fresh],
+          hints: [],
+          seasonDub: fixed(),
+          qualities: [quality],
+          languages: [english],
+        });
+      }),
+    );
+    await user.click(within(notice).getByRole("button", { name: "Leave out 1 file" }));
+    await screen.findByText("1 file left out. Press Import to confirm again.");
+    const sent = bodies.length;
+    await user.click(await importButton());
+    expect(bodies).toHaveLength(sent); // not sent while the rows may be stale
+    await waitFor(async () =>
+      expect(await importButton()).not.toHaveAttribute("aria-disabled", "true"),
+    );
+    await user.click(await importButton());
+    await waitFor(() => expect(bodies).toHaveLength(sent + 1));
   });
 
   it("lets the user leave out a row that has a file, and take it back", async () => {

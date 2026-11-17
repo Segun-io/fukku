@@ -103,6 +103,7 @@ function Review({ job }: { job: JobDetail }) {
         job={job}
         proposal={data}
         subtitleManager={session.data?.subtitleManager === true}
+        refreshing={proposal.isFetching}
       />
     </>
   );

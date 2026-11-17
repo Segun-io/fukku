@@ -214,7 +214,9 @@ export function EpisodeVersionsSection({
               );
             })}
           </ul>
-          <p className="mt-3 max-w-[65ch] text-sm">{t("confirm.version.refused.leaveOut.hint")}</p>
+          <p className="mt-3 max-w-[65ch] text-sm">
+            {t("confirm.version.refused.leaveOut.hint", { count: refusal.rows.length })}
+          </p>
           <Button
             type="button"
             variant="outline"

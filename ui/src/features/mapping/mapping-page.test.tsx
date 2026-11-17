@@ -150,6 +150,9 @@ describe("the mapping editor", () => {
     // The server's skip is not the user's: the box stays open for theirs.
     const box = () => rowOf(e07).getByRole("checkbox", { name: `Skip ${e07}` });
     expect(box()).not.toBeChecked();
+    // Unticked is not "included": the row says the server skips it, and the box says so too.
+    expect(rowOf(e07).getByText("(Skipped by the server)")).toBeVisible();
+    expect(box()).toHaveAccessibleDescription(/The server skips this row/);
     await u.click(box());
     await waitFor(() => expect(box()).toBeChecked());
     expect(edits(sent).map((s) => s.body)).toContainEqual({ skip: true });

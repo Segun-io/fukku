@@ -316,6 +316,9 @@ func uploadsFor(base Upload, row store.Row, target store.Target) ([]Upload, erro
 	case slices.Contains(only, row.ID):
 	case row.Skip || row.Result != store.ResultImported:
 		if policy {
+			if flows.LeftOutByUser(row) {
+				return nil, errors.New("its video was left out by the user")
+			}
 			return nil, errors.New("its episode has no file in the library")
 		}
 		return nil, errors.New("its video was not imported")

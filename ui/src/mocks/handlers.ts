@@ -385,7 +385,22 @@ export const handlers = [
       }
       if (body.flow2 === "version") {
         const label = body.version.label?.trim() || flow2.version?.label || "";
-        if (labelProblem(label)) return failure(409, "version_label", "The label is refused.");
+        const problem = labelProblem(label);
+        if (problem) {
+          return HttpResponse.json(
+            {
+              error: {
+                code: "version_label",
+                message: "The label is refused.",
+                reason: problem,
+                ...(problem === "label_forbidden"
+                  ? { token: label.match(/1080p|720p|web-?dl|bluray/i)?.[0].toLowerCase() }
+                  : {}),
+              },
+            },
+            { status: 409 },
+          );
+        }
         flow2Progress[job.id] = {
           kind: "version",
           label,

@@ -816,8 +816,6 @@ func TestEpisodeVersionStrandedRecordIsSettled(t *testing.T) {
 	}
 }
 
-// A label that starts with an episode number would make the name a double episode
-// ("S01E02 - E03"): refused as label_episode.
 // A refusal that names rows is fixed for just those rows (#102): the user leaves them out (a
 // skip edit on a row with an existing_file warning), and the confirmation goes through. The row
 // that is left out is neither imported nor kept as a version, and its library file is
@@ -934,6 +932,8 @@ func TestEpisodeVersionLabelRefusalCarriesTheReason(t *testing.T) {
 	}
 }
 
+// A label that starts with an episode number would make the name a double episode
+// ("S01E02 - E03"): refused as label_episode.
 func TestEpisodeLabelWithAnEpisodeNumber(t *testing.T) {
 	x := newEpvEnv(t, nil)
 	s := &session{p: x.p}

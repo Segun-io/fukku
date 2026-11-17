@@ -524,6 +524,9 @@ const en = {
   "mapping.quality.none": "Not offered",
   "mapping.skip.for": "Skip {name}",
   "mapping.skip.label": "Skip",
+  "mapping.skip.server": "Skipped by the server",
+  "mapping.skip.server.hint":
+    "The server skips this row because its episode already has a file. Tick the box to skip it yourself.",
   "mapping.checking": "Checking…",
   "mapping.failed": "The change was not checked.",
   "mapping.failed.wrongState":
@@ -1066,8 +1069,13 @@ const en = {
   "confirm.version.only.other":
     "Nothing new will be imported. {count} episodes are kept as second versions.",
   "confirm.version.refused.title": "These files cannot be kept as second versions",
-  "confirm.version.refused.leaveOut.hint":
-    "You can leave these files out. They get no second version, their episodes keep their own files, and the rest is confirmed as before.",
+  "confirm.version.refused.leaveOut.hint.one":
+    "You can leave this file out. It gets no second version and its episode keeps its own file. Then press Import again to confirm the rest.",
+  "confirm.version.refused.leaveOut.hint.other":
+    "You can leave these files out. They get no second version and their episodes keep their own files. Then press Import again to confirm the rest.",
+  "confirm.version.leavingOut": "Leaving the files out…",
+  "confirm.version.leftOut.done.one": "{count} file left out. Press Import to confirm again.",
+  "confirm.version.leftOut.done.other": "{count} files left out. Press Import to confirm again.",
   "confirm.version.refused.leaveOut.one": "Leave out {count} file",
   "confirm.version.refused.leaveOut.other": "Leave out {count} files",
   "confirm.state.version": "Second version",

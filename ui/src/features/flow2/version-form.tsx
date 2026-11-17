@@ -33,6 +33,11 @@ export function VersionForm({ jobId, offer }: { jobId: string; offer: VersionOff
   const admin = session.data?.user.admin === true;
   const err = confirm.error;
   const refused = err instanceof ApiError && err.code === "version_label";
+  // The refusal says why when the server gave a reason; else the generic sentence.
+  const refusedWhy =
+    err instanceof ApiError && refused && err.reason !== ""
+      ? problemText(err.reason, err.token)
+      : null;
   const changed = err instanceof ApiError && err.code === "library_changed";
 
   function submit() {
@@ -148,7 +153,13 @@ export function VersionForm({ jobId, offer }: { jobId: string; offer: VersionOff
 
       {err && (
         <div>
-          <ErrorMessage error={err} id={refused ? `${id}-label-error` : undefined} />
+          {refusedWhy ? (
+            <p id={`${id}-label-error`} role="alert" className="mt-2 text-sm text-destructive">
+              {t(refusedWhy.key, refusedWhy.params)}
+            </p>
+          ) : (
+            <ErrorMessage error={err} id={refused ? `${id}-label-error` : undefined} />
+          )}
           {changed && (
             <p>
               <Link
