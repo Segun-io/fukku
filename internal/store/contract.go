@@ -162,6 +162,11 @@ type Store interface {
 // CanTransition reports whether the state machine allows from → to.
 func CanTransition(from, to State) bool { return transitions[from][to] }
 
+// OnlyBack reports whether from → to is a move that only BackToConfirmation makes (#95):
+// Transition and TransitionFor refuse it with ErrInvalidTransition, so that nothing sends
+// an importing job back to its confirmation without the import-not-submitted check.
+func OnlyBack(from, to State) bool { return from == Importing && to == AwaitingConfirmation }
+
 // ResumeState is the state a retry returns to after a failure in from. Transition records
 // it in Job.Resume when a job moves to failed; a job that moves to stalled resumes in the
 // state it stalled in.
@@ -180,7 +185,10 @@ func ResumeState(from State) State {
 // import whose command never ends (the web API allows it once the job is stuck past
 // server.jobStuckAfter). Importing → Probed is a flow 2 job whose library file changed
 // before anything was written (#55, #56): it goes back to be matched again, through
-// ReplaceTarget.
+// ReplaceTarget. Importing → AwaitingConfirmation is a flow 2a merge refused for a reason
+// that will fail again (#95): it goes back to be confirmed again, and only through
+// BackToConfirmation, while no import is submitted. Transition and TransitionFor refuse it
+// (see OnlyBack).
 var transitions = map[State]map[State]bool{
 	Uploading:            {Uploaded: true, Cancelled: true, Failed: true},
 	Uploaded:             {Probing: true, Cancelled: true, Failed: true},
@@ -188,7 +196,7 @@ var transitions = map[State]map[State]bool{
 	Probed:               {Matched: true, Cancelled: true, Failed: true},
 	Matched:              {AwaitingConfirmation: true, Probed: true, Cancelled: true, Failed: true, Stalled: true},
 	AwaitingConfirmation: {Importing: true, Matched: true, Probed: true, Cancelled: true, Failed: true},
-	Importing:            {Imported: true, Probed: true, Failed: true, Stalled: true, Cancelled: true},
+	Importing:            {Imported: true, Probed: true, AwaitingConfirmation: true, Failed: true, Stalled: true, Cancelled: true},
 	Imported:             {PostProcessing: true, Failed: true, Stalled: true},
 	PostProcessing:       {Done: true, Failed: true, Stalled: true},
 	// Failed and Stalled also go to the job's own Resume state; Transition checks that.

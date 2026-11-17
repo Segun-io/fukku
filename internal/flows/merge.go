@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"golang.org/x/text/language"
 	"golang.org/x/text/language/display"
@@ -77,8 +78,10 @@ import (
 //     their results acknowledged. The attempt is recorded, then the task is submitted
 //     (again on each pass until it has a result; Submit is idempotent). The job stalls
 //     with worker_unavailable while the worker's heartbeat is too old.
-//   - Its result: a refusal fails the job with merge_failed (the merge view's refusal says
-//     which, merge.Refusal*); library_changed (the file changed while it was read) and a
+//   - Its result: a refusal that the same choice would meet again (merge.IsRepeatable:
+//     verify_failed, mux_failed, track_not_found; classified in package merge) sends the job
+//     back to awaiting confirmation (#95, below). Any other refusal fails the job with
+//     merge_failed (the merge view's refusal says which, merge.Refusal*); library_changed (the file changed while it was read) and a
 //     verified output from a file of another size than the tracked one send the job back to
 //     probed; a task error fails it with task_failed or task_timeout; a cancelled run and
 //     busy are submitted again. A verified output must be where the attempt's task writes,
@@ -93,6 +96,17 @@ import (
 //   - The import engine (import.go) imports the row: Radarr replaces its file (probe
 //     M3-merge). Before each submission Radarr's tracked file is checked once more; if it
 //     changed, the job goes back to probed and nothing is imported.
+//
+// A repeatable refusal (#95) goes back to the confirmation instead of failing, in one store
+// transaction (BackToConfirmation) that happens only while no import is submitted: the
+// choice ("merge") is replaced by the refusal (Target.Options["mergeRefusal"], MergeRefusal)
+// with the choice it refused, the preview record is kept (its clips stay served, so the
+// user can pick another offset or track by requesting a new preview, or confirm the same
+// one again), and the audit entry merge.refused is stored with the move. The refused
+// attempt's merged/<attempt>/ is removed and its result acknowledged first, as for a
+// failure; a crash in between repeats the refusal. The next confirmation replaces the
+// refusal and runs the merge in the same attempt number (startMerge clears the id and
+// merged/). Flow2View.mergeRefusal shows it while the job waits.
 //
 // Every failure before the import leaves the library as it was. A merged file that is not
 // imported is removed once its task has ended (a refused or unusable result, going back to
@@ -187,6 +201,75 @@ type mergedFile struct {
 	FileID int64  `json:"fileId"` // the job file registered for it
 	Path   string `json:"path"`   // job-relative: merged/<attempt>/<name>
 	Size   int64  `json:"size"`
+}
+
+// MergeRefusal is Target.Options["mergeRefusal"]: the repeatable refusal that sent a merge
+// job back to its confirmation, and the choice it refused. Detail is technical (the task's
+// own text, for the audit entry and the logs) and is not in the view.
+type MergeRefusal struct {
+	Code           string    `json:"code"` // merge.Refusal*, one with merge.IsRepeatable
+	Detail         string    `json:"detail,omitempty"`
+	AudioTracks    []int     `json:"audioTracks"`
+	SubtitleTracks []int     `json:"subtitleTracks"`
+	OffsetMs       int64     `json:"offsetMs"`
+	LanguageTag    string    `json:"languageTag"`
+	Attempt        int       `json:"attempt"`
+	At             time.Time `json:"at"`
+}
+
+// mergeRefusalOf returns the job's merge refusal, when it waits for another confirmation.
+func mergeRefusalOf(t store.Target) (MergeRefusal, bool) {
+	var opts struct {
+		Refusal *MergeRefusal `json:"mergeRefusal"`
+	}
+	if len(t.Options) > 0 {
+		_ = json.Unmarshal(t.Options, &opts)
+	}
+	if opts.Refusal == nil || opts.Refusal.Code == "" {
+		return MergeRefusal{}, false
+	}
+	return *opts.Refusal, true
+}
+
+// MergeRefusalView is Flow2View.MergeRefusal: the code (merge.Refusal*), the English text,
+// and the choice that was refused, so the UI can say which offset and tracks to change.
+type MergeRefusalView struct {
+	Code           string    `json:"code"`
+	Message        string    `json:"message"`
+	AudioTracks    []int     `json:"audioTracks"`
+	SubtitleTracks []int     `json:"subtitleTracks"`
+	OffsetMs       int64     `json:"offsetMs"`
+	LanguageTag    string    `json:"languageTag"`
+	At             time.Time `json:"at"`
+}
+
+// viewMergeRefusal is Flow2View.MergeRefusal; nil when the job has no refusal.
+func viewMergeRefusal(t store.Target) *MergeRefusalView {
+	r, ok := mergeRefusalOf(t)
+	if !ok {
+		return nil
+	}
+	msg, known := mergeRefusalText[r.Code]
+	if !known {
+		msg = "The merge was refused. Try another offset or another audio track."
+	}
+	v := &MergeRefusalView{Code: r.Code, Message: msg, AudioTracks: r.AudioTracks, SubtitleTracks: r.SubtitleTracks,
+		OffsetMs: r.OffsetMs, LanguageTag: r.LanguageTag, At: r.At}
+	if v.AudioTracks == nil {
+		v.AudioTracks = []int{}
+	}
+	if v.SubtitleTracks == nil {
+		v.SubtitleTracks = []int{}
+	}
+	return v
+}
+
+// mergeRefusalText is the English text of a repeatable refusal, for the API; the UI has its
+// own, by code.
+var mergeRefusalText = map[string]string{
+	merge.RefusalVerifyFailed:  "The merged file failed its checks, so it was not used. Try another offset or another audio track.",
+	merge.RefusalMuxFailed:     "The merge tool could not combine these tracks. Try another offset or another audio track.",
+	merge.RefusalTrackNotFound: "A chosen track is not in the upload. Choose the tracks again.",
 }
 
 // mergeOf returns the merge choice of a confirmed flow 2a job; ok is false for any other.
@@ -386,6 +469,10 @@ func (e *Engine) confirmMerge(ctx context.Context, user, email string, s *sessio
 		sc = sidecars
 	}
 	if opts, err = withOption(opts, "subtitles", sc); err != nil {
+		return Confirmation{}, err
+	}
+	// A refusal of an earlier choice (#95) is answered by this one.
+	if opts, err = withOption(opts, "mergeRefusal", nil); err != nil {
 		return Confirmation{}, err
 	}
 	// An import record of an earlier confirmation of this job (one that went back to the
@@ -728,6 +815,16 @@ func (e *Engine) useMerge(ctx context.Context, job store.Job, t store.Target, re
 		if refusal == "" {
 			refusal = merge.RefusalMuxFailed
 		}
+		if merge.IsRepeatable(refusal) {
+			// The same choice is refused again: the user chooses again (#95).
+			if err := drop(); err != nil {
+				return err
+			}
+			if err := e.refuseMerge(ctx, job, t, c, refusal, out.Detail); err != nil {
+				return err
+			}
+			return q.Ack(ctx, res.ID)
+		}
 		return fail(CodeMergeFailed, refusal, refusal+": "+out.Detail)
 	}
 	want := runner.MergeDest(c.Attempt) + "/" + merge.OutputName(rec.Library.Path)
@@ -907,6 +1004,55 @@ func (e *Engine) failMerge(ctx context.Context, job store.Job, t store.Target, c
 	e.forget(job.ID)
 	e.log.Warn("merge_failed", "job", job.ID, "code", code, "refusal", refusal, "detail", text)
 	return e.p.move(ctx, job, &t, store.Failed, store.Change{ErrorCode: code, ErrorText: t.App + ": " + text})
+}
+
+// refuseMerge sends a merge job whose task made a repeatable refusal back to awaiting
+// confirmation (see the top of this file), under the job's lock, only while the job is
+// still importing the same choice and no import is submitted (the store checks that in the
+// move's transaction). Nothing happens when the job changed meanwhile.
+func (e *Engine) refuseMerge(ctx context.Context, job store.Job, t store.Target, c mergeChoice, refusal, detail string) error {
+	defer e.locks.Lock(job.ID)()
+	cur, ok, err := e.current(ctx, job, t)
+	if err != nil || !ok {
+		return err
+	}
+	if now, ok := mergeOf(cur); !ok || now.Attempt != c.Attempt || now.Output != nil {
+		return nil
+	}
+	rec := MergeRefusal{
+		Code: refusal, Detail: detail, AudioTracks: c.AudioTracks, SubtitleTracks: c.SubtitleTracks,
+		OffsetMs: c.OffsetMs, LanguageTag: c.LanguageTag, Attempt: c.Attempt, At: e.now().UTC(),
+	}
+	if rec.AudioTracks == nil {
+		rec.AudioTracks = []int{}
+	}
+	if rec.SubtitleTracks == nil {
+		rec.SubtitleTracks = []int{}
+	}
+	opts, err := withOption(cur.Options, "merge", nil)
+	if err != nil {
+		return err
+	}
+	if opts, err = withOption(opts, "mergeRefusal", rec); err != nil {
+		return err
+	}
+	audit := store.AuditEntry{Actor: actor, Action: "merge.refused", Detail: map[string]string{
+		"app": t.App, "titleId": strconv.Itoa(t.TitleID), "title": t.Title, "refusal": refusal, "detail": detail,
+		"audioTracks": joinInts(c.AudioTracks), "subtitleTracks": joinInts(c.SubtitleTracks),
+		"offsetMs": strconv.FormatInt(c.OffsetMs, 10), "attempt": strconv.Itoa(c.Attempt),
+	}}
+	note := fmt.Sprintf("merge refused (%s): choose the tracks and the offset again", refusal)
+	_, err = e.st.BackToConfirmation(ctx, job.ID, cur, opts, audit, store.Change{Actor: actor, Note: note})
+	if errors.Is(err, store.ErrConflict) || errors.Is(err, store.ErrInvalidTransition) || errors.Is(err, store.ErrNotFound) {
+		return nil // the job moved on (a cancel, a rematch): that decides
+	}
+	if err != nil {
+		return err
+	}
+	e.forget(job.ID)
+	e.log.Warn("merge_refused", "job", job.ID, "refusal", refusal, "detail", detail, "attempt", c.Attempt)
+	e.log.Info("job_state", "job", job.ID, "from", store.Importing, "to", store.AwaitingConfirmation, "note", note)
+	return nil
 }
 
 // mergeAppError ends a merge pass whose call to the app failed, as the proposal's do

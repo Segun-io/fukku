@@ -224,15 +224,15 @@ func TestMergeFailuresLeaveTheLibraryUntouched(t *testing.T) {
 		after  func(x *mergeEnv, j store.Job) // once the merged file is in
 		state  store.State
 		code   string
-		refuse string // the merge view's refusal
+		refuse string // the merge view's refusal; for a job back at its confirmation (#95), the flow 2 view's
 		kept   bool   // the verified merged file stays for a retry (it was in before the failure)
 	}{
 		{name: "refused: truncated dub", out: func(o *merge.Output) {
 			*o = merge.Output{Refusal: merge.RefusalVerifyFailed, Detail: "audio ends early"}
 		},
-			state: store.Failed, code: CodeMergeFailed, refuse: merge.RefusalVerifyFailed},
+			state: store.AwaitingConfirmation, refuse: merge.RefusalVerifyFailed},
 		{name: "refused: mkvmerge warning", out: func(o *merge.Output) { *o = merge.Output{Refusal: merge.RefusalMuxFailed, Detail: "exit 1"} },
-			state: store.Failed, code: CodeMergeFailed, refuse: merge.RefusalMuxFailed},
+			state: store.AwaitingConfirmation, refuse: merge.RefusalMuxFailed},
 		{name: "refused: library changed while read", out: func(o *merge.Output) { *o = merge.Output{Refusal: merge.RefusalLibraryChanged} },
 			state: store.Probed},
 		{name: "task error", fail: spool.CodeInternal, state: store.Failed, code: runner.CodeTaskFailed},
@@ -316,6 +316,15 @@ func TestMergeFailuresLeaveTheLibraryUntouched(t *testing.T) {
 				iv := x.importView(j)
 				if c.refuse != "" && (iv.Merge == nil || iv.Merge.State != MergeFailed || iv.Merge.Refusal != c.refuse) {
 					t.Errorf("merge view %+v", iv.Merge)
+				}
+			}
+			if c.state == store.AwaitingConfirmation {
+				v := ViewFlow2(x.cfg, x.tgt(j), nil)
+				if v == nil || v.MergeRefusal == nil || v.MergeRefusal.Code != c.refuse {
+					t.Errorf("flow 2 view %+v", v)
+				}
+				if pv, ok := PreviewOf(x.tgt(j)); !ok || pv.State != PreviewReady || IsMerge(x.tgt(j)) {
+					t.Errorf("preview %+v, merge choice kept %t", pv, IsMerge(x.tgt(j)))
 				}
 			}
 			if c.state == store.Probed {

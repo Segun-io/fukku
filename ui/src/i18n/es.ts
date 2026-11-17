@@ -824,6 +824,11 @@ const es: Record<keyof typeof en, string> = {
   "flow2.sync.nomatch":
     "Si no coinciden, cambia el desfase y haz los clips otra vez. Un doblaje que se va desfasando no se arregla con un desfase fijo: consérvalo como segunda versión.",
   "flow2.sync.confirmed": "Comprobado con un desfase de {offset} ms.",
+  "flow2.refusal.title": "La última fusión fue rechazada",
+  "flow2.refusal.choice":
+    "Usó {track} con un desfase de {offset} ms. No se cambió nada en la biblioteca.",
+  "flow2.refusal.hint":
+    "Elige otro desfase u otra pista de audio, haz los clips otra vez, compruébalos y confirma la fusión de nuevo.",
   "flow2.merge.title": "Fusionar en el archivo de la biblioteca",
   "flow2.merge.intro":
     "Elige qué se añade. Todo lo que sigue es opcional: lo que dejes vacío usa los ajustes del servidor.",

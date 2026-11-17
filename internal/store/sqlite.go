@@ -283,6 +283,9 @@ func pageOf(f JobFilter) (limit, offset int) {
 }
 
 func (s *sqliteStore) Transition(ctx context.Context, id string, from, to State, c Change) (Job, error) {
+	if OnlyBack(from, to) {
+		return Job{}, fmt.Errorf("%w: %s → %s is BackToConfirmation's", ErrInvalidTransition, from, to)
+	}
 	tx, err := s.w.BeginTx(ctx, nil)
 	if err != nil {
 		return Job{}, err

@@ -200,7 +200,50 @@ func (f *Fake) TransitionFor(ctx context.Context, jobID string, t store.Target, 
 	if !f.hasTarget(jobID, t) {
 		return store.Job{}, store.ErrConflict
 	}
+	if store.OnlyBack(from, to) {
+		return store.Job{}, fmt.Errorf("%w: %s → %s is BackToConfirmation's", store.ErrInvalidTransition, from, to)
+	}
 	return f.transition(jobID, from, to, c)
+}
+
+func (f *Fake) BackToConfirmation(ctx context.Context, jobID string, t store.Target, options json.RawMessage, audit store.AuditEntry, c store.Change) (store.Job, error) {
+	if err := f.lock(ctx); err != nil {
+		return store.Job{}, err
+	}
+	defer f.mu.Unlock()
+	if c.ExpiresAt != nil {
+		return store.Job{}, errors.New("storetest: BackToConfirmation does not change the retention date")
+	}
+	if options == nil || audit.Action == "" {
+		return store.Job{}, errors.New("storetest: BackToConfirmation needs options and an audit action")
+	}
+	if _, ok := f.jobs[jobID]; !ok {
+		return store.Job{}, store.ErrNotFound
+	}
+	if !f.hasTarget(jobID, t) {
+		return store.Job{}, store.ErrConflict
+	}
+	if i, ok := f.m2.imports[jobID]; ok && !i.SubmittedAt.IsZero() {
+		return store.Job{}, store.ErrConflict
+	}
+	if _, err := json.Marshal(audit.Detail); err != nil {
+		return store.Job{}, err
+	}
+	next, err := f.transition(jobID, store.Importing, store.AwaitingConfirmation, c)
+	if err != nil {
+		return store.Job{}, err
+	}
+	tg := f.m2.targets[jobID]
+	tg.Options = cloneJSON(options)
+	f.m2.targets[jobID] = tg
+	audit.ID = int64(len(f.audit) + 1)
+	audit.JobID, audit.Actor = jobID, actorOr(audit.Actor)
+	audit.At = norm(audit.At)
+	if audit.At.IsZero() {
+		audit.At = f.clock()
+	}
+	f.audit = append(f.audit, cloneAudit(audit))
+	return next, nil
 }
 
 // hasTarget reports whether the job's target is t (app, title id, matched at); f.mu is held.

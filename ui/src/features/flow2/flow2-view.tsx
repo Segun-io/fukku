@@ -1,27 +1,60 @@
 import { TriangleAlert } from "lucide-react";
 import { useId, useState } from "react";
 import { usePreview } from "@/api/flow2";
-import type { Flow2, Flow2File, Flow2Offer, JobFile } from "@/api/types";
+import type { Flow2, Flow2File, Flow2Offer, JobFile, MergeRefusal } from "@/api/types";
 import { Notice } from "@/components/shell/notice";
 import { type TKey, useT } from "@/i18n";
 import { offerReasonText } from "@/lib/flow2-text";
+import { audioLines, mergeRefusalText } from "@/lib/job-text";
 import { cn } from "@/lib/utils";
 import { Comparison } from "./comparison";
+import { trackLabel } from "./labels";
 import { MergeForm } from "./merge-form";
 import { checkState, SyncCheck } from "./sync-check";
 import { VersionForm } from "./version-form";
 
 const offerOrder: readonly Flow2Offer[] = ["merge", "version"];
 
+/**
+ * A merge the worker refused for a reason that would repeat (#95): why, which choice it was,
+ * and what to do. It stays above the sync check until another merge is confirmed.
+ */
+function RefusedMerge({ refusal, upload }: { refusal: MergeRefusal; upload: Flow2File }) {
+  const { t, lang } = useT();
+  const why = mergeRefusalText(refusal.code);
+  const lines = audioLines(upload.audio, lang);
+  const track = refusal.audioTracks
+    .map((i) => {
+      const line = lines[upload.audio.findIndex((a) => a.index === i)];
+      return line ? trackLabel(t, line) : String(i);
+    })
+    .join(", ");
+  return (
+    <Notice
+      role="alert"
+      tone="error"
+      icon={TriangleAlert}
+      titleAs="h3"
+      title={t("flow2.refusal.title")}
+    >
+      <p>{t(why.key, why.params)}</p>
+      <p>{t("flow2.refusal.choice", { track, offset: String(refusal.offsetMs) })}</p>
+      <p>{t("flow2.refusal.hint")}</p>
+    </Notice>
+  );
+}
+
 /** The merge path: the sync check first, and the merge confirmation once the user says they match. */
 function MergePanel({
   jobId,
   upload,
   files,
+  refusal,
 }: {
   jobId: string;
   upload: Flow2File;
   files: JobFile[];
+  refusal: MergeRefusal | null;
 }) {
   const preview = usePreview(jobId, true);
   const [synced, setSynced] = useState<string | null>(null);
@@ -35,6 +68,7 @@ function MergePanel({
   const isSynced = ready && !stale && synced !== null && synced === data.requestedAt;
   return (
     <div className="grid gap-8">
+      {refusal && <RefusedMerge refusal={refusal} upload={upload} />}
       <SyncCheck
         jobId={jobId}
         upload={upload}
@@ -154,7 +188,12 @@ export function Flow2View({
             (upload.audio.length === 0 ? (
               <Notice role="alert" tone="error" icon={TriangleAlert} title={t("errors.no_audio")} />
             ) : (
-              <MergePanel jobId={jobId} upload={upload} files={files} />
+              <MergePanel
+                jobId={jobId}
+                upload={upload}
+                files={files}
+                refusal={flow2.mergeRefusal}
+              />
             ))}
           {choice === "version" && flow2.version && (
             <VersionForm jobId={jobId} offer={flow2.version} />

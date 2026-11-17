@@ -392,6 +392,50 @@ describe("the merge", () => {
     ]);
   });
 
+  it("shows a refused merge next to the sync check, and the user can choose again (#95)", async () => {
+    const { confirms, previews } = record();
+    serve(
+      flow2Fixture("match", {
+        mergeRefusal: {
+          code: "verify_failed",
+          message: "The merged file failed its checks.",
+          audioTracks: [2],
+          subtitleTracks: [],
+          offsetMs: -800,
+          languageTag: "es-419",
+          at: "2026-01-03T08:40:00Z",
+        },
+      }),
+    );
+    const user = userEvent.setup();
+    open();
+    const alert = await screen.findByRole("alert");
+    expect(
+      within(alert).getByRole("heading", { name: "The last merge was refused" }),
+    ).toBeVisible();
+    expect(within(alert).getByText(/did not pass the checks/)).toBeVisible();
+    expect(within(alert).getByText(/at an offset of -800 ms/)).toBeVisible();
+    expect(within(alert).getByText(/Choose another offset or audio track/)).toBeVisible();
+    // The sync check is there, with its own form, so another offset can be tried.
+    const offset = screen.getByRole("textbox", { name: "Offset in milliseconds" });
+    await user.clear(offset);
+    await user.type(offset, "-600");
+    await toMerge(user);
+    await user.click(screen.getByRole("checkbox", { name: /Spanish/ }));
+    const form = screen.getByRole("form", { name: "Merge the audio into the library file?" });
+    await user.click(within(form).getByRole("checkbox"));
+    await user.click(within(form).getByRole("button", { name: "Merge into the library file" }));
+    await waitFor(() => expect(confirms).toHaveLength(1));
+    expect(previews[0]).toMatchObject({ offsetMs: -600 });
+    expect(confirms[0]).toMatchObject({ flow2: "merge", merge: { offsetMs: -600 } });
+  });
+
+  it("shows no refusal when the last merge was not refused", async () => {
+    open();
+    await screen.findByRole("heading", { name: "Check that the audio is in sync" });
+    expect(screen.queryByText("The last merge was refused")).not.toBeInTheDocument();
+  });
+
   it("leaves the tag, the name and the default to the server when they are not touched", async () => {
     const { confirms } = record();
     const user = userEvent.setup();

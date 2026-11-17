@@ -180,6 +180,9 @@ type Flow2View struct {
 	// Version is what a second version would be while "version" is offered (#56,
 	// version.go); null otherwise.
 	Version *VersionOffer `json:"version"`
+	// MergeRefusal is the refusal that sent a merge back to this confirmation (#95), with
+	// the choice it refused; null when there is none.
+	MergeRefusal *MergeRefusalView `json:"mergeRefusal"`
 }
 
 // Flow2FileView is one side of the comparison. For the library file FileID is Radarr's
@@ -219,6 +222,7 @@ func ViewFlow2(cfg config.Config, t store.Target, files []store.File) *Flow2View
 	if lib.AppPath == "" {
 		v.Library.Name = ""
 	}
+	v.MergeRefusal = viewMergeRefusal(t)
 	if v.Library.Languages == nil {
 		v.Library.Languages = []Ref{}
 	}

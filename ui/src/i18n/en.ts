@@ -811,6 +811,11 @@ const en = {
   "flow2.sync.nomatch":
     "If they do not match, change the offset and make the clips again. A dub that drifts cannot be fixed by an offset: keep it as a second version instead.",
   "flow2.sync.confirmed": "Checked at an offset of {offset} ms.",
+  "flow2.refusal.title": "The last merge was refused",
+  "flow2.refusal.choice":
+    "It used {track} at an offset of {offset} ms. Nothing in the library changed.",
+  "flow2.refusal.hint":
+    "Choose another offset or audio track, make the clips again, check them and confirm the merge again.",
   "flow2.merge.title": "Merge into the library file",
   "flow2.merge.intro":
     "Choose what is added. Everything below is optional: what you leave empty uses the server’s settings.",
