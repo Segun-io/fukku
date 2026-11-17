@@ -393,6 +393,17 @@ func TestSubtitlesOnlyGoesToTheEpisodesThatHaveAFile(t *testing.T) {
 		t.Errorf("%d uploads, want only the first file's", n)
 	}
 
+	// Episodes kept as second versions (#58): their subtitles are not handed over, and that is
+	// not a failure.
+	h.target.Options = json.RawMessage(`{"seasonDub":{"policy":"version"},"episodeVersions":{"label":"Español","versions":[{"row":"rShow.S01E01.mkv","path":"/tv/x.mkv"},{"row":"rShow.S01E02.mkv","path":"/tv/y.mkv"}]}}`)
+	// (The first file was handed over by the run above.)
+	if _, detail, err := h.run(); err != nil || !strings.Contains(detail, "1 subtitle file(s) not handed over") {
+		t.Fatalf("versions: %q, %v", detail, err)
+	}
+	if n := len(h.fake.Sent()); n != 2 {
+		t.Errorf("%d uploads, want none more", n)
+	}
+
 	// Without the policy a skipped row is never given subtitles.
 	h.target.Options = nil
 	if _, _, err := h.run(); err == nil || !strings.Contains(err.Error(), "not imported") {

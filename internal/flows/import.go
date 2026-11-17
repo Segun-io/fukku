@@ -82,6 +82,11 @@ type Engine struct {
 	checkVersionStorage func() error
 	onDone              []func(store.Target)
 
+	// Second versions of episodes (#58, episode_version.go): the post-processing steps a job
+	// with them adds, and the filesystem check of a season folder (tests replace it).
+	episodeVersionSteps []PostStep
+	checkEpisodeFolder  func(folder string) error
+
 	mu      sync.Mutex
 	polled  map[string]time.Time // pacing only: when each importing job was last looked at
 	running map[string]bool      // jobs whose post-processing goroutine runs
@@ -105,6 +110,7 @@ func NewEngine(p *Proposals) *Engine {
 		return fscheck.SameFilesystem(e.p.cfg)
 	}
 	e.checkVersionStorage = func() error { return versionStorage(e.p.cfg) }
+	e.checkEpisodeFolder = func(folder string) error { return episodeFolderCheck(e.p.cfg.Paths, folder) }
 	return e
 }
 
@@ -299,6 +305,22 @@ func (e *Engine) Importing(ctx context.Context, job store.Job) error {
 		ready, err := e.mergeStep(ctx, job, t, c)
 		if err != nil || !ready {
 			return err
+		}
+	}
+	// Episodes kept as second versions (#58, episode_version.go): placed first, then the
+	// other rows are imported, if any.
+	if c, ok := episodeVersionsOf(t); ok && terr == nil {
+		placed, err := e.placeEpisodeVersions(ctx, job, t, c)
+		if err != nil || !placed {
+			return err
+		}
+		rows, err := e.st.Rows(ctx, job.ID)
+		if err != nil {
+			return err
+		}
+		if !slices.ContainsFunc(rows, func(r store.Row) bool { return !r.Skip }) {
+			e.forget(job.ID)
+			return e.p.move(ctx, job, &t, store.Imported, store.Change{Note: fmt.Sprintf("%d second version(s) of episodes placed; nothing else to import", len(c.Versions))})
 		}
 	}
 	w, err := e.load(ctx, job)
@@ -828,6 +850,9 @@ func (e *Engine) Imported(ctx context.Context, job store.Job) error {
 	choice, _ := seasonDubOf(t)
 	if choice.Policy == PolicySubtitlesOnly && len(imported) == 0 { // nothing was imported: nothing to set
 		return e.p.move(ctx, job, &t, store.PostProcessing, store.Change{Note: "nothing imported: the subtitles are handed over"})
+	}
+	if choice.Policy == PolicyVersion && len(imported) == 0 { // #58: only versions, which are not Sonarr's files
+		return e.p.move(ctx, job, &t, store.PostProcessing, store.Change{Note: "monitoring unchanged: only second versions of episodes were placed"})
 	}
 	var mon monitoring
 	switch t.App {

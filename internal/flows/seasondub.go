@@ -12,15 +12,18 @@ import (
 // A dub of a season already in the library (plan §8, #57). When rows of a show's job have
 // episodes that already have a file, the proposal says which of the policies apply, and the
 // confirmation carries the choice (ConfirmRequest.SeasonDub), or seasonDub.policy decides
-// when it is fixed. This file has replace and subtitlesOnly; merge (per episode) and version
-// (#58) are not offered yet, so a fixed policy that is not offered leaves those rows
-// skipped, as in M2.
+// when it is fixed. This file has replace and subtitlesOnly; version (#58) is in
+// episode_version.go; merge (per episode) is not offered yet, so a fixed policy that is not
+// offered leaves those rows skipped, as in M2.
 //
 //   - replace: the rows with an existing file are imported over it, as an override of the
 //     app's "not an upgrade" refusal (probe B8-sonarr), and each season replaced is
 //     unmonitored afterwards (merge.unmonitorAfterDubOnlyImport), through the season flag.
 //   - subtitlesOnly: nothing is imported; the job's subtitle files go to the subtitle manager,
 //     for the episodes that already have a file, and the result says so.
+//   - version: the rows with an existing file are kept as second versions of their episodes,
+//     next to the episode's file (episode_version.go); offered when versions.enabled is on and
+//     the media server is Jellyfin 12.4 or later.
 //
 // What the confirmation decided is stored in the target's Options:
 //
@@ -54,6 +57,13 @@ type SeasonDub struct {
 	// file are skipped.
 	Offers  []string          `json:"offers"`
 	Seasons []SeasonDubSeason `json:"seasons"`
+	// NotOffered says why a policy of seasonDub.order is not among the offers, when Fukku
+	// can tell (#58: version, with versions_disabled, versions_unsupported,
+	// media_server_too_old or media_server_unknown).
+	NotOffered []NotOffered `json:"notOffered"`
+	// Version is what keeping the rows as second versions would be (#58), while "version"
+	// is among the offers; absent otherwise.
+	Version *EpisodeVersionsView `json:"version,omitempty"`
 }
 
 // SeasonDubSeason counts, for one season, the episodes of the rows not skipped and those
@@ -117,6 +127,10 @@ func (s *session) offers() []string {
 			out = append(out, p)
 		case PolicySubtitlesOnly:
 			if s.hasSubtitles() {
+				out = append(out, p)
+			}
+		case PolicyVersion: // #58
+			if s.episodeVersionsOffered() {
 				out = append(out, p)
 			}
 		}
@@ -209,7 +223,10 @@ func (s *session) seasonDub() *SeasonDub {
 	if policy == "" {
 		policy = PolicyAsk
 	}
-	v := &SeasonDub{Policy: policy, Offers: s.offers(), Seasons: []SeasonDubSeason{}}
+	v := &SeasonDub{Policy: policy, Offers: s.offers(), Seasons: []SeasonDubSeason{}, NotOffered: []NotOffered{}}
+	if s.epvNot != nil && slices.Contains(s.p.cfg.SeasonDub.Order, PolicyVersion) {
+		v.NotOffered = append(v.NotOffered, *s.epvNot)
+	}
 	switch {
 	case policy == PolicyAsk:
 		v.Ask = len(v.Offers) > 0

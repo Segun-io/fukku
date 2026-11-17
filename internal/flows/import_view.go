@@ -55,8 +55,9 @@ type ImportView struct {
 	Merge *MergeView `json:"merge"`
 }
 
-// ImportRowView is a row's result: "" (not yet), imported, failed or skipped. Name is the
-// file's name (not its path).
+// ImportRowView is a row's result: "" (not yet), imported, failed, skipped, or version (the
+// row is kept as a second version of its episode and the version is placed, #58). Name is
+// the file's name (not its path).
 type ImportRowView struct {
 	ID     string `json:"id"`
 	Name   string `json:"name"`
@@ -77,8 +78,11 @@ type ResultView struct {
 	Version *VersionResult `json:"version"`
 	// Merge is the merged file a flow 2a job imported (#55), with the warnings for the user
 	// (what can still replace it in Radarr, B6). Null for every other job.
-	Merge          *MergeResult `json:"merge"`
-	PostProcessing []StepView   `json:"postProcessing"`
+	Merge *MergeResult `json:"merge"`
+	// EpisodeVersions are the episodes the job kept as second versions (#58, the season-dub
+	// policy version) and how the media server groups them; null for every other job.
+	EpisodeVersions *EpisodeVersionsResult `json:"episodeVersions"`
+	PostProcessing  []StepView             `json:"postProcessing"`
 }
 
 // StepView is a post-processing step: pending, ok, failed or skipped. The detail of a step
@@ -119,8 +123,16 @@ func (e *Engine) Detail(ctx context.Context, job store.Job, admin bool) (*Import
 		return nil, nil, err
 	}
 	iv = &ImportView{Rows: make([]ImportRowView, 0, len(rows)), Merge: viewMerge(job, t)}
+	placed, err := e.episodeVersionRows(ctx, job, t) // #58
+	if err != nil {
+		return nil, nil, err
+	}
 	for _, r := range rows {
-		iv.Rows = append(iv.Rows, ImportRowView{ID: r.ID, Name: names[r.FileID], Result: r.Result})
+		res := r.Result
+		if v, ok := placed[r.ID]; ok {
+			res = v
+		}
+		iv.Rows = append(iv.Rows, ImportRowView{ID: r.ID, Name: names[r.FileID], Result: res})
 	}
 	switch {
 	case at != store.Importing:
@@ -167,6 +179,9 @@ func (e *Engine) Detail(ctx context.Context, job store.Job, admin bool) (*Import
 		return v
 	}
 	if rv.Version, err = e.versionResult(ctx, job, t, admin); err != nil {
+		return nil, nil, err
+	}
+	if rv.EpisodeVersions, err = e.episodeVersionsResult(ctx, job, t, admin); err != nil {
 		return nil, nil, err
 	}
 	listed := map[string]bool{}

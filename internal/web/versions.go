@@ -7,8 +7,10 @@ import (
 )
 
 // The second versions of films (#56): what Fukku placed outside Radarr's root folders and
-// how the media server groups each one now. Admins only (404 for others, like the rest of
-// the admin API); the records outlive their jobs.
+// how the media server groups each one now; and of episodes (#58, app sonarr, with
+// seasonNumber, episodeNumber and episodeId, null for films), placed next to the episode's
+// file. Admins only
+// (404 for others, like the rest of the admin API); the records outlive their jobs.
 //
 //	GET /api/admin/versions → 200 {"versions": [{"id": 1, "jobId": "…", "app": "radarr",
 //	    "titleId": 603, "title": "Film", "year": 2001, "name": "Film (2001) - Español.mkv",
@@ -41,6 +43,9 @@ type versionJSON struct {
 	Status           string     `json:"status"`
 	Detail           string     `json:"detail"`
 	PrimaryFile      string     `json:"primaryFile"`
+	SeasonNumber     *int       `json:"seasonNumber"` // null for a film's version
+	EpisodeNumber    *int       `json:"episodeNumber"`
+	EpisodeID        *int       `json:"episodeId"`
 	CreatedAt        time.Time  `json:"createdAt"`
 	CheckedAt        *time.Time `json:"checkedAt"`
 	GroupedAt        *time.Time `json:"groupedAt"`
@@ -66,6 +71,10 @@ func (s *Server) adminVersions(w http.ResponseWriter, r *http.Request) {
 			ID: v.ID, JobID: v.JobID, App: v.App, TitleID: v.TitleID, Title: v.Title, Year: v.Year,
 			Name: path.Base(v.Path), Path: v.Path, Label: v.Label, Status: v.Status, Detail: v.Detail,
 			CreatedAt: v.CreatedAt.UTC(), CheckedAt: at(v.CheckedAt), GroupedAt: at(v.GroupedAt), PrimaryChangedAt: at(v.PrimaryChangedAt),
+		}
+		if v.App == "sonarr" { // an episode's version (#58); season 0 is the specials
+			season, episode, id := v.SeasonNumber, v.EpisodeNumber, v.EpisodeID
+			j.SeasonNumber, j.EpisodeNumber, j.EpisodeID = &season, &episode, &id
 		}
 		if v.PrimaryPath != "" {
 			j.PrimaryFile = path.Base(v.PrimaryPath)

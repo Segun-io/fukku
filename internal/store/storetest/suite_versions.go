@@ -45,6 +45,17 @@ func testVersions(t *testing.T, s store.Store) {
 	if b.ID == a.ID {
 		t.Fatalf("two records with id %d", a.ID)
 	}
+	// An episode's version (#58) keeps its episode, on insert and on replace.
+	ev := must(s.PutVersion(ctx, store.Version{JobID: "j3", App: "sonarr", TitleID: 11, EpisodeID: 102, SeasonNumber: 1, EpisodeNumber: 2,
+		Path: "/data/media/tv/Show/Season 01/Show - S01E02 - Español.mkv", Status: store.VersionPlacing}))(t)
+	ev.Status, ev.EpisodeID, ev.SeasonNumber, ev.EpisodeNumber = store.VersionLinked, 103, 1, 3
+	_ = must(s.PutVersion(ctx, ev))(t)
+	if e := must(s.VersionByPath(ctx, ev.Path))(t); e.App != "sonarr" || e.EpisodeID != 103 || e.SeasonNumber != 1 || e.EpisodeNumber != 3 || e.Status != store.VersionLinked {
+		t.Fatalf("an episode's version read back %+v", e)
+	}
+	if err := s.DeleteVersion(ctx, ev.ID); err != nil {
+		t.Fatal(err)
+	}
 
 	// Replace: every field but CreatedAt is written.
 	at := time.Date(2026, 5, 6, 7, 8, 9, 10, time.UTC)

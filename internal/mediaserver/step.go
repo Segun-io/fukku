@@ -61,6 +61,10 @@ func (s *Step) Run(ctx context.Context, job store.Job, target store.Target, rows
 	if err != nil {
 		return false, "", err
 	}
+	if len(files) == 0 && flows.HasEpisodeVersions(target) && !imported(rows) {
+		// Only episodes' versions were placed (#58): their own step tells the server.
+		return true, "", flows.Skip("nothing was imported: the second versions of the episodes are refreshed by " + EpisodeVersionStepName)
+	}
 	if len(files) == 0 {
 		return false, "", errors.New("the app tracks no imported file for this job")
 	}
@@ -130,6 +134,16 @@ func (s *Step) Run(ctx context.Context, job store.Job, target store.Target, rows
 		detail += " (found only after a full library scan: " + fmt.Sprint(listed) + " of " + fmt.Sprint(len(look)) + " items were listed after " + wait.String() + ")"
 	}
 	return true, detail, nil
+}
+
+// imported reports whether a row was imported.
+func imported(rows []store.Row) bool {
+	for _, r := range rows {
+		if r.Result == store.ResultImported {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Step) log() *slog.Logger {

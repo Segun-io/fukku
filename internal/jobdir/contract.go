@@ -16,6 +16,9 @@ import (
 //	jobs/<job id>/work/            worker scratch space (M3: preview clips, merge output)
 //	jobs/<job id>/merged/<name>/   verified merge output (flow 2a, #54): one directory per
 //	                               merge, which no upload or extraction can create
+//	jobs/<job id>/versions/<row>/  an episode's second version under its library name, a hard
+//	                               link to the upload, for Sonarr's verdict before it is
+//	                               placed (#58); never imported
 const (
 	Incoming = ".incoming"
 	Jobs     = "jobs"
@@ -23,6 +26,7 @@ const (
 	Archives = "archives"
 	Work     = "work"
 	Merged   = "merged"
+	Versions = "versions"
 )
 
 var idRE = regexp.MustCompile(`^[0-9a-f]{32}$`)

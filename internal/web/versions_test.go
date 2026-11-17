@@ -98,6 +98,11 @@ func TestAdminVersions(t *testing.T) {
 		PrimaryPath: "/data/media/movies/Has File (2004)/Has File (2004) WEBDL-1080p.mkv"}); err != nil {
 		t.Fatal(err)
 	}
+	// An episode's version (#58) of a special: season 0 is shown, not dropped.
+	if _, err := e.st.PutVersion(ctx, store.Version{JobID: "j2", App: "sonarr", TitleID: 11, EpisodeID: 1001, SeasonNumber: 0, EpisodeNumber: 3,
+		Path: "/data/media/tv/Show/Specials/Show - S00E03 - Español.mkv", Label: "Español", Status: store.VersionLinked}); err != nil {
+		t.Fatal(err)
+	}
 	if code, _ := e.call("GET", "/api/admin/versions", ""); code != http.StatusNotFound {
 		t.Errorf("a user got %d", code)
 	}
@@ -116,10 +121,16 @@ func TestAdminVersions(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
 		t.Fatal(err)
 	}
-	if len(out.Versions) != 1 {
+	if len(out.Versions) != 2 {
 		t.Fatalf("versions %s", rec.Body)
 	}
+	if ep := out.Versions[1]; ep["seasonNumber"] != float64(0) || ep["episodeNumber"] != float64(3) || ep["episodeId"] != float64(1001) {
+		t.Errorf("episode's version %v", ep)
+	}
 	v := out.Versions[0]
+	if _, ok := v["seasonNumber"]; !ok || v["seasonNumber"] != nil || v["episodeId"] != nil {
+		t.Errorf("a film's version has episode fields: %v", v)
+	}
 	if v["name"] != "Has File (2004) - Español.mkv" || v["status"] != "grouped" || v["primaryFile"] != "Has File (2004) WEBDL-1080p.mkv" ||
 		v["groupedAt"] != nil || v["titleId"] != float64(8) {
 		t.Errorf("version %v", v)

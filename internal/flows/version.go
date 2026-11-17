@@ -385,18 +385,7 @@ func radarrVerdict(p, base arr.Parsed, stem string) *LabelProblem {
 
 // filmFolder is the name of Radarr's folder for the film (movie.path as Radarr sees it), as
 // a version's folder and name prefix.
-func filmFolder(appPath string) (string, error) {
-	p := strings.TrimRight(strings.ReplaceAll(appPath, `\`, "/"), "/")
-	if p == "" {
-		return "", errors.New("radarr gives no folder for the film")
-	}
-	base := path.Base(p)
-	clean, err := safename.Clean(base, 200)
-	if err != nil || clean != base || strings.ContainsAny(base, `<>:"|?*`) {
-		return "", fmt.Errorf("radarr's folder name %q cannot be used as a file name", base)
-	}
-	return clean, nil
-}
+func filmFolder(appPath string) (string, error) { return titleFolder(AppRadarr, appPath) }
 
 // trackedChanged is an error when the film's tracked file is no longer the one the match
 // recorded: Radarr's movie-file id, size (a size of 0 at the match is not compared) and
@@ -491,7 +480,7 @@ func (e *Engine) confirmVersion(ctx context.Context, user, email string, s *sess
 		return Confirmation{}, badRequest("A second version takes only flow2 and version: no overrides, subtitles or seasonDub.")
 	}
 	if s.t.App != AppRadarr {
-		return Confirmation{}, refuse(CodeVersionUnavailable, "Second versions of films are made for Radarr's films only (episodes: #58).")
+		return Confirmation{}, refuse(CodeVersionUnavailable, "Second versions of films are made for Radarr's films only (episodes: the season-dub policy version).")
 	}
 	if rec.Library.Probe == nil {
 		return Confirmation{}, refuse(CodeWrongState, "The film's library file is not compared yet.")
@@ -806,8 +795,18 @@ func uploadOf(ctx context.Context, st store.Store, intakeRoot string, rec store.
 	if err != nil {
 		return "", false
 	}
-	c, ok := versionOf(t)
-	if !ok || c.Path != rec.Path {
+	var fileID int64
+	if c, ok := versionOf(t); ok && c.Path == rec.Path {
+		fileID = c.FileID
+	}
+	if c, ok := episodeVersionsOf(t); ok { // an episode's version (#58)
+		for _, v := range c.Versions {
+			if v.Path == rec.Path {
+				fileID = v.FileID
+			}
+		}
+	}
+	if fileID == 0 {
 		return "", false
 	}
 	files, err := st.Files(ctx, rec.JobID)
@@ -815,7 +814,7 @@ func uploadOf(ctx context.Context, st store.Store, intakeRoot string, rec store.
 		return "", false
 	}
 	for _, f := range files {
-		if f.ID == c.FileID && strings.HasPrefix(f.Path, jobdir.Files+"/") {
+		if f.ID == fileID && strings.HasPrefix(f.Path, jobdir.Files+"/") {
 			return filepath.Join(jobdir.Dir(intakeRoot, rec.JobID), filepath.FromSlash(f.Path)), true
 		}
 	}

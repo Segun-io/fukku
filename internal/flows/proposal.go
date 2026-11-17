@@ -107,6 +107,12 @@ type Proposals struct {
 	// orphans paces the look for orphaned preview results (preview.go); no decision
 	// depends on it.
 	orphans orphanSweeps
+
+	// msVersion is the media server's version, which decides whether episodes' versions
+	// are offered (SetMediaServerVersion, #58); nil: they are not.
+	msVersion *serverVersion
+	// linkTrials caches the trial links of season folders for the view (#58).
+	linkTrials linkTrials
 }
 
 // NewProposals builds the proposal flow. locks is shared with the match flow (nil: its own).
