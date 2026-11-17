@@ -46,6 +46,7 @@ const (
 	ReasonNameTooLong   = "name_too_long"
 	ReasonDuplicate     = "duplicate"
 	ReasonEncrypted     = "encrypted"
+	ReasonHidden        = "hidden"
 )
 
 const (
@@ -358,6 +359,11 @@ func (x *extractor) entry(ctx context.Context, zf *zip.File) (string, error) {
 			// Empty, "." or "..", or a drive letter, only once control characters and
 			// surrounding spaces are gone: treated as an attempt to leave the directory.
 			return ReasonTraversal, nil
+		}
+		if strings.HasPrefix(c, ".") {
+			// As for uploaded names (#122): the intake root uses such names for its own
+			// temporary files, and they are hidden files besides.
+			return ReasonHidden, nil
 		}
 		cleaned[i] = c
 	}

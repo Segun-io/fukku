@@ -155,6 +155,7 @@
       "duplicate",
       "encrypted",
       "extension",
+      "hidden",
       "name_too_long",
       "nested_archive",
       "special",

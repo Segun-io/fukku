@@ -8,8 +8,10 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/segun-io/fukku/internal/jobdir"
+	"github.com/segun-io/fukku/internal/safename"
 	"github.com/segun-io/fukku/internal/store"
 )
 
@@ -53,6 +55,12 @@ func (h *Handler) finish(ctx context.Context, id string) *apiError {
 // be repeated, so a crash at any point is repaired by running it again (reconcile).
 // The caller holds finishMu.
 func (h *Handler) complete(ctx context.Context, row store.Upload) *apiError {
+	// The name in the row went through safename.Clean when the upload was created; a row
+	// that was changed since (or written by another version) is not trusted: an unclean
+	// name, or one starting with a dot, is refused before anything moves (#122).
+	if clean, err := safename.Clean(row.Name, h.maxName); err != nil || clean != row.Name || strings.HasPrefix(clean, ".") {
+		return &apiError{http.StatusBadRequest, "bad_name", "The upload's file name is not a clean name."}
+	}
 	kind, dir := h.kindOf(row.Name)
 	if kind == "" {
 		return &apiError{http.StatusUnsupportedMediaType, "extension_not_allowed", "Files of this type are no longer accepted."}

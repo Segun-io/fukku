@@ -396,6 +396,7 @@ const en = {
   "skip.name_too_long": "its name is too long",
   "skip.duplicate": "another file already has this name",
   "skip.encrypted": "it is password-protected",
+  "skip.hidden": "its name starts with a dot",
   "skip.unknown": "skipped (code: {code})",
 
   "errors.unknown": "Something went wrong.",

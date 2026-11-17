@@ -855,3 +855,31 @@ func TestLargeUploadOffsets(t *testing.T) {
 		t.Fatalf("files %+v", files)
 	}
 }
+
+// A row whose stored name is not what safename.Clean gives is refused at the move, whatever
+// the intake root's os.Root would have confined (#122).
+func TestCompleteRefusesUncleanName(t *testing.T) {
+	for _, name := range []string{"../film.mkv", "a/b.mkv", ".hidden.mkv", " film.mkv", "film\x00.mkv", `a\b.mkv`} {
+		t.Run(name, func(t *testing.T) {
+			e := newEnv(t, nil)
+			j := e.job("user1")
+			data := randomData(testChunk + 5)
+			id := e.client("user1").mustCreate(j.ID, "film.mkv", int64(len(data)))
+			e.client("user1").send(id, data[:testChunk], 0)
+			row, ok := e.uploadRow(id)
+			if !ok {
+				t.Fatal("no upload row")
+			}
+			row.Name = name
+			if apiErr := e.h.complete(context.Background(), row); apiErr == nil || apiErr.code != "bad_name" {
+				t.Fatalf("complete = %+v, want bad_name", apiErr)
+			}
+			if n := len(e.files(j)); n != 0 {
+				t.Fatalf("%d files were recorded", n)
+			}
+			if !exists(e.incoming(id)) {
+				t.Fatal("the upload's data was moved")
+			}
+		})
+	}
+}
