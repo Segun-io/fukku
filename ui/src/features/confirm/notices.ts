@@ -34,7 +34,6 @@ export function hintText(code: string): NoticeText {
   return { key: "confirm.hint.unknown", params: { code } };
 }
 
-/** Whether the app or Fukku has something to say against importing the row. */
 /**
  * Whether importing the row despite its problems needs an admin while the server says so
  * (`notOffered` override `admin_required`, #116): a refusal of Radarr or Sonarr, or a file
@@ -43,6 +42,7 @@ export function hintText(code: string): NoticeText {
 export const overrideNeedsAdmin = (row: ProposalRow) =>
   row.rejections.length > 0 || row.warnings.some((w) => w.code === "existing_file");
 
+/** Whether the app or Fukku has something to say against importing the row. */
 export function hasIssues(row: ProposalRow): boolean {
   return row.rejections.length > 0 || row.warnings.length > 0;
 }
