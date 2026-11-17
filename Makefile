@@ -22,7 +22,11 @@ IN_DEV  :=
 DEV_DEP :=
 else
 TTY     := $(shell [ -t 0 ] && echo -t)
-IN_DEV  := docker run --rm -i $(TTY) -u $(shell id -u):$(shell id -g) -v $(CURDIR):/src $(DEV_IMAGE)
+# In a git worktree the repository's metadata lives outside $(CURDIR), and without it the
+# secret scan silently skips the history. Mount it read-only at the same path.
+GIT_COMMON := $(shell git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)
+GIT_MOUNT  := $(if $(GIT_COMMON),$(if $(filter $(CURDIR)/%,$(GIT_COMMON)),,-v $(GIT_COMMON):$(GIT_COMMON):ro))
+IN_DEV  := docker run --rm -i $(TTY) -u $(shell id -u):$(shell id -g) -v $(CURDIR):/src $(GIT_MOUNT) $(DEV_IMAGE)
 DEV_DEP := dev-image
 endif
 
@@ -90,7 +94,7 @@ ui-check: ui-deps ## lint, unit tests, type-check and build the UI
 
 .PHONY: secrets
 secrets: $(DEV_DEP) ## scan the working tree (and history, once there is one) for secrets
-	$(IN_DEV) bash -c 'gitleaks dir --no-banner --redact --config .gitleaks.toml . && if git rev-parse -q --verify HEAD >/dev/null; then gitleaks git --no-banner --redact --config .gitleaks.toml .; fi'
+	$(IN_DEV) bash -c 'gitleaks dir --no-banner --redact --config .gitleaks.toml . && if git rev-parse -q --verify HEAD >/dev/null 2>&1; then gitleaks git --no-banner --redact --config .gitleaks.toml .; elif ! git rev-parse --git-dir >/dev/null 2>&1; then echo "secrets: WARNING: no git metadata visible, history not scanned" >&2; fi'
 
 .PHONY: secrets-staged
 secrets-staged: $(DEV_DEP)
