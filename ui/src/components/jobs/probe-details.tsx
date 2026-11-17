@@ -14,7 +14,7 @@ export function Tracks({ lines, empty }: { lines: TrackLine[]; empty: string }) 
           {line.title && <span translate="no"> &ldquo;{line.title}&rdquo;</span>}
           <span className="figure ml-2 text-sm text-muted-foreground">{line.detail}</span>
           {line.flags.map((flag) => (
-            <span key={flag} className="ml-2 text-sm text-muted-foreground">
+            <span key={flag} className="ml-2 text-sm text-muted-foreground [overflow-wrap:normal]">
               ({t(`job.probe.flag.${flag}`)})
             </span>
           ))}

@@ -30,7 +30,7 @@ export function AdminPage() {
   if (session.isPending) return <LoadingState />;
   if (session.data?.user.admin !== true) return <NotFound />;
   return (
-    <div className="grid gap-10">
+    <div className="grid grid-cols-1 gap-10">
       <header className="grid gap-2">
         <h1>{t("admin.title")}</h1>
         <p className="max-w-[65ch] text-ink-2">{t("admin.intro")}</p>
@@ -46,7 +46,7 @@ function HealthSection() {
   const status = useAdminStatus(true);
 
   return (
-    <section aria-labelledby="admin-health" className="grid gap-6 border-t pt-8">
+    <section aria-labelledby="admin-health" className="grid grid-cols-1 gap-6 border-t pt-8">
       <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-2">
         <h2 id="admin-health">{t("admin.health.title")}</h2>
         <Button
@@ -81,7 +81,7 @@ function HealthSection() {
             {t("admin.health.checked", { date: formatDate(status.data.checkedAt) })}
           </p>
           <Checks status={status.data} />
-          <div className="grid gap-8 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-8 sm:grid-cols-2">
             <Apps status={status.data} />
             <Worker status={status.data} />
             <Disk status={status.data} />
@@ -146,7 +146,7 @@ function Apps({ status }: { status: AdminStatus }) {
       {status.apps.length === 0 ? (
         <p className="mt-2 text-ink-2">{t("admin.apps.none")}</p>
       ) : (
-        <ul className="mt-2 grid gap-2">
+        <ul className="mt-2 grid grid-cols-1 gap-2">
           {status.apps.map((a) => {
             const label = checkLabels[a.name];
             return (
@@ -251,7 +251,7 @@ function SettingsSection() {
   }
 
   return (
-    <section aria-labelledby="admin-settings" className="grid gap-6 border-t pt-8">
+    <section aria-labelledby="admin-settings" className="grid grid-cols-1 gap-6 border-t pt-8">
       <div className="grid gap-2">
         <h2 id="admin-settings">{t("admin.settings.title")}</h2>
         <p className="max-w-[65ch] text-ink-2">{t("admin.settings.intro")}</p>
