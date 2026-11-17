@@ -140,12 +140,20 @@ func testVersionsOutliveJobs(t *testing.T, s store.Store) {
 	}
 }
 
-// A flow 2 job whose library file changed before its version was placed goes back from
-// importing to probed without its target (#56), like a stale match.
+// A flow 2 job whose library file changed before its version was placed (#56) or its merge
+// was imported (#55) goes back from importing to probed without its target and rows, like
+// a stale match. Its files (a merge's verified file among them) and its import record stay.
 func testReplaceTargetFromImporting(t *testing.T, s store.Store) {
 	ctx := t.Context()
 	j := drive(t, s, newJob(t, s, "user1").ID, store.Importing)
+	f := must(s.AddFile(ctx, store.File{JobID: j.ID, Path: "merged/1/Film.mkv", Kind: store.KindVideo, Size: 1, Status: store.FileOK}))(t)
 	if err := s.SetTarget(ctx, j.ID, store.Target{App: "radarr", TitleID: 5, Title: "Film"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.PutRows(ctx, j.ID, []store.Row{{ID: "r1", FileID: f.ID}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.PutImport(ctx, store.Import{JobID: j.ID, SubmittedAt: time.Now()}); err != nil {
 		t.Fatal(err)
 	}
 	got, err := s.ReplaceTarget(ctx, j.ID, store.Importing, store.Probed, nil, store.Change{Actor: "system", Note: "stale"})
@@ -157,6 +165,15 @@ func testReplaceTargetFromImporting(t *testing.T, s store.Store) {
 	}
 	if _, err := s.Target(ctx, j.ID); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("target after the move: %v, want ErrNotFound", err)
+	}
+	if rows := must(s.Rows(ctx, j.ID))(t); len(rows) != 0 {
+		t.Fatalf("rows after the move: %+v", rows)
+	}
+	if files := must(s.Files(ctx, j.ID))(t); len(files) != 1 {
+		t.Fatalf("files after the move: %+v", files)
+	}
+	if _, err := s.Import(ctx, j.ID); err != nil {
+		t.Fatalf("the import record after the move: %v", err)
 	}
 	h := history(t, s, j.ID)
 	if e := h[len(h)-1]; e.From != store.Importing || e.To != store.Probed || e.Note != "stale" {

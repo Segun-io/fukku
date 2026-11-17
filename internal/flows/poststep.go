@@ -225,6 +225,9 @@ func (e *Engine) postProcess(ctx context.Context, job store.Job) error {
 	for _, f := range e.onDone {
 		f(t)
 	}
+	if IsMerge(t) {
+		e.mergeDone(ctx, job)
+	}
 	return nil
 }
 

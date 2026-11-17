@@ -399,7 +399,8 @@ func filmFolder(appPath string) (string, error) {
 }
 
 // trackedChanged is an error when the film's tracked file is no longer the one the match
-// recorded (Radarr's movie-file id and size; a size of 0 at the match is not compared).
+// recorded: Radarr's movie-file id, size (a size of 0 at the match is not compared) and
+// path (one not recorded at the match is not compared).
 func trackedChanged(lib LibraryFile, m arr.Movie) error {
 	switch {
 	case m.File == nil:
@@ -408,6 +409,10 @@ func trackedChanged(lib LibraryFile, m arr.Movie) error {
 		return fmt.Errorf("radarr's file for the film changed since the match (movie file %d, now %d): match it again", lib.FileID, m.File.ID)
 	case lib.Size > 0 && m.File.Size != lib.Size:
 		return fmt.Errorf("radarr's file for the film changed since the match (size %d, now %d): match it again", lib.Size, m.File.Size)
+	case lib.AppPath != "" && m.File.Path != lib.AppPath:
+		// The same record under another name (Radarr renamed the film): the probe, the clips
+		// and the merge would read a path that is no longer the file.
+		return fmt.Errorf("radarr's file for the film moved since the match (%q, now %q): match it again", lib.AppPath, m.File.Path)
 	}
 	return nil
 }

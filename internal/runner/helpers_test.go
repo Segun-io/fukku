@@ -289,7 +289,7 @@ func (e *env) leftovers(id string) []string {
 	}
 	j := e.job(id)
 	for a := 1; a <= j.Attempt; a++ {
-		ids := []string{probeID(j, a), LibraryProbeID(j.ID, a)}
+		ids := []string{probeID(j, a), LibraryProbeID(j.ID, a), MergeID(j.ID, a)}
 		for _, f := range e.files(id) {
 			if f.Kind == store.KindArchive {
 				ids = append(ids, extractID(j, a, f.ID))

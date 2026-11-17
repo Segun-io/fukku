@@ -179,7 +179,7 @@ func ResumeState(from State) State {
 // transitions is the state machine. Importing → Cancelled is an admin giving up on an
 // import whose command never ends (the web API allows it once the job is stuck past
 // server.jobStuckAfter). Importing → Probed is a flow 2 job whose library file changed
-// before anything was written (#56): it goes back to be matched again, through
+// before anything was written (#55, #56): it goes back to be matched again, through
 // ReplaceTarget.
 var transitions = map[State]map[State]bool{
 	Uploading:            {Uploaded: true, Cancelled: true, Failed: true},

@@ -196,6 +196,15 @@ func (e *Engine) plan(job store.Job, t store.Target, rows []store.Row, files []s
 	for _, f := range files {
 		byID[f.ID] = f
 	}
+	// A merge (#55) imports its verified file and nothing else: never an upload under files/,
+	// which would replace the film's file with the dub alone.
+	isMerge, merged := false, ""
+	if c, ok := mergeOf(t); ok {
+		isMerge = true
+		if c.Output != nil {
+			merged = c.Output.Path
+		}
+	}
 	var out []planned
 	for _, r := range rows {
 		if r.Skip {
@@ -209,7 +218,11 @@ func (e *Engine) plan(job store.Job, t store.Target, rows []store.Row, files []s
 			return nil, fmt.Errorf("row %s: the app did not offer its file", r.ID)
 		}
 		f, ok := byID[r.FileID]
-		if !ok || !strings.HasPrefix(f.Path, jobdir.Files+"/") || f.Kind != store.KindVideo || f.Status != store.FileOK {
+		inJob := strings.HasPrefix(f.Path, jobdir.Files+"/")
+		if isMerge {
+			inJob = merged != "" && f.Path == merged
+		}
+		if !ok || !inJob || f.Kind != store.KindVideo || f.Status != store.FileOK {
 			return nil, fmt.Errorf("row %s: its file is not one of the job's videos", r.ID)
 		}
 		if err := titleOK(t, ar); err != nil {
@@ -259,7 +272,11 @@ func titleOK(t store.Target, ar arr.Row) error {
 func (e *Engine) Importing(ctx context.Context, job store.Job) error {
 	// subtitlesOnly (#57): when the confirmation skipped every row (every episode has a file),
 	// nothing is imported; the post-processing hands the subtitles over.
-	if t, err := e.st.Target(ctx, job.ID); err == nil {
+	t, terr := e.st.Target(ctx, job.ID)
+	if terr != nil && !errors.Is(terr, store.ErrNotFound) {
+		return terr
+	}
+	if terr == nil {
 		if v, ok := versionOf(t); ok { // a second version (#56): placed by Fukku, not imported
 			return e.placeVersion(ctx, job, t, v)
 		}
@@ -273,11 +290,16 @@ func (e *Engine) Importing(ctx context.Context, job store.Job) error {
 				return e.p.move(ctx, job, &t, store.Imported, store.Change{Note: "nothing imported: the season dub policy is subtitlesOnly"})
 			}
 		}
-	} else if !errors.Is(err, store.ErrNotFound) {
-		return err
 	}
 	if !e.due(job.ID) {
 		return nil
+	}
+	// A merge (#55, merge.go): the merge task and the merged file's row come first.
+	if c, ok := mergeOf(t); ok && terr == nil {
+		ready, err := e.mergeStep(ctx, job, t, c)
+		if err != nil || !ready {
+			return err
+		}
 	}
 	w, err := e.load(ctx, job)
 	if errors.Is(err, store.ErrNotFound) { // no target: nothing can be imported
@@ -492,6 +514,9 @@ func (e *Engine) findCommand(ctx context.Context, app arr.Importer, job store.Jo
 		return 0, err
 	}
 	folder := path.Clean(e.p.folder(t.App, job.ID)) + "/"
+	if c, ok := mergeOf(t); ok && c.Output != nil { // a merge imports from its merged/<attempt>/
+		folder = path.Dir(e.p.appPath(t.App, job.ID, c.Output.Path)) + "/"
+	}
 	best := 0
 	for _, c := range cmds {
 		if c.Name != "ManualImport" || reported[c.ID] || len(c.Files) == 0 || c.ID <= best {
@@ -510,6 +535,11 @@ func (e *Engine) findCommand(ctx context.Context, app arr.Importer, job store.Jo
 func (e *Engine) submit(ctx context.Context, job store.Job, w work, got []bool) error {
 	if err := e.checkStorage(); err != nil {
 		return e.fail(ctx, job, w.t, CodeImportFailed, "refused before the import: "+err.Error())
+	}
+	if IsMerge(w.t) { // Radarr's file must still be the one the merge was made from (#55)
+		if stop, err := e.mergeStillTracked(ctx, job, w); stop || err != nil {
+			return err
+		}
 	}
 	var busy bool
 	var err error
@@ -772,6 +802,9 @@ func (e *Engine) Imported(ctx context.Context, job store.Job) error {
 	}
 	if IsVersion(t) { // a second version (#56): Radarr's film and its monitoring are untouched
 		return e.p.move(ctx, job, &t, store.PostProcessing, store.Change{Note: "monitoring unchanged: a second version is not Radarr's file"})
+	}
+	if IsMerge(t) { // a merge (#55): merge.unmonitorAfterMerge decides
+		return e.mergeImported(ctx, job, t)
 	}
 	rows, err := e.st.Rows(ctx, job.ID)
 	if err != nil {

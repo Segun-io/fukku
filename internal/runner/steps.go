@@ -39,6 +39,18 @@ func LibraryProbeID(jobID string, attempt int) string {
 	return jobID + "-" + strconv.Itoa(attempt) + "-l"
 }
 
+// MergeID is the id of a flow 2a job's merge task (#55) in an attempt: <job>-<attempt>-m.
+// Package flows submits it, with the destination MergeDest(attempt); it is here so that
+// cancelling and discarding a job reach it too (taskIDs). A retry has a new attempt, so its
+// merge has its own id and its own destination.
+func MergeID(jobID string, attempt int) string {
+	return jobID + "-" + strconv.Itoa(attempt) + "-m"
+}
+
+// MergeDest is the job-relative directory the merge task of an attempt writes its verified
+// file into: merged/<attempt> (merge.Args.Dest).
+func MergeDest(attempt int) string { return jobdir.Merged + "/" + strconv.Itoa(attempt) }
+
 // PreviewSlots is how many task ids the sync-check clips of a flow 2 job (#53) take turns
 // on. Each preview request takes the next slot, so a result always names the request it
 // is for, and a slot comes round again only after this many requests. Package flows
@@ -507,8 +519,8 @@ func (r *Runner) drain(ctx context.Context, job store.Job, files []store.File, f
 }
 
 // taskIDs are the ids of the tasks the runner may have submitted for the job in the
-// attempts from..to: the probe, one extraction per archive and the library probe of flow 2
-// in each, and with previews the preview clips of flow 2 in every slot, which belong to no
+// attempts from..to: the probe, one extraction per archive, the library probe of flow 2 and
+// the merge of flow 2a in each, and with previews the preview clips of flow 2 in every slot, which belong to no
 // attempt. Only the job's end (cancel, the sweep, Discard) asks for those; a retry's drain
 // of earlier attempts and a failed task's leave them to package flows.
 func taskIDs(job store.Job, files []store.File, from, to int, previews bool) []string {
@@ -519,7 +531,7 @@ func taskIDs(job store.Job, files []store.File, from, to int, previews bool) []s
 		}
 	}
 	for a := from; a <= to; a++ {
-		ids = append(ids, probeID(job, a), LibraryProbeID(job.ID, a))
+		ids = append(ids, probeID(job, a), LibraryProbeID(job.ID, a), MergeID(job.ID, a))
 		for _, f := range files {
 			if f.Kind == store.KindArchive {
 				ids = append(ids, extractID(job, a, f.ID))

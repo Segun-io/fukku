@@ -22,9 +22,11 @@ type ConfirmRequest struct {
 	// SeasonDub is what to do with rows whose episodes already have a file (#57): one of
 	// the proposal's seasonDub.offers when seasonDub.ask is set; empty otherwise.
 	SeasonDub string `json:"seasonDub,omitempty"`
-	// Flow2 is what to do with a flow 2 job (#52): "version" keeps the upload as a second
+	// Flow2 is what to do with a flow 2 job (#52): "merge" adds the upload's tracks to the
+	// film's file (#55, merge.go), with Merge; "version" keeps the upload as a second
 	// version of the film (#56), with Version. Empty: an import, which a flow 2 job refuses.
 	Flow2   string          `json:"flow2,omitempty"`
+	Merge   *MergeRequest   `json:"merge,omitempty"`
 	Version *VersionRequest `json:"version,omitempty"`
 }
 
@@ -62,8 +64,10 @@ type Overridden struct {
 // they were judged (an edit meanwhile makes it judge again), and the transition checks
 // that the job still has the same title.
 //
+// A flow 2 job is confirmed with req.Flow2: "merge" (confirmMerge, merge.go).
+//
 // Refusals: wrong_state, flow2 (the film already has a file, at the match or since: flow 2, #52), bad_request (an
-// override names no row of the job),
+// override names no row of the job, or flow2 for a job that is not flow 2),
 // storage_unavailable (the filesystem checks fail), incomplete_rows (rows without a title
 // or episodes: edit or skip them), needs_override (Rows lists them), nothing_to_import;
 // arr_unavailable when the app does not answer.
@@ -83,14 +87,23 @@ func (e *Engine) confirm(ctx context.Context, user, email, jobID string, req Con
 		return Confirmation{}, err
 	}
 	if rec, ok := Flow2Of(s.t); ok {
-		if req.Flow2 == OfferVersion {
+		switch req.Flow2 {
+		case OfferMerge:
+			if req.Version != nil {
+				return Confirmation{}, badRequest("A merge takes merge, not version.")
+			}
+			return e.confirmMerge(ctx, user, email, s, rec, req) // #55
+		case OfferVersion:
+			if req.Merge != nil {
+				return Confirmation{}, badRequest("A second version takes version, not merge.")
+			}
 			return e.confirmVersion(ctx, user, email, s, rec, req) // #56
 		}
 		// Importing the upload would replace the film's file: flow 2 merges or adds a version.
 		return Confirmation{}, refuse(CodeFlow2, "The film already has a file in the library: this job can merge the new language into it or keep it as a second version, not import it.")
 	}
-	if req.Flow2 != "" || req.Version != nil {
-		return Confirmation{}, badRequest("flow2 and version apply only to a job whose film already has a file (flow 2).")
+	if req.Flow2 != "" || req.Merge != nil || req.Version != nil {
+		return Confirmation{}, badRequest("flow2, merge and version apply only to a job whose film already has a file (flow 2).")
 	}
 	if s.t.App == AppRadarr {
 		// A flow 1 job was matched to a film without a file; one may have appeared since

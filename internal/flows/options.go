@@ -14,6 +14,8 @@ import (
 //	"subtitles":  {"<file id>": {"language": "es", "forced": false, "hearingImpaired": true}}
 //	"monitoring": {"monitored": false, "reason": "dub_only"}
 //
+// A merge (#55, merge.go) keeps its choice and its progress there too ("merge").
+//
 // The subtitles step (#42) reads the first through SubtitleChoices; JobDetail's result
 // shows the second.
 
@@ -55,6 +57,7 @@ func SubtitleChoices(t store.Target) map[int64]SubtitleChoice {
 const (
 	UnmonitorDubOnly = "dub_only" // only a dub was imported, merge.unmonitorAfterDubOnlyImport (B6)
 	UnmonitorChosen  = "chosen"   // the user chose at the match not to replace the film
+	UnmonitorMerged  = "merged"   // a merge replaced the film's file, merge.unmonitorAfterMerge (B6, #55)
 )
 
 // monitoring is what the imported step left: whether the title (a show: every imported

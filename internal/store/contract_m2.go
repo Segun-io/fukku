@@ -92,7 +92,7 @@ type M2 interface {
 	// ReplaceTarget is the match step's one write, in one transaction: the job must be in
 	// state from (else ErrConflict) and from must be probed, matched or awaiting-confirmation
 	// (or importing, for a flow 2 job that goes back to probed before anything was written,
-	// #56) and to probed or matched (else ErrInvalidTransition); c.ExpiresAt must be nil (an
+	// #55, #56) and to probed or matched (else ErrInvalidTransition); c.ExpiresAt must be nil (an
 	// error otherwise); its target and rows are removed, t is stored when not
 	// nil, and the job moves to to (probed or matched; to == from changes nothing and
 	// records no event, any other move must be allowed by CanTransition). Nothing is
