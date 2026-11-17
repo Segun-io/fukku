@@ -40,7 +40,9 @@ type Earlier struct {
 
 // Result is one probe's outcome, written as <dir>/<ID>.json.
 type Result struct {
-	ID       string         `json:"id"`
+	ID string `json:"id"`
+	// Test is the go test that ran the probe; the gate pairs a failed test with its result by it.
+	Test     string         `json:"test,omitempty"`
 	Title    string         `json:"title"`
 	Apps     []string       `json:"apps"`
 	Claim    string         `json:"claim"`

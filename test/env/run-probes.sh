@@ -11,6 +11,16 @@ online=0; [ "$mode" = online ] && online=1
 # probes (e.g. -run TestSonarr) replaces only theirs. A simulated outage keeps earlier results, so
 # the skipped ones can name the verdict they replace.
 if [ "$#" -eq 0 ] && [ "${FUKKU_TEST_SIMULATE_METADATA_OUTAGE:-0}" != 1 ]; then find .run/results -name '[A-Z]*.json' -delete 2>/dev/null || true; fi
-docker compose --env-file .run/.env -f compose.yaml run --rm -e FUKKU_TEST_ONLINE=$online \
+set +e
+docker compose --env-file .run/.env -f compose.yaml run --rm -T -e FUKKU_TEST_ONLINE=$online \
   -e FUKKU_TEST_SIMULATE_METADATA_OUTAGE="${FUKKU_TEST_SIMULATE_METADATA_OUTAGE:-0}" tools \
-  go test -tags probes -count=1 -timeout 60m -v ./test/probes/ "$@"
+  go test -tags probes -count=1 -timeout 60m -v ./test/probes/ "$@" 2>&1 | tee .run/go-test.log
+status=${PIPESTATUS[0]}
+set -e
+# The exit status goes into the log; the gate (make probes-gate) reads it. A run that did not get
+# this far leaves no status line, and the gate fails it.
+echo "go test exit status: $status" >> .run/go-test.log
+# A differs verdict fails its test, so go test exits non-zero on findings the gate accepts.
+# This script succeeds once the run is recorded: the gate judges it, and fails a crash, a
+# build failure or a failed test without a result.
+echo "go test exited with status $status; the probe gate judges the run"

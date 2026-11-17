@@ -21,10 +21,11 @@ func main() {
 	results := flag.String("results", "test/env/.run/results", "directory with probe results")
 	doc := flag.String("doc", "docs/compatibility.md", "document to update")
 	accepted := flag.String("accepted", "test/probes/accepted.json", "recorded differences (accepted findings)")
+	gotest := flag.String("gotest", "test/env/.run/go-test.log", "go test output recorded by run-probes.sh, with its exit status (-gate only)")
 	gate := flag.Bool("gate", false, "instead of writing the document, print CI annotations and exit 1 on a differs or error verdict")
 	flag.Parse()
 	if *gate {
-		os.Exit(runGate(*results, *accepted))
+		os.Exit(runGate(*results, *accepted, *gotest))
 	}
 	if err := run(*results, *doc, *accepted); err != nil {
 		fmt.Fprintln(os.Stderr, "compat:", err)
@@ -33,7 +34,7 @@ func main() {
 }
 
 // runGate applies the CI rule (probes.Gate) to the results in dir and returns the exit code.
-func runGate(dir, acceptedPath string) int {
+func runGate(dir, acceptedPath, gotestPath string) int {
 	rs, _, err := probes.ReadResults(dir)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "compat:", err)
@@ -44,9 +45,35 @@ func runGate(dir, acceptedPath string) int {
 		fmt.Fprintln(os.Stderr, "compat:", err)
 		return 1
 	}
-	code, annotations := probes.Gate(rs, acc)
+	f, err := os.Open(gotestPath)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "compat: no go test record (run make probes first):", err)
+		return 1
+	}
+	run, err := probes.ParseRun(f)
+	_ = f.Close()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "compat:", err)
+		return 1
+	}
+	code, annotations := probes.GateRun(rs, acc, run)
+	var errs, accepted, warns int
 	for _, a := range annotations {
 		fmt.Println(a)
+		switch {
+		case strings.HasPrefix(a, "::error"):
+			errs++
+		case strings.Contains(a, "(accepted)"):
+			accepted++
+		default:
+			warns++
+		}
+	}
+	// The last line of a local run: say plainly whether anything needs attention.
+	if code != 0 {
+		fmt.Printf("probe gate: FAILED, %d problem(s): a new differs, an error, or a probe that crashed\n", errs)
+	} else {
+		fmt.Printf("probe gate: passed; %d accepted finding(s) from test/probes/accepted.json, %d other warning(s), nothing new\n", accepted, warns)
 	}
 	return code
 }
