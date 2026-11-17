@@ -28,6 +28,10 @@ const (
 	RefusalNotText       = "not_text"
 	RefusalUnreadable    = "unreadable"
 	RefusalTimeout       = "timeout"
+	// RefusalTooManyStreams: more video, audio and subtitle tracks than worker.maxStreamsPerFile.
+	RefusalTooManyStreams = "too_many_streams"
+	// RefusalResultTooLarge: the files before this one already fill worker.maxProbeResultBytes.
+	RefusalResultTooLarge = "result_too_large"
 )
 
 const (
@@ -61,13 +65,16 @@ type Options struct {
 	MaxTitleBytes     int // worker.maxTrackTitleBytes
 	MaxTagBytes       int // worker.maxTrackTagBytes
 	MaxStreamsPerFile int // worker.maxStreamsPerFile
+	// MaxResultBytes bounds the JSON of one probe task's files together (worker.maxProbeResultBytes).
+	MaxResultBytes int64
 }
 
 // Defaults of the bounds above (the same as the settings').
 const (
 	defaultMaxTitleBytes     = 256
 	defaultMaxTagBytes       = 64
-	defaultMaxStreamsPerFile = 32
+	defaultMaxStreamsPerFile = 256
+	defaultMaxResultBytes    = 8 << 20
 )
 
 // limits are the bounds applied to one probed file.
@@ -110,6 +117,7 @@ func OptionsFrom(cfg config.Config) Options {
 		MaxTitleBytes:     cfg.Worker.MaxTrackTitleBytes,
 		MaxTagBytes:       cfg.Worker.MaxTrackTagBytes,
 		MaxStreamsPerFile: cfg.Worker.MaxStreamsPerFile,
+		MaxResultBytes:    int64(cfg.Worker.MaxProbeResultBytes),
 	}
 }
 
@@ -117,6 +125,10 @@ func OptionsFrom(cfg config.Config) Options {
 // is a normal entry with OK false.
 func Run(ctx context.Context, job *os.Root, args ProbeArgs, opt Options) (ProbeOutput, error) {
 	out := ProbeOutput{Files: make([]ProbedFile, 0, len(args.Paths))}
+	budget, used := opt.MaxResultBytes, int64(0)
+	if budget <= 0 {
+		budget = defaultMaxResultBytes
+	}
 	for _, p := range args.Paths {
 		if err := ctx.Err(); err != nil {
 			return ProbeOutput{}, err
@@ -141,6 +153,17 @@ func Run(ctx context.Context, job *os.Root, args ProbeArgs, opt Options) (ProbeO
 		}
 		if err != nil {
 			return ProbeOutput{}, err
+		}
+		if pf.Media != nil {
+			// What the file adds to the result, as encoded (escapes included): the files that
+			// do not fit are refused, so the result stays within what the spool reads.
+			data, merr := json.Marshal(pf)
+			if merr != nil {
+				return ProbeOutput{}, merr
+			}
+			if used += int64(len(data)); used > budget {
+				pf.OK, pf.Media, pf.Refusal = false, nil, RefusalResultTooLarge
+			}
 		}
 		out.Files = append(out.Files, pf)
 	}
@@ -243,8 +266,10 @@ func probeOpen(ctx context.Context, f *os.File, size int64, pf *ProbedFile, opt 
 		pf.Refusal = RefusalNoVideoStream
 		return nil
 	}
-	m := raw.toProbe(size, opt.limits())
+	m, tooMany := raw.toProbe(size, opt.limits())
 	switch {
+	case tooMany:
+		pf.Refusal = RefusalTooManyStreams
 	case len(m.Video) == 0:
 		pf.Refusal = RefusalNoVideoStream
 	case m.DurationMs <= 0:
@@ -317,29 +342,35 @@ func runFFprobe(ctx context.Context, f *os.File, opt Options, formats string, sh
 	return stdout.buf.Bytes(), "", nil
 }
 
+type rawStream struct {
+	Index        int               `json:"index"`
+	CodecType    string            `json:"codec_type"`
+	CodecName    string            `json:"codec_name"`
+	Width        int               `json:"width"`
+	Height       int               `json:"height"`
+	Channels     int               `json:"channels"`
+	AvgFrameRate string            `json:"avg_frame_rate"`
+	RFrameRate   string            `json:"r_frame_rate"`
+	Duration     string            `json:"duration"`
+	Tags         map[string]string `json:"tags"`
+	Disposition  map[string]int    `json:"disposition"`
+}
+
 type rawProbe struct {
 	Format struct {
 		FormatName string `json:"format_name"`
 		Duration   string `json:"duration"`
 		BitRate    string `json:"bit_rate"`
 	} `json:"format"`
-	Streams []struct {
-		Index        int               `json:"index"`
-		CodecType    string            `json:"codec_type"`
-		CodecName    string            `json:"codec_name"`
-		Width        int               `json:"width"`
-		Height       int               `json:"height"`
-		Channels     int               `json:"channels"`
-		AvgFrameRate string            `json:"avg_frame_rate"`
-		RFrameRate   string            `json:"r_frame_rate"`
-		Duration     string            `json:"duration"`
-		Tags         map[string]string `json:"tags"`
-		Disposition  map[string]int    `json:"disposition"`
-	} `json:"streams"`
+	Streams []rawStream `json:"streams"`
 }
 
-func (r rawProbe) toProbe(size int64, lim limits) Probe {
-	m := Probe{
+// toProbe keeps the video, audio and subtitle streams (other kinds, and cover art, are not
+// tracks). A file with more than lim.streams of them is not truncated, which would make
+// every later decision (a merge's track count, the upload's track choice) work from a
+// partial list: tooMany is set instead and the caller refuses the file.
+func (r rawProbe) toProbe(size int64, lim limits) (m Probe, tooMany bool) {
+	m = Probe{
 		Container: clip(r.Format.FormatName, lim.tag),
 		Size:      size,
 		Video:     []VideoTrack{},
@@ -350,11 +381,8 @@ func (r rawProbe) toProbe(size int64, lim limits) Probe {
 		m.DurationMs = capMs(d * 1000)
 	}
 	m.BitRate, _ = strconv.ParseInt(r.Format.BitRate, 10, 64)
-	streams := r.Streams
-	if len(streams) > lim.streams {
-		streams = streams[:lim.streams] // the rest is dropped, not reported
-	}
-	for _, s := range streams {
+	kept := 0
+	for _, s := range r.Streams {
 		lang, title := clip(s.Tags["language"], lim.tag), clip(s.Tags["title"], lim.title)
 		s.CodecName = clip(s.CodecName, lim.tag)
 		def := s.Disposition["default"] == 1
@@ -363,19 +391,28 @@ func (r rawProbe) toProbe(size int64, lim limits) Probe {
 			if s.Disposition["attached_pic"] == 1 {
 				continue // cover art, not a video stream
 			}
+			if kept++; kept > lim.streams {
+				return m, true
+			}
 			m.Video = append(m.Video, VideoTrack{Index: s.Index, Codec: s.CodecName, Width: s.Width,
 				Height: s.Height, FrameRate: frameRate(s.AvgFrameRate, s.RFrameRate), Default: def,
 				DurationMs: streamDuration(s.Duration, s.Tags)})
 		case "audio":
+			if kept++; kept > lim.streams {
+				return m, true
+			}
 			m.Audio = append(m.Audio, AudioTrack{Index: s.Index, Codec: s.CodecName, Language: lang,
 				Title: title, Channels: s.Channels, Default: def})
 		case "subtitle":
+			if kept++; kept > lim.streams {
+				return m, true
+			}
 			m.Subtitles = append(m.Subtitles, SubtitleTrack{Index: s.Index, Codec: s.CodecName, Language: lang,
 				Title: title, Default: def, Forced: s.Disposition["forced"] == 1,
 				HearingImpaired: s.Disposition["hearing_impaired"] == 1})
 		}
 	}
-	return m
+	return m, false
 }
 
 // streamDuration is a stream's duration in ms: ffprobe's own (MP4 and most containers),

@@ -68,7 +68,7 @@ func newClient(app string, cfg config.Arr) *client {
 		base:    strings.TrimRight(cfg.URL, "/"),
 		key:     cfg.APIKey.Reveal(),
 		timeout: t,
-		http:    safehttp.NoRedirect(&http.Client{}),
+		http:    safehttp.NoCrossOriginRedirect(&http.Client{}),
 	}
 }
 

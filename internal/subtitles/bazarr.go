@@ -36,7 +36,7 @@ func NewBazarr(baseURL, apiKey string, timeout time.Duration) *Bazarr {
 	return &Bazarr{
 		base:     strings.TrimRight(baseURL, "/"),
 		key:      apiKey,
-		client:   safehttp.NoRedirect(&http.Client{Timeout: timeout}),
+		client:   safehttp.NoCrossOriginRedirect(&http.Client{Timeout: timeout}),
 		baseline: map[string]int{},
 	}
 }

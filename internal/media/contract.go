@@ -73,7 +73,7 @@ type LibraryProbeOutput struct {
 	FileID      int    `json:"fileId,omitempty"`      // echoes the args
 	TrackedSize int64  `json:"trackedSize,omitempty"` // echoes the args
 	OK          bool   `json:"ok"`
-	Refusal     string `json:"refusal,omitempty"` // outside_library, unreadable, no_video_stream, no_duration, timeout
+	Refusal     string `json:"refusal,omitempty"` // outside_library, unreadable, no_video_stream, no_duration, timeout, too_many_streams
 	Media       *Probe `json:"media,omitempty"`   // when OK
 }
 
@@ -92,6 +92,6 @@ type ProbedFile struct {
 	Path    string `json:"path"`
 	Kind    string `json:"kind"`              // "video" or "subtitle", from the extension
 	OK      bool   `json:"ok"`                // passed the content check
-	Refusal string `json:"refusal,omitempty"` // when not OK: extension, no_video_stream, no_duration, not_text, unreadable, timeout
+	Refusal string `json:"refusal,omitempty"` // when not OK: extension, no_video_stream, no_duration, not_text, unreadable, timeout, too_many_streams, result_too_large
 	Media   *Probe `json:"media,omitempty"`   // for an accepted video
 }

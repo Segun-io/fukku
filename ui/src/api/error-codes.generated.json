@@ -74,7 +74,9 @@
       "no_video_stream",
       "not_text",
       "outside_library",
+      "result_too_large",
       "timeout",
+      "too_many_streams",
       "unreadable"
     ],
     "hints": [

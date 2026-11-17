@@ -207,6 +207,11 @@ func (d *Dir) Result(ctx context.Context, id string) (Result, bool, error) {
 	if err := json.Unmarshal(data, &r); err != nil {
 		return badResult(id, fmt.Errorf("spool: %s: %w", name, err)), true, nil
 	}
+	if r.V > Version {
+		// Written by a newer worker: this binary cannot read it, a matching web process
+		// can after an upgrade. It stays where it is, and is not reported as a result.
+		return Result{}, false, nil
+	}
 	if r.V != Version {
 		return badResult(id, fmt.Errorf("spool: %s has version %d, this binary reads %d", name, r.V, Version)), true, nil
 	}

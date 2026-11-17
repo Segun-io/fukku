@@ -293,6 +293,9 @@ func validateShared(p *problems, cfg Config) {
 			p.add(c.key, "must be between 1 and 65536")
 		}
 	}
+	if w.MaxProbeResultBytes < 64<<10 || w.MaxProbeResultBytes > 12<<20 {
+		p.add("worker.maxProbeResultBytes", "must be between 64KiB and 12MiB (the spool reads at most 16MiB of a result)")
+	}
 	validateMergeTrack(p, cfg.Merge)
 }
 

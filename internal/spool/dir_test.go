@@ -293,7 +293,7 @@ func TestResultChecks(t *testing.T) {
 	results := filepath.Join(dir, "results")
 	for name, body := range map[string]string{
 		"corrupt.json": `{"v":1,`,
-		"newer.json":   `{"v":2,"id":"newer","status":"ok"}`,
+		"older.json":   `{"v":0,"id":"older","status":"ok"}`,
 		"other.json":   `{"v":1,"id":"someone-else","status":"ok"}`,
 	} {
 		if err := os.WriteFile(filepath.Join(results, name), []byte(body), 0o600); err != nil {
@@ -301,6 +301,18 @@ func TestResultChecks(t *testing.T) {
 		}
 		id := strings.TrimSuffix(name, ".json")
 		assertBadResult(t, d, id)
+	}
+	// A result of a newer protocol version is not ours to read or to remove: it stays
+	// for a web process that matches, and is not reported as an error.
+	newer := filepath.Join(results, "newer.json")
+	if err := os.WriteFile(newer, []byte(`{"v":2,"id":"newer","status":"ok"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, err := d.Result(ctx, "newer"); ok || err != nil {
+		t.Errorf("newer: ok %v, err %v", ok, err)
+	}
+	if _, err := os.Stat(newer); err != nil {
+		t.Errorf("the newer result was touched: %v", err)
 	}
 	// A link out of the spool is not followed.
 	outside := filepath.Join(t.TempDir(), "secret.json")
@@ -318,7 +330,7 @@ func TestResultChecks(t *testing.T) {
 	}
 	assertBadResult(t, d, "big")
 	// Each is removed by Ack, once, whatever it holds.
-	for _, id := range []string{"corrupt", "newer", "other", "link", "big"} {
+	for _, id := range []string{"corrupt", "older", "other", "link", "big"} {
 		if err := d.Ack(ctx, id); err != nil {
 			t.Fatalf("Ack(%s): %v", id, err)
 		}

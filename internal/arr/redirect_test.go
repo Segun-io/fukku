@@ -47,3 +47,21 @@ func TestRedirectIsNotFollowed(t *testing.T) {
 		t.Fatalf("the redirect target was reached %d times, key leaked: %v", hits.Load(), leaked.Load())
 	}
 }
+
+// A redirect that stays on the configured origin keeps working, and carries the key there.
+func TestSameOriginRedirectWorks(t *testing.T) {
+	var key atomic.Value
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v3/system/status" {
+			http.Redirect(w, r, "/moved/status", http.StatusTemporaryRedirect)
+			return
+		}
+		key.Store(r.Header.Get("X-Api-Key"))
+		_, _ = w.Write([]byte(`{"appName":"Radarr","version":"1.0"}`))
+	}))
+	defer srv.Close()
+	st, err := arr.NewRadarr(config.Arr{URL: srv.URL, APIKey: testKey}).Status(ctx)
+	if err != nil || st.Version != "1.0" || key.Load() != string(testKey) {
+		t.Fatalf("%+v, %v, key %v", st, err, key.Load())
+	}
+}

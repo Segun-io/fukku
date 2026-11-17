@@ -146,7 +146,9 @@ func Defaults() Config {
 
 			MaxTrackTitleBytes: 256,
 			MaxTrackTagBytes:   64,
-			MaxStreamsPerFile:  32,
+			MaxStreamsPerFile:  256,
+
+			MaxProbeResultBytes: 8 << 20,
 		},
 	}
 }

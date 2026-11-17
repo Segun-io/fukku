@@ -97,7 +97,7 @@ func NewJellyfin(cfg config.MediaServer) *Jellyfin {
 	if m == "" {
 		m = MethodLibraryRefresh
 	}
-	return &Jellyfin{base: strings.TrimRight(cfg.URL, "/"), key: cfg.APIKey.Reveal(), method: m, timeout: t, http: safehttp.NoRedirect(&http.Client{})}
+	return &Jellyfin{base: strings.TrimRight(cfg.URL, "/"), key: cfg.APIKey.Reveal(), method: m, timeout: t, http: safehttp.NoCrossOriginRedirect(&http.Client{})}
 }
 
 // Version returns the server version (GET /System/Info/Public).

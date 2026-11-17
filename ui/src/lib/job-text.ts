@@ -69,6 +69,8 @@ export const fileRefusalCodes = [
   "not_text",
   "unreadable",
   "timeout",
+  "too_many_streams",
+  "result_too_large",
   "outside_library",
 ] as const;
 

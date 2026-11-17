@@ -383,6 +383,10 @@ const es: Record<keyof typeof en, string> = {
   "refusal.not_text": "Este archivo de subtítulos no es texto legible.",
   "refusal.unreadable": "No se pudo leer el archivo. Puede estar dañado.",
   "refusal.timeout": "La revisión de este archivo tardó demasiado.",
+  "refusal.too_many_streams":
+    "Este archivo tiene más pistas de audio, video y subtítulos de las que acepta el servidor.",
+  "refusal.result_too_large":
+    "El informe de los archivos de esta subida creció demasiado para incluir este archivo. Súbelo en un envío aparte.",
   "refusal.outside_library": "El archivo está fuera de las carpetas que Fukku puede leer.",
   "refusal.unknown": "Se rechazó el archivo (código: {code}).",
 

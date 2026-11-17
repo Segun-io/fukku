@@ -378,6 +378,10 @@ const en = {
   "refusal.not_text": "This subtitle file is not readable text.",
   "refusal.unreadable": "The file could not be read. It may be damaged.",
   "refusal.timeout": "Checking this file took too long.",
+  "refusal.too_many_streams":
+    "This file has more audio, video and subtitle tracks than the server accepts.",
+  "refusal.result_too_large":
+    "The report for this upload's files grew too large to hold this file. Upload it in a separate job.",
   "refusal.outside_library": "The file is outside the folders Fukku may read.",
   "refusal.unknown": "The file was refused (code: {code}).",
 

@@ -200,7 +200,7 @@ func (s *Server) cachedAppAnswer(ctx context.Context, name string, a config.Arr)
 }
 
 // appHTTP never follows a redirect: the API key must not leave the configured address.
-var appHTTP = safehttp.NoRedirect(&http.Client{})
+var appHTTP = safehttp.NoCrossOriginRedirect(&http.Client{})
 
 // checkApp calls GET <url>/api/v3/system/status with the API key. Of the answer's body only
 // the version string is kept (never in the Check); nothing else is read into the result.
@@ -224,8 +224,11 @@ func checkApp(ctx context.Context, name string, a config.Arr) (Check, string) {
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 			return fail(fmt.Sprintf("%s did not answer within %s", name, a.RequestTimeout))
 		}
+		if errors.Is(err, safehttp.ErrRedirectHTTPS) {
+			return fail(name + " redirects from http to https; use its https URL")
+		}
 		if errors.Is(err, safehttp.ErrRedirect) {
-			return fail(name + " redirects; set its own address (with any URL base) as its url")
+			return fail(name + " redirects to another address; set its own address (with any URL base) as its url")
 		}
 		return fail(name + " is unreachable")
 	}

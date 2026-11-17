@@ -223,4 +223,6 @@ type Worker struct {
 	MaxTrackTitleBytes int `yaml:"maxTrackTitleBytes"`
 	MaxTrackTagBytes   int `yaml:"maxTrackTagBytes"`
 	MaxStreamsPerFile  int `yaml:"maxStreamsPerFile"`
+	// MaxProbeResultBytes bounds the JSON a probe task reports for all its files together.
+	MaxProbeResultBytes ByteSize `yaml:"maxProbeResultBytes"`
 }
