@@ -366,6 +366,7 @@ func TestFinishedJobsDeletedAfterFinishedJobRetention(t *testing.T) {
 				t.Fatal(err)
 			}
 			write(t, e.path("jobs", j.ID, "files", "a.mkv"), "x", time.Time{})
+			write(t, e.path("worker", j.ID, "work", "previews", "c.mp4"), "x", time.Time{})
 
 			e.clk.Advance(finishedKeep - second)
 			e.run()
@@ -380,8 +381,8 @@ func TestFinishedJobsDeletedAfterFinishedJobRetention(t *testing.T) {
 			if _, err := e.st.Job(context.Background(), j.ID); err == nil {
 				t.Fatal("job row kept past the limit")
 			}
-			if e.exists("jobs", j.ID) {
-				t.Error("the directory that was left must be removed")
+			if e.exists("jobs", j.ID) || e.exists("worker", j.ID) {
+				t.Error("the directories that were left must be removed")
 			}
 			if files, _ := e.st.Files(context.Background(), j.ID); len(files) != 0 {
 				t.Errorf("files kept: %v", files)
@@ -504,6 +505,11 @@ func TestOrphanJobDirectories(t *testing.T) {
 	}
 	chtimes(young, now.Add(-jobRetention+second))
 	chtimes(old, now.Add(-jobRetention-second))
+	// The worker's directory of a job that is gone, as old.
+	write(t, e.path("worker", old, "work", "x"), "x", time.Time{})
+	if err := os.Chtimes(e.path("worker", old), now.Add(-jobRetention-second), now.Add(-jobRetention-second)); err != nil {
+		t.Fatal(err)
+	}
 	write(t, e.path("jobs", "not-a-job-id", "x"), "x", now.Add(-100*24*time.Hour))
 	write(t, e.path("jobs", "stray.txt"), "x", now.Add(-100*24*time.Hour))
 
@@ -515,7 +521,7 @@ func TestOrphanJobDirectories(t *testing.T) {
 	if !e.exists("jobs", young, "files", "a.mkv") {
 		t.Error("an orphan directory younger than upload.jobRetention must survive")
 	}
-	if e.exists("jobs", old) {
+	if e.exists("jobs", old) || e.exists("worker", old) {
 		t.Error("an orphan directory older than upload.jobRetention must be deleted")
 	}
 	if !e.exists("jobs", "not-a-job-id", "x") || !e.exists("jobs", "stray.txt") {

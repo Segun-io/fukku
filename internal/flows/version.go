@@ -672,7 +672,14 @@ func (e *Engine) placeVersion(ctx context.Context, job store.Job, t store.Target
 	if i < 0 || files[i].Kind != store.KindVideo || files[i].Status != store.FileOK || !strings.HasPrefix(files[i].Path, jobdir.Files+"/") {
 		return e.failVersion(ctx, job, t, CodeVersionFailed, "the job's video is no longer there")
 	}
-	src := filepath.Join(jobdir.Dir(cfg.Paths.IntakeRoot, job.ID), filepath.FromSlash(files[i].Path))
+	// The job's file, opened without following a link and checked: what is linked is this
+	// open file (#113).
+	src, srcInfo, err := openJobFile(cfg.Paths.IntakeRoot, job.ID, files[i].Path, files[i].Size)
+	if err != nil {
+		e.log.Warn("version_refused", "job", job.ID, "file", files[i].Path, "error", err)
+		return e.failVersion(ctx, job, t, CodeVersionFailed, "the job's video is no longer there, or not the job's file")
+	}
+	defer func() { _ = src.Close() }()
 	if c.Path != filepath.Join(cfg.Versions.Root, c.Folder, c.Name) {
 		return e.failVersion(ctx, job, t, CodeVersionFailed, fmt.Sprintf("versions.root changed since the confirmation (the version was to be %s)", c.Path))
 	}
@@ -687,7 +694,7 @@ func (e *Engine) placeVersion(ctx context.Context, job store.Job, t store.Target
 		// An earlier job's version of that name (its file may be gone): never taken over.
 		return e.failVersion(ctx, job, t, CodeVersionExists, fmt.Sprintf("%s is recorded for job %s (status %s): nothing is taken over", c.Path, rec.JobID, rec.Status))
 	}
-	placed, err := samePlaced(src, c.Path)
+	placed, err := samePlaced(srcInfo, c.Path)
 	if err != nil {
 		return e.failVersion(ctx, job, t, CodeVersionFailed, err.Error())
 	}
@@ -718,6 +725,11 @@ func (e *Engine) placeVersion(ctx context.Context, job store.Job, t store.Target
 			}
 			_, err := e.p.backToProbed(ctx, job, t, why)
 			return err
+		}
+		// Right before the link: the job's name is the file's only one (#114).
+		if err := wantLinks(src, files[i].Path, 1); err != nil {
+			e.log.Warn("version_refused", "job", job.ID, "file", files[i].Path, "error", err)
+			return e.failVersion(ctx, job, t, CodeVersionFailed, "the job's video has another name besides the job's: nothing was placed")
 		}
 		// The record first, so that the version keeper knows of the file once it exists.
 		if rec, err = e.st.PutVersion(ctx, versionRecord(rec, job, t, c, store.VersionPlacing)); err != nil {
@@ -790,8 +802,8 @@ func SettlePlacing(ctx context.Context, st store.Store, intakeRoot string, rec s
 	case job.State != store.Done && job.State != store.Cancelled:
 		return false, false, nil
 	}
-	if src, ok := uploadOf(ctx, st, intakeRoot, rec); ok {
-		if same, err := samePlaced(src, rec.Path); err == nil && same {
+	if info, ok := uploadOf(ctx, st, intakeRoot, rec); ok {
+		if same, err := samePlaced(info, rec.Path); err == nil && same {
 			rec.Status, rec.Detail = store.VersionLinked, ""
 			_, err := st.PutVersion(ctx, rec, store.AuditEntry{Actor: actor, Action: "version.linked", JobID: rec.JobID,
 				Detail: map[string]string{"path": rec.Path, "label": rec.Label, "titleId": strconv.Itoa(rec.TitleID), "note": "settled after the job ended"}})
@@ -804,11 +816,12 @@ func SettlePlacing(ctx context.Context, st store.Store, intakeRoot string, rec s
 	return true, false, nil
 }
 
-// uploadOf is the job's upload that the version's record was placed from, as Fukku sees it.
-func uploadOf(ctx context.Context, st store.Store, intakeRoot string, rec store.Version) (string, bool) {
+// uploadOf is the information of the job's upload that the version's record was placed
+// from, as Fukku sees it (opened through the job's directory, never through a link).
+func uploadOf(ctx context.Context, st store.Store, intakeRoot string, rec store.Version) (fs.FileInfo, bool) {
 	t, err := st.Target(ctx, rec.JobID)
 	if err != nil {
-		return "", false
+		return nil, false
 	}
 	var fileID int64
 	if c, ok := versionOf(t); ok && c.Path == rec.Path {
@@ -822,23 +835,62 @@ func uploadOf(ctx context.Context, st store.Store, intakeRoot string, rec store.
 		}
 	}
 	if fileID == 0 {
-		return "", false
+		return nil, false
 	}
 	files, err := st.Files(ctx, rec.JobID)
 	if err != nil {
-		return "", false
+		return nil, false
 	}
 	for _, f := range files {
 		if f.ID == fileID && strings.HasPrefix(f.Path, jobdir.Files+"/") {
-			return filepath.Join(jobdir.Dir(intakeRoot, rec.JobID), filepath.FromSlash(f.Path)), true
+			src, info, err := openJobFile(intakeRoot, rec.JobID, f.Path, -1)
+			if err != nil {
+				return nil, false
+			}
+			_ = src.Close()
+			return info, true
 		}
 	}
-	return "", false
+	return nil, false
 }
 
-// samePlaced reports whether dest is already the job's file (the same inode): placed by an
-// earlier pass.
-func samePlaced(src, dest string) (bool, error) {
+// openJobFile opens the job's file rel for reading through the job's directory, without
+// following a symbolic link anywhere on the way, and checks that it is a regular file of
+// size bytes (any size when negative): jobdir.OpenFile. Links into the library are made
+// from this open file (jobdir.LinkFile), so what was checked is what is linked (#113).
+func openJobFile(intakeRoot, jobID, rel string, size int64) (*os.File, fs.FileInfo, error) {
+	root, err := jobdir.Open(intakeRoot, jobID)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer func() { _ = root.Close() }()
+	f, info, err := jobdir.OpenFile(root, rel)
+	if err != nil {
+		return nil, nil, err
+	}
+	if size >= 0 && info.Size() != size {
+		_ = f.Close()
+		return nil, nil, fmt.Errorf("%w: %s is %d bytes, not %d", jobdir.ErrChanged, rel, info.Size(), size)
+	}
+	return f, info, nil
+}
+
+// wantLinks checks, right before the open job file src is linked, that it has exactly want
+// names: the job's own and those the web process made itself (a staged version). A worker
+// that kept a descriptor to a file it produced can give it a name in its own folder after
+// the file was moved into the job; writes through that name would reach the placed version
+// (#114), so such a file is not linked.
+func wantLinks(src *os.File, rel string, want uint64) error {
+	info, err := src.Stat()
+	if err != nil {
+		return err
+	}
+	return jobdir.WantLinks(info, rel, want)
+}
+
+// samePlaced reports whether dest is already the job's file src (the same inode): placed
+// by an earlier pass.
+func samePlaced(src fs.FileInfo, dest string) (bool, error) {
 	d, err := os.Lstat(dest)
 	if errors.Is(err, fs.ErrNotExist) {
 		return false, nil
@@ -846,20 +898,13 @@ func samePlaced(src, dest string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	s, err := os.Lstat(src)
-	if errors.Is(err, fs.ErrNotExist) {
-		return false, nil
-	}
-	if err != nil {
-		return false, err
-	}
-	return os.SameFile(s, d), nil
+	return os.SameFile(src, d), nil
 }
 
-// linkVersion hard-links src as root/folder/name. The folder is created inside root
-// (os.Root: no "..", no link out of it) when it is missing and must be a real folder; the
-// link never replaces a file (fs.ErrExist).
-func linkVersion(root, src, folder, name string) error {
+// linkVersion hard-links the open file src as root/folder/name. The folder is created
+// inside root (os.Root: no "..", no link out of it) when it is missing and must be a real
+// folder; the link never replaces a file (fs.ErrExist).
+func linkVersion(root string, src *os.File, folder, name string) error {
 	r, err := os.OpenRoot(root)
 	if err != nil {
 		return err
@@ -880,10 +925,5 @@ func linkVersion(root, src, folder, name string) error {
 		return err
 	}
 	defer func() { _ = dir.Close() }()
-	sd, err := os.Open(filepath.Dir(src))
-	if err != nil {
-		return err
-	}
-	defer func() { _ = sd.Close() }()
-	return linkAt(sd, filepath.Base(src), dir, name)
+	return jobdir.LinkFile(src, dir, name)
 }

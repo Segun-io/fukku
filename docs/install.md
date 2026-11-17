@@ -11,7 +11,10 @@ state is one SQLite file.
 
 ## What you need
 
-- **Docker with Compose v2** (`docker compose version`) on a Linux host, amd64 or arm64.
+- **Docker with Compose v2.12 or later** (`docker compose version`) on a Linux host, amd64 or arm64.
+  The compose example names the project at its top and mounts the intake folders with
+  `create_host_path: false` (a missing folder is an error, not a folder made as root); both were
+  checked with Compose v2.12.0, v2.20.0 and v5.7.0.
 - **Radarr or Sonarr** (or both), the v3 API. The versions the project tests against, with
   Bazarr and Jellyfin, are in [compatibility.md](compatibility.md). Their API keys.
 - **One filesystem for intake and library.** The folder uploads land in (the intake root) must
@@ -39,7 +42,14 @@ cp ~/fukku-src/deploy/compose.example.yaml compose.yaml
 cp ~/fukku-src/deploy/fukku.example.yaml fukku.yaml
 install -d -m 0750 state/data state/spool
 install -d -m 0700 secrets
+# The intake folders the worker mounts on their own (replace /path/to/data as in step 4):
+install -d /path/to/data/intake/jobs /path/to/data/intake/worker /path/to/data/intake/.incoming
 ```
+
+The intake folders must exist, belonging to that same user, before the first start: the
+compose file refuses to start a container on a missing one rather than let Docker create it as
+root, which neither container could then write. The web process also creates them when it
+starts, if the share is mounted.
 
 `state/data` holds the database and `state/spool` the files the two containers pass each other.
 They must belong to the user the containers run as (the `user:` line of the compose file,
@@ -101,8 +111,9 @@ its entry under `secrets:` at the end of the compose file and its section in `fu
 | --- | --- |
 | `image:` tag (in the `x-image` line) | the version you pulled |
 | `user: "1000:1000"` | your media user's `uid:gid` |
-| both `/path/to/data` | the host folder that holds intake and media (one filesystem) |
-| `/path/to/data/intake` | the intake folder inside it |
+| every `/path/to/data` | the host folder that holds intake and media (one filesystem) |
+| `/path/to/data/intake` (and its `jobs`, `worker`) | the intake folder inside it |
+| `/path/to/data/media/movies`, `/path/to/data/media/tv` (worker) | each of `paths.libraryRoots`, one line each, at the same path inside as in `fukku.yaml` |
 | `name: media` under `networks` | the Docker network your Radarr, Sonarr, Bazarr and Jellyfin containers share. (They must be on one: `docker network ls`) |
 
 Mount the data at the **same path inside Fukku as Radarr and Sonarr see it** (`/data` in most
@@ -217,8 +228,9 @@ manual fallback is always Radarr's or Sonarr's own Manual Import page on the job
 - **Bazarr** must be connected to Radarr and Sonarr as usual; Fukku only hands it the subtitle
   files that came with an upload, once Radarr or Sonarr has imported the video.
 
-For second versions (`versions.enabled`): the web container needs the library mounted writable
-(the compose example does), `versions.root` on the same mount as the intake folder and inside a
+For second versions (`versions.enabled`): the web container needs the whole data folder as one
+writable mount, `/path/to/data:/data`, in place of the read-only one and the intake one (the
+compose example says where), `versions.root` on that mount and inside a
 Jellyfin Movies library, and, for episodes, Sonarr's season folders writable by the Fukku user.
 [settings.md](settings.md) (`versions`) has the full list; confirming a version checks it and
 says what is wrong.
@@ -230,17 +242,30 @@ says what is wrong.
 | `./fukku.yaml:/config/fukku.yaml:ro` | the configuration, read by both containers |
 | `./state/data:/var/lib/fukku` (web) | the database, `fukku.db`. Local disk only, and one running process at a time (it has a lock) |
 | `./state/spool:/spool` (both) | task and result files between web and worker; also local disk |
-| `/path/to/data:/data` (web) | the intake root, written by uploads, and, with versions on, the library |
-| `/path/to/data:/data:ro` and `/path/to/data/intake:/data/intake` (worker) | the worker reads the library to compare a dub with the film (only under `paths.libraryRoots`) and writes only the intake folder |
+| `/path/to/data:/data:ro` and `/path/to/data/intake:/data/intake` (web) | the web process reads the sentinels and checks the library, and writes only the intake folder: uploads, jobs, and the files it takes over from the worker |
+| `/path/to/data:/data` (web, with `versions.enabled` instead of the two above) | a second version is a hard link from the intake folder into the library, so both must be one writable mount. Without versions the web process never writes the library |
+| `/path/to/data/intake/worker:/data/intake/worker` (worker) | the one folder the worker writes: its own folder of each job, for extracted files, preview clips and merges. The web process moves what it accepts out of it, one regular file at a time, and refuses links |
+| `/path/to/data/intake/jobs:/data/intake/jobs`, read-only (worker) | the jobs' files: the uploads, and what the web process accepted. Read-only, so the worker cannot change a file after the web process checked it and handed it to Radarr or Sonarr, or linked it as a version |
+| each of `paths.libraryRoots`, read-only (worker) | the worker reads a film's file to compare a dub with it and to merge (flow 2), only under these. Nothing else of `/path/to/data`: not the downloads, not `.incoming/` (the unfinished uploads) |
+
+The worker checks this when it starts and refuses to start if it can write `jobs/`,
+`.incoming/`, a library root, `versions.root` or the data folder itself, or cannot write
+`worker/` (`worker.requireSeparateMounts`,
+[settings.md](settings.md)); the log line `worker_mounts` names the paths. The intake folders
+are mounted with `create_host_path: false`: a missing one stops the container instead of being
+created as root.
 
 The root filesystems are read-only, all capabilities are dropped and `/tmp` is a tmpfs, for both
-containers. Do not give the worker a network.
+containers. Do not give the worker a network. Why the worker gets so little:
+[threat-model.md](threat-model.md).
 
 ## The user id
 
 Both containers run as the `user:` of the compose file. It must be the user that owns the
 media files, because the web process creates the intake folders and links versions, and Radarr
-and Sonarr, running as the same user, must be able to move the files out of them. The image
+and Sonarr, running as the same user, must be able to move the files out of them. The worker
+runs as that user too: what keeps it from changing those files is its read-only mounts, not
+its user id, so the files Radarr and Sonarr import keep their usual owner. The image
 itself runs as 10001 if you give no user; then every mounted folder must be writable by it.
 
 ## Upgrading
@@ -256,6 +281,26 @@ The database is migrated when the web process starts; a database written by a ne
 refused, so back up first ([backup.md](backup.md)). Jobs in progress carry on. Read the release
 notes for settings that changed: `docker compose run --rm --no-deps web check-config` names any
 that were removed.
+
+### From a compose file that mounted the whole intake folder into the worker
+
+The worker now writes only `intake/worker`, reads `intake/jobs` and the library roots
+read-only, and refuses to start with the old mounts (`worker_mounts` in its log). Take the
+volumes of both services from the new `deploy/compose.example.yaml`, and **make the intake
+folders first**, as the media user, before `docker compose up -d` with the new file: they are
+mounted with `create_host_path: false`, so a missing one stops both containers
+(`bind source path does not exist`) instead of being created as root.
+
+```sh
+install -d /path/to/data/intake/jobs /path/to/data/intake/worker /path/to/data/intake/.incoming
+docker compose up -d
+```
+
+A job that was extracting or merging during the upgrade fails its task; retry it. The
+preview clips of a job awaiting confirmation are looked up in `intake/worker` now: the ones
+rendered before the upgrade answer 404 until they are rendered again (ask for the preview once
+more on the job's page). A finished job's clips answer 404: the worker's folder of a job goes
+once the job is done.
 
 ## Backup
 

@@ -34,7 +34,8 @@ report a vulnerability is in [SECURITY.md](SECURITY.md).
 
 ## What it needs
 
-- Docker with Compose v2, and **Radarr** and/or **Sonarr** (v3 API; the tested versions are in
+- Docker with Compose v2.12 or later (for the compose example's `create_host_path: false`),
+  and **Radarr** and/or **Sonarr** (v3 API; the tested versions are in
   [docs/compatibility.md](docs/compatibility.md)). Bazarr and Jellyfin are optional.
 - **One filesystem** for the intake folder and the library when Radarr and Sonarr import by
   moving (the default), mounted at the same path in every container.
@@ -155,7 +156,7 @@ downloaded.
 | `internal/web`, `internal/worker` | the two processes |
 | `internal/spool` | the task and result files between the two processes; `spooltest` has an in-memory queue |
 | `internal/store` | the SQLite store: jobs and their state machine, files, uploads, audit log; `storetest` has the in-memory fake and the conformance suite |
-| `internal/jobdir` | the layout of the intake root (`.incoming/`, `jobs/<id>/files`, `archives`, `work`) |
+| `internal/jobdir` | the layout of the intake root (`.incoming/`, `jobs/<id>/files`, `archives`, `worker/<id>`), and the checks of a job's file before it is handed over (no symbolic link on the way, regular, moved in from the worker's folder) |
 | `internal/runner` | drives jobs through their states (uploaded → probing → probed), restart-safe |
 | `internal/extract`, `internal/safename` | safe zip extraction in the worker; the file-name cleaner |
 | `ui/` | the React single-page app, embedded in the binary |

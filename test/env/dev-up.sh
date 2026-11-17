@@ -21,8 +21,11 @@ for size in "${FUKKU_DEV_MAX_FILE_SIZE:-256MiB}" "${FUKKU_DEV_MAX_IN_FLIGHT:-1Gi
   [[ "$size" =~ ^[0-9]+([KMGT]i?B)?$ ]] || { echo "FUKKU_DEV_MAX_FILE_SIZE and FUKKU_DEV_MAX_IN_FLIGHT are sizes such as 5GiB, got $size" >&2; exit 1; }
 done
 
-# .run/data/media/versions is versions.root of fukku.yaml (second versions, #56).
-mkdir -p .run/fukku/data .run/fukku/spool .run/data/intake .run/data/media/versions
+# .run/data/media/versions is versions.root of fukku.yaml (second versions, #56). The worker
+# mounts intake/jobs, intake/worker and the library roots on their own: made here, as the
+# user, so the container runtime never creates one as root (#138).
+mkdir -p .run/fukku/data .run/fukku/spool .run/data/intake/.incoming .run/data/intake/jobs .run/data/intake/worker \
+  .run/data/media/movies .run/data/media/tv .run/data/media/versions
 touch .run/data/.mounted
 cat > .run/dev.env <<ENV
 FUKKU_IMAGE=$image

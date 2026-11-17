@@ -15,7 +15,9 @@ package retention
 import (
 	"context"
 	"errors"
+	"io"
 	"io/fs"
+	"iter"
 	"log/slog"
 	"os"
 	"path"
@@ -48,6 +50,7 @@ type Sweeper struct {
 
 	mu     sync.Mutex
 	logged map[string]struct{} // paths already reported as unknown
+	worker *jobdir.WorkerSweeper
 }
 
 // New returns a Sweeper. q is the spool queue, used to cancel and acknowledge a job's tasks
@@ -56,7 +59,8 @@ func New(cfg config.Config, st store.Store, q spool.Queue, log *slog.Logger, now
 	if now == nil {
 		now = time.Now
 	}
-	return &Sweeper{cfg: cfg, store: st, queue: q, log: log, now: now, logged: map[string]struct{}{}}
+	return &Sweeper{cfg: cfg, store: st, queue: q, log: log, now: now, logged: map[string]struct{}{},
+		worker: &jobdir.WorkerSweeper{Limits: SweepLimits(cfg)}}
 }
 
 // Run sweeps once and then every upload.sweepInterval until ctx is done.
@@ -194,7 +198,7 @@ func (s *Sweeper) deleteFinishedJobs(ctx context.Context, root *os.Root, now tim
 			s.log.Error("retention_tasks", "job", j.ID, "error", err.Error())
 			continue
 		}
-		if err := root.RemoveAll(path.Join(jobdir.Jobs, j.ID)); err != nil {
+		if err := removeJobDirs(root, s.cfg.Paths.IntakeRoot, j.ID); err != nil {
 			s.log.Error("retention_remove", "job", j.ID, "error", err.Error())
 			continue
 		}
@@ -206,6 +210,17 @@ func (s *Sweeper) deleteFinishedJobs(ctx context.Context, root *os.Root, now tim
 		}
 		s.audit(ctx, "job.deleted", j.ID, map[string]string{"reason": "finished_retention", "state": string(j.State)})
 	}
+}
+
+// removeJobDirs removes a job's directories through root, the intake root: the worker's
+// (worker/<id>) first and jobs/<id> last, as jobdir.Remove does.
+func removeJobDirs(root *os.Root, intakeRoot, id string) error {
+	// The worker's folder may hold anything the worker made, however many entries and
+	// levels: it is set aside for the bounded sweep of worker/ (jobdir.SpillWorker).
+	if err := jobdir.SpillWorker(intakeRoot, id, ""); err != nil {
+		return err
+	}
+	return root.RemoveAll(path.Join(jobdir.Jobs, id))
 }
 
 // dropTasks cancels and then acknowledges every task id the job's runner may have used, so
@@ -229,7 +244,7 @@ func (s *Sweeper) sweepIncoming(ctx context.Context, root *os.Root, now time.Tim
 	for _, u := range uploads {
 		known[u.ID] = true
 	}
-	for _, e := range s.entries(root, jobdir.Incoming) {
+	for e := range s.entries(root, jobdir.Incoming) {
 		name := e.Name()
 		rel := path.Join(jobdir.Incoming, name)
 		if known[strings.TrimSuffix(name, ".info")] {
@@ -252,13 +267,77 @@ func (s *Sweeper) sweepIncoming(ctx context.Context, root *os.Root, now time.Tim
 	}
 }
 
-// sweepJobsDir handles the directories in jobs/ that have no job row: logged as
-// orphan_job_dir, deleted only once older than upload.jobRetention.
+// sweepJobsDir handles the directories in jobs/ and worker/ that have no job row: logged
+// as orphan_job_dir, deleted only once older than upload.jobRetention.
 func (s *Sweeper) sweepJobsDir(ctx context.Context, root *os.Root, now time.Time) {
+	s.sweepWorker(ctx, root, now)
+	s.sweepTop(ctx, root, now, jobdir.Jobs)
+}
+
+// sweepWorker keeps worker/ to what the worker makes for a job (jobdir.WorkerSweeper): a hard
+// link it made there of a file the web process took into a job, through a descriptor it
+// kept, would be a writable name of an imported or placed file (#114). The worker's folder
+// of a job that is done is removed too: nothing in it is needed any more.
+func (s *Sweeper) sweepWorker(ctx context.Context, root *os.Root, now time.Time) {
+	for _, j := range s.jobsIn(ctx, store.Done) {
+		if !jobdir.ValidID(j.ID) {
+			continue
+		}
+		if err := jobdir.SpillWorker(s.cfg.Paths.IntakeRoot, j.ID, ""); err != nil {
+			s.log.Error("retention_remove", "job", j.ID, "path", jobdir.Worker, "error", err.Error())
+		}
+	}
+	// A folder of no job, older than upload.jobRetention, goes too: the sweep asks about the
+	// folders it reaches, in name order, so every one is reached over successive sweeps.
+	s.worker.Orphan = func(id string, modified time.Time) bool {
+		if _, err := s.store.Job(ctx, id); !errors.Is(err, store.ErrNotFound) {
+			return false
+		}
+		if now.Sub(modified) <= s.cfg.Upload.JobRetention.D() {
+			rel := path.Join(jobdir.Worker, id)
+			s.once(rel, "orphan_job_dir", "action", "kept", "path", rel, "modified", modified.UTC().Format(time.RFC3339))
+			return false
+		}
+		s.log.Warn("orphan_job_dir", "action", "deleted", "path", path.Join(jobdir.Worker, id))
+		s.audit(ctx, "job.orphan_deleted", id, map[string]string{"path": path.Join(jobdir.Worker, id)})
+		return true
+	}
+	res, err := s.worker.Sweep(root)
+	s.worker.Orphan = nil
+	LogWorkerSweep(s.log, res, err)
+}
+
+// SweepLimits are the bounds of one sweep of worker/ (jobdir.WorkerSweeper) and of the
+// listings of the intake root: worker.sweepMaxEntries entries, and directories no deeper
+// than an extraction path (extract.maxPathSegments) can make, with room for the folders the
+// worker puts it in.
+func SweepLimits(cfg config.Config) jobdir.SweepLimits {
+	return jobdir.SweepLimits{
+		MaxEntries:  cfg.Worker.SweepMaxEntries,
+		MaxDepth:    cfg.Extract.MaxPathSegments + 8,
+		MaxDuration: cfg.Worker.SweepMaxDuration.D(),
+	}
+}
+
+// LogWorkerSweep logs what a sweep of worker/ removed (a sample of the paths) and why it
+// stopped early.
+func LogWorkerSweep(log *slog.Logger, res jobdir.SweepResult, err error) {
+	if res.Removed > 0 {
+		log.Warn("worker_entries_removed", "count", res.Removed, "sample", res.Sample)
+	}
+	if !res.Done {
+		log.Warn("worker_sweep_unfinished", "note", "worker.sweepMaxEntries reached; the next sweep carries on")
+	}
+	if err != nil {
+		log.Error("retention_remove", "path", jobdir.Worker, "error", err.Error())
+	}
+}
+
+func (s *Sweeper) sweepTop(ctx context.Context, root *os.Root, now time.Time, top string) {
 	limit := s.cfg.Upload.JobRetention.D()
-	for _, e := range s.entries(root, jobdir.Jobs) {
+	for e := range s.entries(root, top) {
 		name := e.Name()
-		rel := path.Join(jobdir.Jobs, name)
+		rel := path.Join(top, name)
 		info, err := e.Info()
 		if err != nil || !info.IsDir() || !jobdir.ValidID(name) {
 			s.ignore(rel, "not a job directory")
@@ -283,31 +362,51 @@ func (s *Sweeper) sweepJobsDir(ctx context.Context, root *os.Root, now time.Time
 	}
 }
 
-// entries lists a top-level directory of the intake root, only when it is a real directory
-// (not a symlink) inside the root.
-func (s *Sweeper) entries(root *os.Root, dir string) []fs.DirEntry {
-	fi, err := root.Lstat(dir)
-	if err != nil {
-		if !errors.Is(err, fs.ErrNotExist) {
-			s.log.Error("retention_list", "path", dir, "error", err.Error())
+// entries yields the entries of a top-level directory of the intake root, only when it is a
+// real directory (not a symlink) inside the root. It reads 1024 at a time and stops after
+// worker.sweepMaxEntries of them (logged once), so a folder with millions of entries costs
+// a bounded amount of memory and time per sweep.
+func (s *Sweeper) entries(root *os.Root, dir string) iter.Seq[fs.DirEntry] {
+	return func(yield func(fs.DirEntry) bool) {
+		fi, err := root.Lstat(dir)
+		if err != nil {
+			if !errors.Is(err, fs.ErrNotExist) {
+				s.log.Error("retention_list", "path", dir, "error", err.Error())
+			}
+			return
 		}
-		return nil
+		if !fi.IsDir() {
+			s.ignore(dir, "not a directory")
+			return
+		}
+		d, err := root.Open(dir)
+		if err != nil {
+			s.log.Error("retention_list", "path", dir, "error", err.Error())
+			return
+		}
+		defer func() { _ = d.Close() }()
+		seen := 0
+		for {
+			list, err := d.ReadDir(1024)
+			for _, e := range list {
+				if seen >= s.cfg.Worker.SweepMaxEntries {
+					s.once(dir, "retention_list_capped", "path", dir, "entries", seen, "note", "worker.sweepMaxEntries reached; the rest waits for the next sweep")
+					return
+				}
+				seen++
+				if !yield(e) {
+					return
+				}
+			}
+			if errors.Is(err, io.EOF) || (err == nil && len(list) == 0) {
+				return
+			}
+			if err != nil {
+				s.log.Error("retention_list", "path", dir, "error", err.Error())
+				return
+			}
+		}
 	}
-	if !fi.IsDir() {
-		s.ignore(dir, "not a directory")
-		return nil
-	}
-	d, err := root.Open(dir)
-	if err != nil {
-		s.log.Error("retention_list", "path", dir, "error", err.Error())
-		return nil
-	}
-	defer func() { _ = d.Close() }()
-	list, err := d.ReadDir(-1)
-	if err != nil {
-		s.log.Error("retention_list", "path", dir, "error", err.Error())
-	}
-	return list
 }
 
 func (s *Sweeper) ignore(rel, why string) {

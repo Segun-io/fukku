@@ -16,20 +16,14 @@ import (
 // import), or used for something that does not open the job directory's contents. Every
 // file operation on a job directory goes through jobdir.Open or jobdir.Remove, which do not
 // follow a symbolic link the worker plants at jobs/ or jobs/<id> (#112, #137). A new caller
-// needs a review and an entry here. The TODO(#113) entries still open or link a job file by
-// path; #113 moves them to jobdir.Open and takes them off the list.
+// needs a review and an entry here. A job file that is opened, linked or handed over goes
+// through jobdir.OpenFile, CheckFile or Seal (#113), never through a path built from jobdir.Dir.
 var dirCallers = map[string]string{
-	"internal/flows/proposal.go:folder":          "the job's files folder as the app sees it (Manual Import proposal)",
-	"internal/flows/proposal.go:appPath":         "a job file's path as the app sees it",
-	"internal/web/jobs.go:manualImport":          "the job's files folder shown for the app's Manual Import",
-	"internal/runner/steps.go:roomFor":           "free space (statfs) of the filesystem that holds the job",
-	"internal/runner/steps.go:cancelled":         "whether the job directory exists (Lstat); it is removed with jobdir.Remove",
-	"internal/flows/import.go:plan":              "TODO(#113): Lstat of the source by path before the import",
-	"internal/flows/merge.go:useMerge":           "TODO(#113): Lstat of the merged file by path before the import",
-	"internal/flows/merge.go:proposeMerged":      "TODO(#113): Lstat of the merged file by path before the proposal",
-	"internal/flows/version.go:placeVersion":     "TODO(#113): the version's source, opened by path for linkat",
-	"internal/flows/version.go:uploadOf":         "TODO(#113): the version's source, opened by path for linkat",
-	"internal/flows/episode_version.go:jobVideo": "TODO(#113): an episode version's source, opened by path for linkat",
+	"internal/flows/proposal.go:folder":  "the job's files folder as the app sees it (Manual Import proposal)",
+	"internal/flows/proposal.go:appPath": "a job file's path as the app sees it",
+	"internal/web/jobs.go:manualImport":  "the job's files folder shown for the app's Manual Import",
+	"internal/runner/steps.go:roomFor":   "free space (statfs) of the filesystem that holds the job",
+	"internal/runner/steps.go:cancelled": "whether the job directory exists (Lstat); it is removed with jobdir.Remove",
 }
 
 // TestJobDirIsUsedOnlyByReviewedCallers is a lint rule that golangci's linters cannot

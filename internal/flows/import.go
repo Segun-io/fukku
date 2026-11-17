@@ -8,9 +8,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/http"
-	"os"
 	"path"
-	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -156,8 +154,9 @@ func (e *Engine) forget(jobID string) {
 type planned struct {
 	row  store.Row
 	ar   arr.Row
-	src  string
-	size int64 // the job's file's size
+	job  string // the job's id
+	rel  string // the job's file, job-relative
+	size int64  // the job's file's size
 }
 
 // work is what one pass of the importing step works on, read under the job's lock.
@@ -239,8 +238,7 @@ func (e *Engine) plan(job store.Job, t store.Target, rows []store.Row, files []s
 			return nil, fmt.Errorf("row %s: %w", r.ID, err)
 		}
 		ar.Path = e.p.appPath(t.App, job.ID, f.Path)
-		src := filepath.Join(jobdir.Dir(e.p.cfg.Paths.IntakeRoot, job.ID), filepath.FromSlash(f.Path))
-		out = append(out, planned{row: r, ar: ar, src: src, size: f.Size})
+		out = append(out, planned{row: r, ar: ar, job: job.ID, rel: f.Path, size: f.Size})
 	}
 	return out, nil
 }
@@ -489,9 +487,9 @@ func (e *Engine) arrived(ctx context.Context, t store.Target, plan []planned, ba
 	if err != nil {
 		return nil, err
 	}
-	gone := func(p string) bool {
-		_, err := os.Lstat(p) // the directory entry only: the web process never opens media
-		return errors.Is(err, fs.ErrNotExist)
+	// The directory entry only: the web process never reads media.
+	gone := func(pl planned) bool {
+		return errors.Is(checkJobFile(e.p.cfg.Paths.IntakeRoot, pl.job, pl.rel, -1), fs.ErrNotExist)
 	}
 	sameSize := func(app, ours int64) bool { return app == ours || (move && app == 0) }
 	switch t.App {
@@ -499,12 +497,12 @@ func (e *Engine) arrived(ctx context.Context, t store.Target, plan []planned, ba
 		f := now.Movie
 		fresh := f != nil && (base.Movie == nil || f.ID != base.Movie.ID)
 		for i, pl := range plan {
-			out[i] = fresh && sameSize(f.Size, pl.size) && (!move || gone(pl.src))
+			out[i] = fresh && sameSize(f.Size, pl.size) && (!move || gone(pl))
 		}
 	case AppSonarr:
 		var sizes map[int]int64 // episode file id → size, read when a candidate needs it
 		for i, pl := range plan {
-			ok := len(pl.ar.EpisodeIDs) > 0 && (!move || gone(pl.src))
+			ok := len(pl.ar.EpisodeIDs) > 0 && (!move || gone(pl))
 			for _, id := range pl.ar.EpisodeIDs {
 				key := strconv.Itoa(id)
 				fid := now.Episodes[key]
@@ -586,9 +584,11 @@ func (e *Engine) submit(ctx context.Context, job store.Job, w work, got []bool) 
 		if got[i] {
 			continue
 		}
-		info, err := os.Lstat(pl.src)
-		if err != nil || !info.Mode().IsRegular() {
-			return e.fail(ctx, job, w.t, CodeImportFailed, fmt.Sprintf("refused before the import: %s is gone", path.Base(pl.ar.Path)))
+		// The app opens the path itself: it must be the job's own regular file, of the size
+		// recorded, with no symbolic link on the way (#113).
+		if err := checkJobFile(e.p.cfg.Paths.IntakeRoot, job.ID, pl.rel, pl.size); err != nil {
+			e.log.Warn("import_refused", "job", job.ID, "file", pl.rel, "error", err)
+			return e.fail(ctx, job, w.t, CodeImportFailed, fmt.Sprintf("refused before the import: %s is gone or not the job's file", path.Base(pl.ar.Path)))
 		}
 		send = append(send, pl.ar)
 	}

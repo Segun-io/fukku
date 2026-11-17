@@ -11,19 +11,29 @@ import (
 
 // Layout under the intake root:
 //
-//	.incoming/<upload id>[.info]   unfinished tus uploads (web process only)
+//	.incoming/<upload id>[.info]   unfinished tus uploads (web process only; the worker has
+//	                               no view of it)
+//	jobs/<job id>/                 written by the web process only; the worker reads it
+//	                               through a read-only mount (docs/install.md)
 //	jobs/<job id>/files/           what is offered to Radarr or Sonarr: accepted loose
 //	                               uploads and extracted archive entries
 //	jobs/<job id>/archives/        uploaded archives; never offered to the *arr apps
-//	jobs/<job id>/work/            worker scratch space (M3: preview clips, merge output)
 //	jobs/<job id>/merged/<name>/   verified merge output (flow 2a, #54): one directory per
 //	                               merge, which no upload or extraction can create
 //	jobs/<job id>/versions/<row>/  an episode's second version under its library name, a hard
 //	                               link to the upload, for Sonarr's verdict before it is
 //	                               placed (#58); never imported
+//	worker/<job id>/               everything the worker writes for a job, the only place it
+//	                               can write (#113, #114, #138): its scratch space work/
+//	                               (preview clips, extraction and merge scratch) and the
+//	                               extracted files/ and merged/ that the web process then
+//	                               moves into jobs/<job id>/ one regular file at a time
+//	                               (Seal), so that nothing the worker can still change is
+//	                               handed to an app or linked into the library
 const (
 	Incoming = ".incoming"
 	Jobs     = "jobs"
+	Worker   = "worker"
 	Files    = "files"
 	Archives = "archives"
 	Work     = "work"
@@ -47,8 +57,9 @@ func Dir(intakeRoot, id string) string {
 
 // Open opens a job's directory as an os.Root, from an os.Root of the intake root, so a
 // symbolic link at jobs/ or jobs/<id> that leads out of the intake root is refused instead of
-// followed (os.OpenRoot of the joined path would follow it). The worker can write the intake
-// root and is assumed compromised (docs/threat-model.md, B4), so every operation on a job's
+// followed (os.OpenRoot of the joined path would follow it). The worker is assumed
+// compromised (docs/threat-model.md, B4) and, in a deployment that does not follow
+// docs/install.md, may be able to write the intake root, so every operation on a job's
 // directory starts here. A missing directory is an error wrapping fs.ErrNotExist. It panics
 // on a malformed id, as Dir does.
 func Open(intakeRoot, id string) (*os.Root, error) {
@@ -60,13 +71,64 @@ func Open(intakeRoot, id string) (*os.Root, error) {
 		return nil, err
 	}
 	defer func() { _ = intake.Close() }()
-	return intake.OpenRoot(filepath.Join(Jobs, id))
+	return openNoLink(intake, Jobs, id)
 }
 
-// Remove deletes a job's directory and everything in it, through an os.Root of the intake
-// root: a symbolic link at jobs/ that leads out of the intake root is refused, and one at
-// jobs/<id> is removed itself, never followed. A missing intake root or job directory is
-// not an error.
+// OpenWorker opens the worker's directory of a job, worker/<id>, as an os.Root, from an
+// os.Root of the intake root, like Open. The web process reads what the worker wrote there
+// (preview clips, and the files Seal moves into the job) and never hands anything in it to
+// an app. A missing directory is an error wrapping fs.ErrNotExist. It panics on a malformed
+// id.
+func OpenWorker(intakeRoot, id string) (*os.Root, error) {
+	if !ValidID(id) {
+		panic("jobdir: malformed job id")
+	}
+	intake, err := os.OpenRoot(intakeRoot)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = intake.Close() }()
+	return openNoLink(intake, Worker, id)
+}
+
+// MakeWorker is OpenWorker for the worker: it creates worker/<id> first when it is missing.
+// worker/ itself is the worker's one writable mount and exists already, except in tests.
+func MakeWorker(intakeRoot, id string) (*os.Root, error) {
+	if !ValidID(id) {
+		panic("jobdir: malformed job id")
+	}
+	intake, err := os.OpenRoot(intakeRoot)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = intake.Close() }()
+	if err := intake.MkdirAll(filepath.Join(Worker, id), 0o755); err != nil {
+		return nil, err
+	}
+	return openNoLink(intake, Worker, id)
+}
+
+// Prepare creates the folders of the intake root that the two containers mount separately
+// (.incoming/, jobs/, worker/ and worker/.spill) when they are missing, as the web process's user. A
+// container runtime creates a missing bind-mount source as root, and neither process could
+// write it then (#138): the web process calls this at start-up, and docs/install.md has the
+// folders made before the first start. The caller checks the sentinels first, so nothing is
+// created under a missing mount.
+func Prepare(intakeRoot string) error {
+	for _, d := range []string{Incoming, Jobs, Worker, filepath.Join(Worker, Spill)} {
+		if err := os.MkdirAll(filepath.Join(intakeRoot, d), 0o755); err != nil { //nolint:gosec // paths.intakeRoot, from the configuration
+			return err
+		}
+	}
+	return nil
+}
+
+// Remove deletes a job's directories: it sets the worker's (worker/<id>) aside first, for a
+// WorkerSweeper to remove, and removes jobs/<id> last, so that a job whose jobs/<id> is gone
+// has nothing left. It goes
+// through an os.Root of the intake root: a symbolic link at jobs/ or worker/ that leads out
+// of the intake root is refused, and one at jobs/<id> or worker/<id> is removed itself,
+// never followed. A missing intake root or job directory is not an error.
 func Remove(intakeRoot, id string) error {
 	if !ValidID(id) {
 		panic("jobdir: malformed job id")
@@ -78,6 +140,11 @@ func Remove(intakeRoot, id string) error {
 		return err
 	}
 	defer func() { _ = r.Close() }()
+	// The worker's folder may hold anything the worker made, however many entries and
+	// levels: it is set aside (SpillWorker), and a WorkerSweeper removes it in bounded steps.
+	if err := SpillWorker(intakeRoot, id, ""); err != nil {
+		return err
+	}
 	return r.RemoveAll(filepath.Join(Jobs, id))
 }
 

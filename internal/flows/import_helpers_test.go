@@ -112,6 +112,10 @@ func (x *ienv) onDisk(j store.Job) {
 		if err := os.WriteFile(p, []byte("video"), 0o644); err != nil {
 			x.t.Fatal(err)
 		}
+		// Of the size recorded: the web process checks it before it hands the file over.
+		if err := os.Truncate(p, f.Size); err != nil {
+			x.t.Fatal(err)
+		}
 	}
 }
 

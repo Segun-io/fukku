@@ -6,9 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"os"
 	"path"
-	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -845,9 +843,10 @@ func (e *Engine) useMerge(ctx context.Context, job store.Job, t store.Target, re
 		return back(fmt.Errorf("the library file %q changed since the match (tracked size %d, merged from %d bytes): rescan the film in Radarr, then match it again",
 			rec.Library.Path, rec.Library.Size, out.Library.Size))
 	}
-	full := filepath.Join(jobdir.Dir(e.p.cfg.Paths.IntakeRoot, job.ID), filepath.FromSlash(out.Path))
-	if info, err := os.Lstat(full); err != nil || !info.Mode().IsRegular() || info.Size() != out.Size {
-		return fail(CodeMergeFailed, "", fmt.Sprintf("the merged file %s is not in the job directory at %d bytes", out.Path, out.Size))
+	// The worker wrote the merged file in its own directory of the job: it is moved into the
+	// job's (jobdir.Seal), where the worker cannot change it, before Radarr is told of it.
+	if err := e.sealMerged(job.ID, out.Path, out.Size); err != nil {
+		return fail(CodeMergeFailed, "", fmt.Sprintf("the merged file %s cannot be taken into the job at %d bytes: %v", out.Path, out.Size, err))
 	}
 	stored, err := e.storeMerged(ctx, job, t, c, out)
 	if err != nil || !stored {
@@ -896,9 +895,8 @@ func (e *Engine) storeMerged(ctx context.Context, job store.Job, t store.Target,
 // proposeMerged asks Radarr for the merged file's row and stores it (see the top of this
 // file). ready reports that it is stored.
 func (e *Engine) proposeMerged(ctx context.Context, job store.Job, t store.Target, rec Flow2, c mergeChoice) (ready bool, err error) {
-	full := filepath.Join(jobdir.Dir(e.p.cfg.Paths.IntakeRoot, job.ID), filepath.FromSlash(c.Output.Path))
-	if info, err := os.Lstat(full); err != nil || !info.Mode().IsRegular() || info.Size() != c.Output.Size {
-		return false, e.failMerge(ctx, job, t, CodeMergeFailed, "", fmt.Sprintf("the merged file %s is gone, or not at %d bytes", c.Output.Path, c.Output.Size))
+	if err := checkJobFile(e.p.cfg.Paths.IntakeRoot, job.ID, c.Output.Path, c.Output.Size); err != nil {
+		return false, e.failMerge(ctx, job, t, CodeMergeFailed, "", fmt.Sprintf("the merged file %s is gone, or not at %d bytes: %v", c.Output.Path, c.Output.Size, err))
 	}
 	if e.p.radarr == nil {
 		return false, e.p.move(ctx, job, &t, store.Stalled, store.Change{ErrorCode: CodeArrUnavailable, ErrorText: "radarr is not configured"})
@@ -1107,10 +1105,16 @@ func discardTask(ctx context.Context, q spool.Queue, id string) (saw bool, err e
 	return true, q.Ack(ctx, id)
 }
 
-// removeMerged removes rel (job-relative: merged/<attempt>, or all of merged/) from the job's
-// directory, through a root of it, so nothing outside the job is reached. Each merged file
-// is a full copy of the film. A job without a directory has nothing to remove.
+// removeMerged removes rel (job-relative: merged/<attempt>, or all of merged/) from the
+// worker's directory of the job and from the job's, through a root of each, so nothing
+// outside the job is reached. Each merged file is a full copy of the film. A job without a
+// directory has nothing to remove.
 func (e *Engine) removeMerged(jobID, rel string) error {
+	// The worker's folder may hold anything the worker made there, however many entries:
+	// that part is set aside for the bounded sweep of worker/ (jobdir.SpillWorker).
+	if err := jobdir.SpillWorker(e.p.cfg.Paths.IntakeRoot, jobID, rel); err != nil {
+		return fmt.Errorf("merge: remove %s: %w", rel, err)
+	}
 	root, err := jobdir.Open(e.p.cfg.Paths.IntakeRoot, jobID)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil
@@ -1123,6 +1127,35 @@ func (e *Engine) removeMerged(jobID, rel string) error {
 		return fmt.Errorf("merge: remove %s: %w", rel, err)
 	}
 	return nil
+}
+
+// sealMerged moves the merged file rel from the worker's directory of the job into the
+// job's (jobdir.Seal).
+func (e *Engine) sealMerged(jobID, rel string, size int64) error {
+	to, err := jobdir.Open(e.p.cfg.Paths.IntakeRoot, jobID)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = to.Close() }()
+	from, err := jobdir.MakeWorker(e.p.cfg.Paths.IntakeRoot, jobID)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = from.Close() }()
+	return jobdir.Seal(from, to, rel, size)
+}
+
+// checkJobFile checks that rel is a regular file of the job of size bytes (any size when
+// negative), reached without a symbolic link (jobdir.CheckFile): what the web process
+// checks right before it hands a job's file to Radarr or Sonarr (#113).
+func checkJobFile(intakeRoot, jobID, rel string, size int64) error {
+	root, err := jobdir.Open(intakeRoot, jobID)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = root.Close() }()
+	_, err = jobdir.CheckFile(root, rel, size)
+	return err
 }
 
 // dropMerged removes every merged file of the job, on disk (merged/) and as job files: when

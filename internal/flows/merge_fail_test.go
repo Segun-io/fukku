@@ -242,6 +242,11 @@ func TestMergeFailuresLeaveTheLibraryUntouched(t *testing.T) {
 		{name: "elsewhere", out: func(o *merge.Output) { o.Path = "merged/2/x.mkv" }, state: store.Failed, code: runner.CodeTaskFailed},
 		{name: "merged file not on disk", out: func(o *merge.Output) { o.Detail = noFile },
 			state: store.Failed, code: CodeMergeFailed},
+		// What a compromised worker may report as its merge (#113): never offered to Radarr.
+		{name: "merged file is a link", out: func(o *merge.Output) { o.Detail = linkFile },
+			state: store.Failed, code: CodeMergeFailed},
+		{name: "merged folder is a link", out: func(o *merge.Output) { o.Detail = linkDir },
+			state: store.Failed, code: CodeMergeFailed},
 		{name: "outside the library roots", before: func(x *mergeEnv, j store.Job) {
 			x.cfg.Paths.LibraryRoots = []string{"/data/other"}
 			x.eng = x.process(x.st, x.movies, x.q)
@@ -349,10 +354,10 @@ func TestMergeFailuresLeaveTheLibraryUntouched(t *testing.T) {
 	}
 }
 
-// leave writes a file into the job's directory, as a merge task may leave one.
+// leave writes a file into the worker's directory of the job, as a merge task may leave one.
 func (x *mergeEnv) leave(j store.Job, rel string) {
 	x.t.Helper()
-	p := x.src(j, rel)
+	p := filepath.Join(x.root, "worker", j.ID, filepath.FromSlash(rel))
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 		x.t.Fatal(err)
 	}
@@ -361,16 +366,18 @@ func (x *mergeEnv) leave(j store.Job, rel string) {
 	}
 }
 
-// mergedOnDisk lists the files under the job's merged/.
+// mergedOnDisk lists the files under the job's merged/, and under the worker's.
 func (x *mergeEnv) mergedOnDisk(j store.Job) []string {
 	x.t.Helper()
 	var out []string
-	_ = filepath.WalkDir(x.src(j, "merged"), func(p string, d os.DirEntry, err error) error {
-		if err == nil && !d.IsDir() {
-			out = append(out, p)
-		}
-		return nil
-	})
+	for _, dir := range []string{x.src(j, "merged"), filepath.Join(x.root, "worker", j.ID, "merged")} {
+		_ = filepath.WalkDir(dir, func(p string, d os.DirEntry, err error) error {
+			if err == nil && !d.IsDir() {
+				out = append(out, p)
+			}
+			return nil
+		})
+	}
 	return out
 }
 

@@ -184,6 +184,11 @@ function jobDir(id: string): string {
   return path.join(dataDir, "intake", "jobs", id);
 }
 
+/** The worker's folder of a job, the one place it writes (docs/install.md). */
+function workerDir(id: string): string {
+  return path.join(dataDir, "intake", "worker", id);
+}
+
 // ---- What "the library is untouched" means ---------------------------------------------
 
 async function sha256(p: string): Promise<string> {
@@ -656,8 +661,8 @@ test.describe("M3 exit criteria", { tag: "@online" }, () => {
   /**
    * Once the merge has come to an end, nothing was written: the library file (hash, inode,
    * modification time), Radarr's records of the film and its file, and the film's folder are
-   * as before, Radarr got no ManualImport of the job's folder, and the job's merged/ and work/
-   * hold no file. Then the job is back at the confirmation with the refusal (#95).
+   * as before, Radarr got no ManualImport of the job's folder, and the job's merged/ and the
+   * worker's merged/ and work/ of it hold no file. Then the job is back at the confirmation with the refusal (#95).
    */
   async function untouched(movie: Movie, before: Awaited<ReturnType<typeof library>>, id: string) {
     const back = await api.until(
@@ -676,10 +681,12 @@ test.describe("M3 exit criteria", { tag: "@online" }, () => {
     );
     expect(back.state, "back at the confirmation").toBe("awaiting-confirmation");
     expect(await radarr.manualImports(jobDir(id)), "no ManualImport of the job").toEqual([]);
-    for (const sub of ["merged", "work"]) {
-      const left = await readdir(path.join(jobDir(id), sub), { recursive: true }).catch(
-        () => [] as string[],
-      );
+    for (const sub of [
+      path.join(jobDir(id), "merged"),
+      path.join(workerDir(id), "merged"),
+      path.join(workerDir(id), "work"),
+    ]) {
+      const left = await readdir(sub, { recursive: true }).catch(() => [] as string[]);
       expect(
         left.filter((n) => n.endsWith(".mkv")),
         `no file left in ${sub}/`,

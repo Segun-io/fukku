@@ -21,7 +21,7 @@ func TestSettlePlacing(t *testing.T) {
 		}
 		choice, _ := versionOf(c.Target)
 		if placed {
-			if err := linkVersion(x.versions, x.src(j, "files/Some Film (2001).es.mkv"), choice.Folder, choice.Name); err != nil {
+			if err := linkVersion(x.versions, opened(t, x.src(j, "files/Some Film (2001).es.mkv")), choice.Folder, choice.Name); err != nil {
 				t.Fatal(err)
 			}
 		}

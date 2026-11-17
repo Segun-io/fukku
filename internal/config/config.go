@@ -238,4 +238,11 @@ type Worker struct {
 	MaxStreamsPerFile  int `yaml:"maxStreamsPerFile"`
 	// MaxProbeResultBytes bounds the JSON a probe task reports for all its files together.
 	MaxProbeResultBytes ByteSize `yaml:"maxProbeResultBytes"`
+	// RequireSeparateMounts makes the worker refuse to start when it can write anything of
+	// the intake root but its own worker/ folder, or a library root (docs/install.md).
+	RequireSeparateMounts bool `yaml:"requireSeparateMounts"`
+	// SweepMaxEntries bounds the entries one sweep of worker/ and of jobs/ looks at.
+	SweepMaxEntries int `yaml:"sweepMaxEntries"`
+	// SweepMaxDuration bounds how long one sweep of worker/ takes.
+	SweepMaxDuration Duration `yaml:"sweepMaxDuration"`
 }

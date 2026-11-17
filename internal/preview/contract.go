@@ -20,7 +20,8 @@ const (
 	MaxOffsetMs   = 60_000 // ±1 min: a dub further out than that is not a sync problem
 )
 
-// Dir is the job-relative directory of the clips, under the job's work/ directory.
+// Dir is the directory of the clips, relative to the worker's directory of the job
+// (jobdir.Worker/<job id>), under its work/ directory.
 const Dir = "work/previews"
 
 // Refusal codes of Output.Refusal: the clips could not be rendered from these files.

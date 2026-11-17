@@ -22,9 +22,9 @@ make the status `degraded` (HTTP 200).
 | `database` | the database does not answer | `state/data` must be writable by the container user, on local disk, and used by one Fukku only. Read the log lines before it |
 | `spool` | the spool folder is not writable | `state/spool` must belong to the container user |
 | `sentinels` | `/data/.mounted is missing` (or the sentinel you set) | the share is not mounted, or the file was never created: `touch` it once on the mounted share. Nothing is written while it is missing, by design |
-| `intakeRoot` | the folder is not writable | the container user must be able to write `paths.intakeRoot`; the data mount of the web container must not be read-only |
+| `intakeRoot` | the folder is not writable | the container user must be able to write `paths.intakeRoot`; the intake mount of the web container must not be read-only (the data mount above it is, without versions) |
 | `sameFilesystem` | `/data/media/movies is on a different filesystem than /data/intake` | see below |
-| `workerHeartbeat` | there is no heartbeat, or it is older than `worker.heartbeatMaxAge` | the worker container is down, or does not share `state/spool` with the web container. `docker compose logs worker` |
+| `workerHeartbeat` | there is no heartbeat, or it is older than `worker.heartbeatMaxAge` | the worker container is down, or does not share `state/spool` with the web container. `docker compose logs worker`: a `worker_mounts` line means it refused to start because it can write a folder it must not (`jobs/`, `.incoming/`, a library root) or cannot write its own `intake/worker`; fix its mounts as in [install.md](install.md#the-volumes-and-why). A container that does not start at all with `bind source path does not exist` needs the intake folders made (install step 1) |
 | `radarr`, `sonarr` | the app answered HTTP 401, or did not answer | wrong `url`, wrong key file, or the container is not on the shared network. This only makes the status `degraded`; uploads still work and jobs that need the app wait (`arr_unavailable`) and resume by themselves |
 
 `fukku healthcheck` itself only prints the HTTP status it got (`readyz returned 503`): use
@@ -35,9 +35,11 @@ make the status `degraded` (HTTP 200).
 Imports that move (`radarr.importMode` and `sonarr.importMode` default to `move`) are only a
 rename when the intake root and every library root are on one filesystem: otherwise the app
 copies the whole file and deletes the original, and Fukku refuses (`paths.requireSameFilesystem`
-`auto`). Mount **one** host folder as `/data` in Fukku, Radarr and Sonarr, with intake and
-media below it, not the intake and the media as two mounts, even of the same disk. If you really
-want a copy, set the import mode to `copy`, or `paths.requireSameFilesystem: never`.
+`auto`). Mount **one** host folder as `/data` in Radarr and Sonarr, with intake and media
+below it, not the intake and the media as two mounts, even of the same disk. (Fukku's own
+containers mount parts of it separately on purpose, docs/install.md; that is fine, they never
+move a file into the library.) If you really want a copy, set the import mode to `copy`, or
+`paths.requireSameFilesystem: never`.
 
 ## 403
 

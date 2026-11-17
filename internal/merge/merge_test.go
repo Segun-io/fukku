@@ -157,7 +157,7 @@ func (e *env) args(tracks ...int) merge.Args {
 
 func (e *env) run(t *testing.T, a merge.Args, opt merge.Options) merge.Output {
 	t.Helper()
-	out, err := merge.Run(context.Background(), e.job, []string{e.libRoot}, a, opt)
+	out, err := merge.Run(context.Background(), e.job, e.job, []string{e.libRoot}, a, opt)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -403,7 +403,7 @@ func TestMergeCancelledAndKilled(t *testing.T) {
 		}
 	}()
 	start := time.Now()
-	_, err := merge.Run(ctx, e.job, []string{e.libRoot}, e.args(1), opt)
+	_, err := merge.Run(ctx, e.job, e.job, []string{e.libRoot}, e.args(1), opt)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("Run: %v, want context.Canceled", err)
 	}
@@ -556,7 +556,7 @@ func TestMergeBadArgs(t *testing.T) {
 	} {
 		a := good
 		mutate(&a)
-		if _, err := merge.Run(context.Background(), job, []string{"/lib"}, a, options()); !errors.Is(err, merge.ErrBadArgs) {
+		if _, err := merge.Run(context.Background(), job, job, []string{"/lib"}, a, options()); !errors.Is(err, merge.ErrBadArgs) {
 			t.Errorf("%s: %v, want ErrBadArgs", name, err)
 		}
 	}

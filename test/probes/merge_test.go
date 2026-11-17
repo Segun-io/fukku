@@ -56,7 +56,7 @@ func TestM3MergeImport(t *testing.T) {
 	cfg.Paths.LibraryRoots = []string{filepath.Join(env.Data, "media", "movies")}
 	cfg.Upload.FreeSpaceMargin = 0
 	keep := true
-	out, err := merge.Run(p.ctx, root, cfg.Paths.LibraryRoots, merge.Args{
+	out, err := merge.Run(p.ctx, root, root, cfg.Paths.LibraryRoots, merge.Args{
 		Library: old.Path, Upload: "files/" + filepath.Base(upload), Tracks: []int{1},
 		LanguageTag: "es-419", TrackName: "Español (Latino)", KeepOriginalDefault: &keep, Dest: "merged/1",
 	}, merge.OptionsFrom(cfg))
