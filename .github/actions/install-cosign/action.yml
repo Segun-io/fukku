@@ -1,0 +1,24 @@
+# Installs cosign from its GitHub release, pinned by version and by the SHA-256 of the binary
+# (the download is refused if the digest differs). Used by release.yml. Bump both together:
+# the digest is in the release's cosign_checksums.txt (linux-amd64 line). Runners are amd64.
+name: install cosign
+description: Download the pinned cosign binary, check its SHA-256 and put it on the PATH.
+
+runs:
+  using: composite
+  steps:
+    - name: install cosign v3.1.4 (linux-amd64)
+      shell: bash
+      env:
+        COSIGN_VERSION: v3.1.4
+        COSIGN_SHA256: 424e2c97d0b45fd7a6b608a87f090f35633f4c23ece5f092d48bba11aaf4bbfa
+      run: |
+        set -euo pipefail
+        dest="$RUNNER_TEMP/cosign-bin"
+        mkdir -p "$dest"
+        curl -fsSL --retry 3 -o "$dest/cosign" \
+          "https://github.com/sigstore/cosign/releases/download/${COSIGN_VERSION}/cosign-linux-amd64"
+        echo "${COSIGN_SHA256}  $dest/cosign" | sha256sum -c -
+        chmod 0755 "$dest/cosign"
+        echo "$dest" >> "$GITHUB_PATH"
+        "$dest/cosign" version | grep -E '^GitVersion:'

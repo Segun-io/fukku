@@ -151,7 +151,7 @@ The `publish` job of `prerelease.yml` attaches the amd64 SBOM and a build proven
 image as attestations (`actions/attest-sbom`, `actions/attest-build-provenance`, stored in the
 registry next to the image; `gh attestation verify oci://<image>@<digest> --repo <owner>/<repo>`
 checks them). That part has not run yet: it needs the first approved publish, and the final form
-(a tag release, the arm64 SBOM) belongs to the release workflow (#66).
+(a tag release, the arm64 SBOM) belongs to the release workflow, `release.yml`, which attests the amd64 and the arm64 SBOM and signs the multi-arch image with cosign ([release.md](release.md)).
 
 ## Dependency vulnerabilities
 
