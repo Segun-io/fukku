@@ -99,7 +99,10 @@ function JobView({ job }: { job: JobDetail }) {
   const explained = job.error && (job.state === "failed" || job.state === "stalled");
   // Importing, or stalled there: the app's import command may still be running.
   const importMayRun =
-    standing === "importing" && (job.state === "importing" || job.state === "stalled");
+    standing === "importing" &&
+    (job.state === "importing" || job.state === "stalled") &&
+    // Nothing is submitted to the app yet: the owner may cancel, and nothing can finish later.
+    job.import?.status !== "pending";
   const errorText = explained
     ? jobErrorText(job.error?.code ?? "", job.target ? appNames[job.target.app] : "")
     : null;

@@ -3,6 +3,7 @@ import { useId } from "react";
 import type { ProposalRow, SeasonDub } from "@/api/proposal";
 import { Notice } from "@/components/shell/notice";
 import { type TKey, useT } from "@/i18n";
+import { offerReasonText } from "@/lib/flow2-text";
 import { cn } from "@/lib/utils";
 
 /** The policies this page has text for (`confirm.dub.<policy>`). */
@@ -61,6 +62,13 @@ export function policyText(policy: string): { label: TKey; body: TKey; known: bo
         known: true,
       }
     : { label: "confirm.dub.unknown", body: "confirm.dub.unknown.body", known: false };
+}
+
+/** The policy's name in a sentence (`confirm.dub.name.<policy>`). */
+function policyName(policy: string): TKey {
+  return ["replace", "subtitlesOnly", "version"].includes(policy)
+    ? (`confirm.dub.name.${policy}` as TKey)
+    : "confirm.dub.unknown";
 }
 
 type Props = {
@@ -163,6 +171,24 @@ export function SeasonDubSection({
 
       {!dub.ask && !dub.decided && (
         <p className="max-w-[65ch] text-ink-2">{t("confirm.dub.none")}</p>
+      )}
+
+      {dub.notOffered && dub.notOffered.length > 0 && (
+        <div className="grid gap-1 text-sm text-ink-2">
+          <h3 className="font-sans text-sm font-bold tracking-normal">
+            {t("flow2.notOffered.title")}
+          </h3>
+          <ul className="grid list-disc gap-1 pl-5">
+            {dub.notOffered.map((n) => (
+              <li key={n.offer} className="max-w-[65ch]">
+                {t("flow2.notOffered.item", {
+                  offer: t(policyName(n.offer), { policy: n.offer }),
+                  reason: t(offerReasonText(n.reason).key, offerReasonText(n.reason).params),
+                })}
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
 
       {shared.length > 0 && (

@@ -997,6 +997,19 @@ const en = {
   "confirm.dub.shared.body":
     "These files each hold several episodes, and some of them are not in this upload. Replacing the file removes those episodes from the library too.",
   "confirm.dub.shared.accept": "Replace {name} anyway",
+  "flow2.reason.media_server_too_old":
+    "the media server is a Jellyfin older than 12.4, which does not group episode versions.",
+  "flow2.reason.media_server_unknown": "the media server’s version could not be read.",
+  "flow2.reason.series_folder_unusable":
+    "Sonarr’s folder name for the series cannot be part of a file name.",
+  "flow2.reason.season_folder_unavailable":
+    "a season folder cannot take the versions (missing, not writable, or on another disk), or a required marker file is missing.",
+  "confirm.dub.name.replace": "Replace the files",
+  "confirm.dub.name.subtitlesOnly": "Only add subtitles",
+  "confirm.dub.name.version": "Keep as second versions",
+  "import.merge.warning.language_unknown_to_radarr.title": "Radarr does not know the new language",
+  "import.merge.warning.language_unknown_to_radarr":
+    "{app} has no language for the added tracks, so it lists the merged file with the existing languages only. The tracks are tagged in the file, but custom formats and searches by language in {app} do not see them.",
 };
 
 export default en;

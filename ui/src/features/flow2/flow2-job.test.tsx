@@ -93,6 +93,33 @@ describe("the job page of a flow 2 upload", () => {
   }, 30_000);
 });
 
+describe("cancelling a merge", () => {
+  it("offers Cancel when the job's actions list it, whatever the state", async () => {
+    serve("importing", {
+      actions: ["cancel"],
+      import: { ...importOf(merge({ state: "pending" })), status: "pending" },
+    });
+    expect(await screen.findByRole("button", { name: "Cancel upload" })).toBeVisible();
+  });
+
+  it("does not warn that the app may finish a merge that nothing was submitted for", async () => {
+    const user = userEvent.setup();
+    serve("importing", {
+      actions: ["cancel"],
+      import: { ...importOf(merge({ state: "pending" })), status: "pending" },
+    });
+    await user.click(await screen.findByRole("button", { name: "Cancel upload" }));
+    await screen.findByRole("form");
+    expect(screen.queryByText(/may still finish/i)).not.toBeInTheDocument();
+  });
+
+  it("hides Cancel when the job's actions do not list it", async () => {
+    serve("importing", { actions: [], import: importOf(merge({ state: "merged" })) });
+    await screen.findByRole("heading", { name: "The merge" });
+    expect(screen.queryByRole("button", { name: "Cancel upload" })).not.toBeInTheDocument();
+  });
+});
+
 describe("the progress of a merge", () => {
   const steps = () => screen.getByRole("list", { name: "Steps of the merge" });
 
@@ -223,6 +250,25 @@ describe("the result of a merge", () => {
     expect(
       screen.getByText(/A better release without the new audio can replace the merged file/),
     ).toBeVisible();
+  });
+
+  it("says that Radarr does not know the language of the new audio", async () => {
+    doneMerge(
+      result({
+        merge: {
+          name: "x.mkv",
+          warnings: [
+            { code: "language_unknown_to_radarr", message: "x" },
+            { code: "search_can_replace", message: "x" },
+          ],
+        },
+      }),
+    );
+    expect(await screen.findByText("Radarr does not know the new language")).toBeVisible();
+    expect(
+      screen.getByText(/custom formats and searches by language in Radarr do not see them/),
+    ).toBeVisible();
+    expect(screen.getByText("This film is not monitored")).toBeVisible();
   });
 
   it("shows a warning code it does not know with the code", async () => {

@@ -1013,6 +1013,19 @@ const es: Record<keyof typeof en, string> = {
   "confirm.dub.shared.body":
     "Cada uno de estos archivos contiene varios episodios, y algunos no están en este envío. Reemplazar el archivo también quita esos episodios de la biblioteca.",
   "confirm.dub.shared.accept": "Reemplazar {name} de todos modos",
+  "flow2.reason.media_server_too_old":
+    "el servidor multimedia es un Jellyfin anterior a la 12.4, que no agrupa versiones de episodios.",
+  "flow2.reason.media_server_unknown": "no se pudo leer la versión del servidor multimedia.",
+  "flow2.reason.series_folder_unusable":
+    "el nombre de la carpeta de la serie en Sonarr no puede formar parte del nombre de un archivo.",
+  "flow2.reason.season_folder_unavailable":
+    "una carpeta de temporada no puede recibir las versiones (no existe, no se puede escribir en ella o está en otro disco), o falta un archivo marcador necesario.",
+  "confirm.dub.name.replace": "Reemplazar los archivos",
+  "confirm.dub.name.subtitlesOnly": "Añadir solo los subtítulos",
+  "confirm.dub.name.version": "Conservar como segundas versiones",
+  "import.merge.warning.language_unknown_to_radarr.title": "Radarr no conoce el idioma nuevo",
+  "import.merge.warning.language_unknown_to_radarr":
+    "{app} no tiene un idioma para las pistas añadidas, así que muestra el archivo fusionado solo con los idiomas que ya tenía. Las pistas están etiquetadas en el archivo, pero los formatos personalizados y las búsquedas por idioma de {app} no las ven.",
 };
 
 export default es;

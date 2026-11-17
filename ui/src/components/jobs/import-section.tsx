@@ -168,7 +168,11 @@ function VersionStatus({ version }: { version: VersionResult }) {
 }
 
 /** The merge warnings of B6: what can still replace the merged file. One notice for each. */
-const mergeWarningCodes = ["search_can_replace", "upgrade_can_replace"] as const;
+const mergeWarningCodes = [
+  "search_can_replace",
+  "upgrade_can_replace",
+  "language_unknown_to_radarr",
+] as const;
 
 /**
  * What happens after the confirmation, and what it left. While the app imports: how many

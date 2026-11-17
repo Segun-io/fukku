@@ -4,6 +4,7 @@ import { usePreview } from "@/api/flow2";
 import type { Flow2, Flow2File, Flow2Offer, JobFile } from "@/api/types";
 import { Notice } from "@/components/shell/notice";
 import { type TKey, useT } from "@/i18n";
+import { offerReasonText } from "@/lib/flow2-text";
 import { cn } from "@/lib/utils";
 import { Comparison } from "./comparison";
 import { MergeForm } from "./merge-form";
@@ -76,13 +77,6 @@ export function Flow2View({
   const missing = flow2.notOffered.filter(
     (n) => offers.length === 0 || n.reason !== "runtime_differs",
   );
-  const reason = (code: string) =>
-    (
-      ["merge_disabled", "versions_disabled", "versions_unsupported", "runtime_differs"] as const
-    ).includes(code as never)
-      ? t(`flow2.reason.${code}` as TKey)
-      : t("flow2.reason.unknown", { code });
-
   const notOffered = missing.length > 0 && (
     <section aria-labelledby={`${legend}-missing`} className="grid gap-1 text-sm text-ink-2">
       <h3 id={`${legend}-missing`} className="font-sans text-sm font-bold tracking-normal">
@@ -93,7 +87,7 @@ export function Flow2View({
           <li key={n.offer} className="max-w-[65ch]">
             {t("flow2.notOffered.item", {
               offer: t(`flow2.offer.${n.offer}` as TKey),
-              reason: reason(n.reason),
+              reason: t(offerReasonText(n.reason).key, offerReasonText(n.reason).params),
             })}
           </li>
         ))}

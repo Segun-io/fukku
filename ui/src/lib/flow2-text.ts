@@ -36,3 +36,21 @@ export function versionNoticeText(code: string): { key: TKey; params?: { code: s
     ? { key: `flow2.version.notice.${code}` as TKey }
     : { key: "flow2.version.notice.unknown", params: { code } };
 }
+
+/** Why an offer is not made (`flow2.reason.<code>`): flow 2's own and the season dub's (#58). */
+export const offerReasonCodes = [
+  "merge_disabled",
+  "versions_disabled",
+  "versions_unsupported",
+  "runtime_differs",
+  "media_server_too_old",
+  "media_server_unknown",
+  "series_folder_unusable",
+  "season_folder_unavailable",
+] as const;
+
+export function offerReasonText(reason: string): { key: TKey; params?: { code: string } } {
+  return (offerReasonCodes as readonly string[]).includes(reason)
+    ? { key: `flow2.reason.${reason}` as TKey }
+    : { key: "flow2.reason.unknown", params: { code: reason } };
+}
