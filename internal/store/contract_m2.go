@@ -137,6 +137,16 @@ type M2 interface {
 	PutImport(ctx context.Context, i Import) error
 	// Import returns the job's import record; ErrNotFound when it has none.
 	Import(ctx context.Context, jobID string) (Import, error)
+	// BeginImport is PutImport for the write that submits an import (#92), done only while
+	// the job is importing (else ErrConflict, nothing written), in the same transaction. It
+	// is the other half of CancelUnsubmitted: of a cancel and this write, whichever commits
+	// first decides, so an import is never submitted for a job that has been cancelled.
+	BeginImport(ctx context.Context, i Import) error
+	// CancelUnsubmitted moves the job from from to cancelled (as Transition, with c) only
+	// while its import is not submitted: it has no import record, or one with a zero
+	// SubmittedAt; else ErrConflict, and nothing is changed. The check and the move are one
+	// transaction (#92).
+	CancelUnsubmitted(ctx context.Context, jobID string, from State, c Change) (Job, error)
 
 	// PutPostStep inserts or replaces the step (s.JobID, s.Name). Steps come back in the
 	// order they were first put. An empty Status is StepPending; a zero UpdatedAt is now.

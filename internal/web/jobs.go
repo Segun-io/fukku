@@ -143,7 +143,7 @@ func ptr[T comparable](v T) *T {
 }
 
 // view builds the Job JSON of a job from its files and unfinished uploads.
-func (s *Server) view(u auth.User, j store.Job, files []store.File, uploads []store.Upload) jobJSON {
+func (s *Server) view(ctx context.Context, u auth.User, j store.Job, files []store.File, uploads []store.Upload) jobJSON {
 	v := jobJSON{
 		ID: j.ID, Owner: j.Owner, State: string(j.State), Attempt: j.Attempt,
 		CreatedAt: j.CreatedAt.UTC(), UpdatedAt: j.UpdatedAt.UTC(),
@@ -162,7 +162,11 @@ func (s *Server) view(u auth.User, j store.Job, files []store.File, uploads []st
 			v.TotalSize += f.Size
 		}
 	}
-	v.Actions = s.actions(j, u.Admin, len(files) > 0 && len(uploads) == 0)
+	pre, submitted, err := s.importFacts(ctx, j)
+	if err != nil {
+		s.log.Error("job_api", "job", j.ID, "error", err) // read as: any import's rules, no submission known
+	}
+	v.Actions = s.actions(j, u.Admin, pre, submitted, len(files) > 0 && len(uploads) == 0)
 	return v
 }
 
@@ -196,10 +200,10 @@ func jobName(files []store.File, uploads []store.Upload) *string {
 
 // actions is what a user may do with a job now. canSubmit: the job has a file and no
 // unfinished upload.
-func (s *Server) actions(j store.Job, admin, canSubmit bool) []string {
+func (s *Server) actions(j store.Job, admin, beforeImport bool, submitted time.Time, canSubmit bool) []string {
 	state := j.State
 	out := []string{}
-	if s.canCancel(j, admin) {
+	if beforeImport || s.canCancel(j, admin, submitted) {
 		out = append(out, "cancel")
 	}
 	if state == store.Failed {
@@ -220,11 +224,36 @@ func (s *Server) actions(j store.Job, admin, canSubmit bool) []string {
 // been importing for longer than server.jobStuckAfter (a command that never ends); a job
 // that is importing for less is not cancelled by anyone. (A job that failed there may be
 // cancelled by its user: its command has ended.)
-func (s *Server) canCancel(j store.Job, admin bool) bool {
+func (s *Server) canCancel(j store.Job, admin bool, submitted time.Time) bool {
 	if s.abandons(j) {
-		return admin && (j.State != store.Importing || s.stuckImport(j))
+		return admin && (j.State != store.Importing || s.stuckImport(j, submitted))
 	}
 	return slices.Contains(cancellable, j.State)
+}
+
+// importFacts is what the cancel rules need of a job that may have an import running: when
+// its import was submitted (zero: not yet), and whether it is a merge job (#55) with
+// nothing submitted, whose owner may cancel it (cancelJob; the store checks it again, in the
+// move's transaction). A job that does not abandon an import has neither.
+func (s *Server) importFacts(ctx context.Context, j store.Job) (beforeImport bool, submitted time.Time, err error) {
+	if !s.abandons(j) {
+		return false, time.Time{}, nil
+	}
+	imp, err := s.deps.Store.Import(ctx, j.ID)
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		return false, time.Time{}, err
+	}
+	if !imp.SubmittedAt.IsZero() {
+		return false, imp.SubmittedAt, nil
+	}
+	t, err := s.deps.Store.Target(ctx, j.ID)
+	if errors.Is(err, store.ErrNotFound) {
+		return false, time.Time{}, nil
+	}
+	// This gate must stay merge-only: a Sonarr season-dub job with episode versions writes
+	// into the library (placeEpisodeVersion) before any import is submitted, so "nothing
+	// submitted" does not mean "nothing changed" for it.
+	return err == nil && flows.IsMerge(t), time.Time{}, err
 }
 
 // abandons reports whether cancelling j gives up on an import that may still be running in
@@ -233,9 +262,15 @@ func (s *Server) abandons(j store.Job) bool {
 	return j.State == store.Importing || stalledImport(j)
 }
 
-// stuckImport reports whether j has been importing for longer than server.jobStuckAfter.
-func (s *Server) stuckImport(j store.Job) bool {
-	return j.State == store.Importing && s.now().Sub(j.UpdatedAt) > s.cfg.Server.JobStuckAfter.D()
+// stuckImport reports whether j has been importing for longer than server.jobStuckAfter,
+// counted from the later of its last change and the submission of its import: a merge
+// that took hours before the import was sent is not stuck at once.
+func (s *Server) stuckImport(j store.Job, submitted time.Time) bool {
+	since := j.UpdatedAt
+	if submitted.After(since) {
+		since = submitted
+	}
+	return j.State == store.Importing && s.now().Sub(since) > s.cfg.Server.JobStuckAfter.D()
 }
 
 // stalledImport reports whether j is stalled while importing or after it.
@@ -337,7 +372,7 @@ func (s *Server) respondJob(w http.ResponseWriter, r *http.Request, u auth.User,
 		s.internalError(w, r, err)
 		return
 	}
-	writeJSON(w, status, s.view(u, j, files, uploads))
+	writeJSON(w, status, s.view(r.Context(), u, j, files, uploads))
 }
 
 // parts loads a job's files and its unfinished uploads.
@@ -405,7 +440,14 @@ func (s *Server) abandon(w http.ResponseWriter, r *http.Request, u auth.User, j 
 
 // moveNoted is move with a note on the transition and more detail in the audit entry.
 func (s *Server) moveNoted(w http.ResponseWriter, r *http.Request, u auth.User, j store.Job, to store.State, action, note string, detail map[string]string) {
-	next, err := s.deps.Store.Transition(r.Context(), j.ID, j.State, to, store.Change{Actor: u.Name, Note: note})
+	s.moveWith(w, r, u, j, action, detail, func(ctx context.Context) (store.Job, error) {
+		return s.deps.Store.Transition(ctx, j.ID, j.State, to, store.Change{Actor: u.Name, Note: note})
+	})
+}
+
+// moveWith makes the move with do, maps its errors to the API's answers, and audits it.
+func (s *Server) moveWith(w http.ResponseWriter, r *http.Request, u auth.User, j store.Job, action string, detail map[string]string, do func(context.Context) (store.Job, error)) {
+	next, err := do(r.Context())
 	switch {
 	case errors.Is(err, store.ErrNotFound):
 		notFound(w)
@@ -440,7 +482,7 @@ func (s *Server) createJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.audit(r.Context(), u, "job.created", j.ID, nil)
-	writeJSON(w, http.StatusCreated, s.view(u, j, nil, nil))
+	writeJSON(w, http.StatusCreated, s.view(r.Context(), u, j, nil, nil))
 }
 
 func (s *Server) listJobs(w http.ResponseWriter, r *http.Request) {
@@ -498,7 +540,7 @@ func (s *Server) listJobs(w http.ResponseWriter, r *http.Request) {
 			s.internalError(w, r, err)
 			return
 		}
-		out = append(out, s.view(u, j, files, uploads))
+		out = append(out, s.view(r.Context(), u, j, files, uploads))
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"jobs": out})
 }
@@ -519,7 +561,7 @@ func (s *Server) getJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	d := jobDetailJSON{
-		jobJSON: s.view(u, j, files, uploads),
+		jobJSON: s.view(r.Context(), u, j, files, uploads),
 		Files:   make([]fileJSON, 0, len(files)),
 		Uploads: []uploadJSON{}, History: make([]eventJSON, 0, len(history)), ManualImport: []manualImportJSON{},
 	}
@@ -589,7 +631,16 @@ func (s *Server) cancelJob(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if !s.canCancel(j, u.Admin) {
+	pre, submitted, err := s.importFacts(r.Context(), j)
+	if err != nil {
+		s.internalError(w, r, err)
+		return
+	}
+	if pre {
+		s.cancelBeforeImport(w, r, u, j)
+		return
+	}
+	if !s.canCancel(j, u.Admin, submitted) {
 		wrongState(w)
 		return
 	}
@@ -598,6 +649,18 @@ func (s *Server) cancelJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.move(w, r, u, j, store.Cancelled, "job.cancelled")
+}
+
+// cancelBeforeImport cancels a merge job whose import is not submitted (#92). The store
+// checks that, and makes the move, in one transaction: against the engine's submission
+// (Store.BeginImport) whichever commits first wins, so an import that has been submitted
+// is never cancelled this way (it is then refused, as any import is). Nothing of the
+// job is in the library, so there is nothing to undo; the runner stops the merge task and
+// removes the job's files.
+func (s *Server) cancelBeforeImport(w http.ResponseWriter, r *http.Request, u auth.User, j store.Job) {
+	s.moveWith(w, r, u, j, "job.cancelled", nil, func(ctx context.Context) (store.Job, error) {
+		return s.deps.Store.CancelUnsubmitted(ctx, j.ID, j.State, store.Change{Actor: u.Name, Note: "cancelled before the import was submitted"})
+	})
 }
 
 func (s *Server) retryJob(w http.ResponseWriter, r *http.Request) {

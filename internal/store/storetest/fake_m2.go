@@ -259,17 +259,43 @@ func (f *Fake) UpdateRow(ctx context.Context, r store.Row) error {
 }
 
 func (f *Fake) PutImport(ctx context.Context, i store.Import) error {
+	return f.putImport(ctx, i, false)
+}
+
+func (f *Fake) BeginImport(ctx context.Context, i store.Import) error {
+	return f.putImport(ctx, i, true)
+}
+
+func (f *Fake) putImport(ctx context.Context, i store.Import, importing bool) error {
 	if err := f.lock(ctx); err != nil {
 		return err
 	}
 	defer f.mu.Unlock()
-	if _, ok := f.jobs[i.JobID]; !ok {
+	j, ok := f.jobs[i.JobID]
+	if !ok {
 		return store.ErrNotFound
+	}
+	if importing && j.State != store.Importing {
+		return store.ErrConflict
 	}
 	i.SubmittedAt, i.FinishedAt = norm(i.SubmittedAt), norm(i.FinishedAt)
 	i.Baseline = cloneJSON(i.Baseline)
 	f.m2.imports[i.JobID] = i
 	return nil
+}
+
+func (f *Fake) CancelUnsubmitted(ctx context.Context, jobID string, from store.State, c store.Change) (store.Job, error) {
+	if err := f.lock(ctx); err != nil {
+		return store.Job{}, err
+	}
+	defer f.mu.Unlock()
+	if _, ok := f.jobs[jobID]; !ok {
+		return store.Job{}, store.ErrNotFound
+	}
+	if i, ok := f.m2.imports[jobID]; ok && !i.SubmittedAt.IsZero() {
+		return store.Job{}, store.ErrConflict
+	}
+	return f.transition(jobID, from, store.Cancelled, c)
 }
 
 func (f *Fake) Import(ctx context.Context, jobID string) (store.Import, error) {
