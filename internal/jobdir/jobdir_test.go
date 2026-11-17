@@ -1,6 +1,8 @@
 package jobdir
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -95,4 +97,51 @@ func TestRemoveUpload(t *testing.T) {
 		}
 	}()
 	_ = RemoveUpload(root, "../x")
+}
+
+// Open refuses a job directory, or a jobs/ directory, that a compromised worker replaced with
+// a symbolic link out of the intake root (#63), and still opens a real one.
+func TestOpenRefusesALinkOutOfTheIntakeRoot(t *testing.T) {
+	root := t.TempDir()
+	if _, err := Open(root, id); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("missing job directory: err = %v, want fs.ErrNotExist", err)
+	}
+	if err := os.MkdirAll(Dir(root, id), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	r, err := Open(root, id)
+	if err != nil {
+		t.Fatalf("real job directory: %v", err)
+	}
+	_ = r.Close()
+
+	outside := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(outside, Files), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(Dir(root, id)); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, Dir(root, id)); err != nil {
+		t.Fatal(err)
+	}
+	if r, err := Open(root, id); err == nil {
+		_ = r.Close()
+		t.Fatal("a symlinked job directory leading out of the intake root was opened")
+	}
+
+	// The same with jobs/ itself replaced.
+	if err := os.RemoveAll(filepath.Join(root, Jobs)); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(outside, id), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(root, Jobs)); err != nil {
+		t.Fatal(err)
+	}
+	if r, err := Open(root, id); err == nil {
+		_ = r.Close()
+		t.Fatal("a symlinked jobs/ directory leading out of the intake root was opened")
+	}
 }

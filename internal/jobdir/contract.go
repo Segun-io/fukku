@@ -43,6 +43,24 @@ func Dir(intakeRoot, id string) string {
 	return filepath.Join(intakeRoot, Jobs, id)
 }
 
+// Open opens a job's directory as an os.Root, from an os.Root of the intake root, so a
+// symbolic link at jobs/ or jobs/<id> that leads out of the intake root is refused instead of
+// followed (os.OpenRoot of the joined path would follow it). The worker can write the intake
+// root and is assumed compromised (docs/threat-model.md, B4), so every operation on a job's
+// directory starts here. A missing directory is an error wrapping fs.ErrNotExist. It panics
+// on a malformed id, as Dir does.
+func Open(intakeRoot, id string) (*os.Root, error) {
+	if !ValidID(id) {
+		panic("jobdir: malformed job id")
+	}
+	intake, err := os.OpenRoot(intakeRoot)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = intake.Close() }()
+	return intake.OpenRoot(filepath.Join(Jobs, id))
+}
+
 // Remove deletes a job's directory and everything in it.
 func Remove(intakeRoot, id string) error { return os.RemoveAll(Dir(intakeRoot, id)) }
 

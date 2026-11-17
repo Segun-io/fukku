@@ -353,6 +353,36 @@ func TestOnlyAcceptedRegularFilesWithinTheLimitAreRead(t *testing.T) {
 	}
 }
 
+// The worker writes the job's files directory and is assumed compromised (threat model
+// B4): a symlinked directory on the way to an accepted subtitle file must not make the web
+// process read a file outside the job directory, such as its own secrets, and hand it to
+// the subtitle manager (#63).
+func TestASymlinkedDirectoryIsNotFollowed(t *testing.T) {
+	h := newHarness(t)
+	h.add("Season/Film.mkv", store.KindVideo, "v")
+	h.add("Season/Film.es.srt", store.KindSubtitle, "1\n00:00:01,000 --> 00:00:02,000\nhola\n")
+
+	outside := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outside, "Film.es.srt"), []byte("secret"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(h.root, "jobs", jobID, "files", "Season")
+	if err := os.RemoveAll(dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, dir); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := h.run(); err == nil {
+		t.Fatal("a file behind a symlinked directory was read")
+	}
+	for _, s := range h.fake.Sent() {
+		if strings.Contains(s.Data, "secret") {
+			t.Fatal("leaked a file from outside the job directory")
+		}
+	}
+}
+
 func TestContextCancelStopsTheStep(t *testing.T) {
 	h := newHarness(t)
 	h.add("Film.mkv", store.KindVideo, "v")
