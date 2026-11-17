@@ -14,6 +14,7 @@ import (
 	tusd "github.com/tus/tusd/v2/pkg/handler"
 
 	"github.com/segun-io/fukku/internal/jobdir"
+	"github.com/segun-io/fukku/internal/store"
 )
 
 // maxInfoSize is the largest .info file read: the upload's metadata is two short fields.
@@ -34,6 +35,24 @@ var errIncomingUnsafe = errors.New("uploads: .incoming or an upload file in it i
 type incomingStore struct {
 	intakeRoot string
 	fileMode   fs.FileMode
+	// sizeOf returns the size the upload's row was created with (store.ErrNotFound when
+	// there is no row); GetUpload refuses an .info that says otherwise. nil: not checked.
+	sizeOf func(ctx context.Context, id string) (int64, error)
+}
+
+// checkShape refuses what the endpoint never creates: a deferred, negative or partial
+// size, and concatenation (tusd would reach extensions this store does not have, or let a
+// write go past the upload's size).
+func checkShape(info tusd.FileInfo) error {
+	switch {
+	case info.SizeIsDeferred:
+		return errors.New("deferred length")
+	case info.Size < 0:
+		return errors.New("negative size")
+	case info.IsPartial || info.IsFinal || len(info.PartialUploads) > 0:
+		return errors.New("concatenation")
+	}
+	return nil
 }
 
 // dir is .incoming as the Storage keys of an .info file name it (tusd's filestore wrote
@@ -114,6 +133,9 @@ func (s incomingStore) NewUpload(_ context.Context, info tusd.FileInfo) (tusd.Up
 	if !jobdir.ValidID(info.ID) {
 		return nil, errors.New("uploads: malformed upload id")
 	}
+	if err := checkShape(info); err != nil {
+		return nil, fmt.Errorf("uploads: %w", err)
+	}
 	r, err := openIncoming(s.intakeRoot)
 	if err != nil {
 		return nil, err
@@ -147,7 +169,7 @@ const (
 // GetUpload reads <id>.info and the size of <id>. An .info file for another id, or whose
 // Storage names any other place than .incoming/<id> and .incoming/<id>.info, is refused:
 // the paths are never taken from it.
-func (s incomingStore) GetUpload(_ context.Context, id string) (tusd.Upload, error) {
+func (s incomingStore) GetUpload(ctx context.Context, id string) (tusd.Upload, error) {
 	if !jobdir.ValidID(id) {
 		return nil, tusd.ErrNotFound
 	}
@@ -180,6 +202,22 @@ func (s incomingStore) GetUpload(_ context.Context, id string) (tusd.Upload, err
 	if !s.ownPath(info.Storage[filestoreKeyPath], id) || !s.ownPath(info.Storage[filestoreKeyInfoPath], id+".info") {
 		return nil, fmt.Errorf("%w: %s.info names a path outside .incoming/%s", errIncomingUnsafe, id, id)
 	}
+	// The worker can write the .info, so its other fields are checked too: the shape the
+	// endpoint creates, and the size of the upload's own row.
+	if err := checkShape(info); err != nil {
+		return nil, fmt.Errorf("%w: %s.info: %w", errIncomingUnsafe, id, err)
+	}
+	if s.sizeOf != nil {
+		want, err := s.sizeOf(ctx, id)
+		if errors.Is(err, store.ErrNotFound) {
+			return nil, tusd.ErrNotFound
+		} else if err != nil {
+			return nil, err
+		}
+		if info.Size != want {
+			return nil, fmt.Errorf("%w: %s.info gives size %d, the upload has %d", errIncomingUnsafe, id, info.Size, want)
+		}
+	}
 	fi, err := r.Lstat(id)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, tusd.ErrNotFound
@@ -188,6 +226,9 @@ func (s incomingStore) GetUpload(_ context.Context, id string) (tusd.Upload, err
 	}
 	if !fi.Mode().IsRegular() {
 		return nil, fmt.Errorf("%w: %s is not a regular file", errIncomingUnsafe, id)
+	}
+	if fi.Size() > info.Size {
+		return nil, fmt.Errorf("%w: %s holds more than the upload's size", errIncomingUnsafe, id)
 	}
 	info.Offset = fi.Size()
 	return &incomingUpload{store: s, info: info}, nil

@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,6 +16,7 @@ import (
 	tusd "github.com/tus/tusd/v2/pkg/handler"
 
 	"github.com/segun-io/fukku/internal/config"
+	"github.com/segun-io/fukku/internal/store"
 	"github.com/segun-io/fukku/internal/store/storetest"
 )
 
@@ -339,5 +342,128 @@ func TestCompleteRefusesUploadDataThatIsALink(t *testing.T) {
 	}
 	if _, err := os.Lstat(filepath.Join(e.intake, dst)); err == nil {
 		t.Fatal("the job got a file")
+	}
+}
+
+// writeInfoFile replaces the upload's .info with info.
+func (e *storeEnv) writeInfoFile(info tusd.FileInfo) {
+	e.t.Helper()
+	data, err := json.Marshal(info)
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	if err := os.WriteFile(e.incoming(info.ID+".info"), data, 0o644); err != nil {
+		e.t.Fatal(err)
+	}
+}
+
+// The fields of an .info besides its paths can be written by whoever writes .incoming/ too,
+// so GetUpload refuses any shape the endpoint never creates, and a size other than the
+// upload row's.
+func TestIncomingStoreRefusesAnInfoOfAnotherShape(t *testing.T) {
+	const rowSize = 10
+	for _, tc := range []struct {
+		name string
+		mod  func(*tusd.FileInfo)
+	}{
+		{"deferred length", func(i *tusd.FileInfo) { i.SizeIsDeferred = true }},
+		{"negative size", func(i *tusd.FileInfo) { i.Size = -1 }},
+		{"larger than the row", func(i *tusd.FileInfo) { i.Size = 1 << 40 }},
+		{"smaller than the row", func(i *tusd.FileInfo) { i.Size = 1 }},
+		{"partial", func(i *tusd.FileInfo) { i.IsPartial = true }},
+		{"final", func(i *tusd.FileInfo) { i.IsFinal = true }},
+		{"partial uploads", func(i *tusd.FileInfo) { i.PartialUploads = []string{otherID} }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newStoreEnv(t)
+			e.s.sizeOf = func(context.Context, string) (int64, error) { return rowSize, nil }
+			e.create(storeID)
+			info := tusd.FileInfo{ID: storeID, Size: rowSize}
+			tc.mod(&info)
+			e.writeInfoFile(info)
+			if _, err := e.s.GetUpload(context.Background(), storeID); err == nil {
+				t.Fatalf("an .info with %s was accepted", tc.name)
+			}
+		})
+	}
+
+	t.Run("the row's own size", func(t *testing.T) {
+		e := newStoreEnv(t)
+		e.s.sizeOf = func(context.Context, string) (int64, error) { return rowSize, nil }
+		e.create(storeID)
+		e.writeInfoFile(tusd.FileInfo{ID: storeID, Size: rowSize})
+		if _, err := e.s.GetUpload(context.Background(), storeID); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	t.Run("no row", func(t *testing.T) {
+		e := newStoreEnv(t)
+		e.s.sizeOf = func(context.Context, string) (int64, error) { return 0, store.ErrNotFound }
+		e.create(storeID)
+		if _, err := e.s.GetUpload(context.Background(), storeID); !errors.Is(err, tusd.ErrNotFound) {
+			t.Fatalf("err = %v, want tusd.ErrNotFound", err)
+		}
+	})
+
+	t.Run("data past the size", func(t *testing.T) {
+		e := newStoreEnv(t)
+		e.s.sizeOf = func(context.Context, string) (int64, error) { return rowSize, nil }
+		e.create(storeID)
+		if err := os.WriteFile(e.incoming(storeID), bytes.Repeat([]byte("x"), rowSize+1), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := e.s.GetUpload(context.Background(), storeID); err == nil {
+			t.Fatal("data larger than the upload's size was accepted")
+		}
+	})
+
+	t.Run("at creation", func(t *testing.T) {
+		e := newStoreEnv(t)
+		for _, info := range []tusd.FileInfo{
+			{ID: storeID, SizeIsDeferred: true},
+			{ID: storeID, Size: -1},
+			{ID: storeID, Size: 10, IsFinal: true},
+		} {
+			if _, err := e.s.NewUpload(context.Background(), info); err == nil {
+				t.Fatalf("NewUpload accepted %+v", info)
+			}
+		}
+	})
+}
+
+// The endpoint speaks tus 1.0 only: the headers of the IETF resumable-upload drafts are
+// removed before tusd sees them, so a PATCH that carries them is a plain tus PATCH.
+func TestIETFDraftHeadersAreIgnored(t *testing.T) {
+	e := newEnv(t, nil)
+	j := e.job("user1")
+	c := e.client("user1")
+	data := randomData(1000)
+	id := c.mustCreate(j.ID, "a.mkv", int64(len(data)))
+	r := c.do(http.MethodPatch, BasePath+id, map[string]string{
+		"Upload-Offset":                "0",
+		"Content-Type":                 "application/offset+octet-stream",
+		"Upload-Draft-Interop-Version": "6",
+		"Upload-Complete":              "?0",
+	}, data[:100])
+	if r.status != http.StatusNoContent || r.offset() != 100 {
+		t.Fatalf("PATCH: %d %s, offset %d", r.status, r.body, r.offset())
+	}
+	for _, h := range unsupportedHeaders {
+		if v := r.header.Get(h); v != "" {
+			t.Errorf("the answer carries %s: %s", h, v)
+		}
+	}
+}
+
+func TestDropUnsupportedHeaders(t *testing.T) {
+	h := http.Header{}
+	for _, k := range []string{"X-HTTP-Method-Override", "Upload-Draft-Interop-Version", "Upload-Complete", "Upload-Incomplete"} {
+		h.Set(k, "x")
+	}
+	h.Set("Upload-Offset", "0")
+	dropUnsupportedHeaders(h)
+	if len(h) != 1 || h.Get("Upload-Offset") != "0" {
+		t.Fatalf("headers left: %v", h)
 	}
 }

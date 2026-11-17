@@ -6,20 +6,42 @@ import (
 	"go/token"
 	"io/fs"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
 
-// TestNoFileOperationOnAJobDirectoryByPath is a lint rule that golangci's linters cannot
-// express (forbidigo matches a call, not its argument): no non-test code outside this
-// package hands jobdir.Dir(...) straight to a function of package os, such as
-// os.OpenRoot(jobdir.Dir(...)) or os.RemoveAll(jobdir.Dir(...)). Those follow a symbolic
-// link at jobs/ or jobs/<id> that the worker can plant (#112, #137); use jobdir.Open or
-// jobdir.Remove. Paths built from jobdir.Dir for the apps (what Radarr or Sonarr should
-// import) are not file operations and stay allowed.
-func TestNoFileOperationOnAJobDirectoryByPath(t *testing.T) {
+// dirCallers are the functions outside this package that may use jobdir.Dir, each reviewed:
+// a path built from it is handed to an app (what Radarr or Sonarr should look at or
+// import), or used for something that does not open the job directory's contents. Every
+// file operation on a job directory goes through jobdir.Open or jobdir.Remove, which do not
+// follow a symbolic link the worker plants at jobs/ or jobs/<id> (#112, #137). A new caller
+// needs a review and an entry here. The TODO(#113) entries still open or link a job file by
+// path; #113 moves them to jobdir.Open and takes them off the list.
+var dirCallers = map[string]string{
+	"internal/flows/proposal.go:folder":          "the job's files folder as the app sees it (Manual Import proposal)",
+	"internal/flows/proposal.go:appPath":         "a job file's path as the app sees it",
+	"internal/web/jobs.go:manualImport":          "the job's files folder shown for the app's Manual Import",
+	"internal/runner/steps.go:roomFor":           "free space (statfs) of the filesystem that holds the job",
+	"internal/runner/steps.go:cancelled":         "whether the job directory exists (Lstat); it is removed with jobdir.Remove",
+	"internal/flows/import.go:plan":              "TODO(#113): Lstat of the source by path before the import",
+	"internal/flows/merge.go:useMerge":           "TODO(#113): Lstat of the merged file by path before the import",
+	"internal/flows/merge.go:proposeMerged":      "TODO(#113): Lstat of the merged file by path before the proposal",
+	"internal/flows/version.go:placeVersion":     "TODO(#113): the version's source, opened by path for linkat",
+	"internal/flows/version.go:uploadOf":         "TODO(#113): the version's source, opened by path for linkat",
+	"internal/flows/episode_version.go:jobVideo": "TODO(#113): an episode version's source, opened by path for linkat",
+}
+
+// TestJobDirIsUsedOnlyByReviewedCallers is a lint rule that golangci's linters cannot
+// express: outside this package, non-test code may use jobdir.Dir only in the functions of
+// dirCallers, so that neither a variable nor a filepath.Join can carry a job directory's
+// path to a file operation unreviewed; and none of them hands jobdir.Dir(...) directly to a
+// function of package os. Tests set up fixtures by path on directories they created and
+// are not checked.
+func TestJobDirIsUsedOnlyByReviewedCallers(t *testing.T) {
 	fset := token.NewFileSet()
 	var bad []string
+	seen := map[string]bool{}
 	for _, top := range []string{"../../internal", "../../cmd"} {
 		err := filepath.WalkDir(top, func(p string, d fs.DirEntry, err error) error {
 			if err != nil {
@@ -31,7 +53,6 @@ func TestNoFileOperationOnAJobDirectoryByPath(t *testing.T) {
 				}
 				return nil
 			}
-			// Tests set up their fixtures by path, on directories they created themselves.
 			if !strings.HasSuffix(p, ".go") || strings.HasSuffix(p, "_test.go") {
 				return nil
 			}
@@ -39,16 +60,43 @@ func TestNoFileOperationOnAJobDirectoryByPath(t *testing.T) {
 			if err != nil {
 				return err
 			}
-			ast.Inspect(f, func(n ast.Node) bool {
-				call, ok := n.(*ast.CallExpr)
-				if !ok || !isSel(call.Fun, "os", "") || len(call.Args) == 0 {
+			rel := strings.TrimPrefix(filepath.ToSlash(p), "../../")
+			for _, decl := range f.Decls {
+				fn, ok := decl.(*ast.FuncDecl)
+				if !ok {
+					continue
+				}
+				key := rel + ":" + fn.Name.Name
+				ast.Inspect(fn, func(n ast.Node) bool {
+					switch n := n.(type) {
+					case *ast.SelectorExpr:
+						if isSel(n, "jobdir", "Dir") {
+							if _, ok := dirCallers[key]; !ok {
+								bad = append(bad, fset.Position(n.Pos()).String()+" ("+key+"): jobdir.Dir outside the reviewed callers; use jobdir.Open or jobdir.Remove, or review it and add it to dirCallers")
+							}
+							seen[key] = true
+						}
+					case *ast.CallExpr:
+						if isSel(n.Fun, "os", "") && len(n.Args) > 0 {
+							if arg, ok := n.Args[0].(*ast.CallExpr); ok && isSel(arg.Fun, "jobdir", "Dir") {
+								bad = append(bad, fset.Position(n.Pos()).String()+": a package os call directly on jobdir.Dir(...) follows the worker's links; use jobdir.Open or jobdir.Remove")
+							}
+						}
+					}
 					return true
+				})
+			}
+			// jobdir.Dir outside any function (a package-level variable) is never reviewed.
+			for _, decl := range f.Decls {
+				if g, ok := decl.(*ast.GenDecl); ok {
+					ast.Inspect(g, func(n ast.Node) bool {
+						if sel, ok := n.(*ast.SelectorExpr); ok && isSel(sel, "jobdir", "Dir") {
+							bad = append(bad, fset.Position(sel.Pos()).String()+": jobdir.Dir at package level")
+						}
+						return true
+					})
 				}
-				if arg, ok := call.Args[0].(*ast.CallExpr); ok && isSel(arg.Fun, "jobdir", "Dir") {
-					bad = append(bad, fset.Position(call.Pos()).String())
-				}
-				return true
-			})
+			}
 			return nil
 		})
 		if err != nil {
@@ -56,7 +104,18 @@ func TestNoFileOperationOnAJobDirectoryByPath(t *testing.T) {
 		}
 	}
 	for _, b := range bad {
-		t.Errorf("%s: a package os call on jobdir.Dir(...) follows the worker's links; use jobdir.Open or jobdir.Remove", b)
+		t.Error(b)
+	}
+	// An entry whose function no longer uses jobdir.Dir is stale: take it off the list.
+	keys := make([]string, 0, len(dirCallers))
+	for k := range dirCallers {
+		keys = append(keys, k)
+	}
+	slices.Sort(keys)
+	for _, k := range keys {
+		if !seen[k] {
+			t.Errorf("dirCallers lists %s, which no longer uses jobdir.Dir: remove the entry", k)
+		}
 	}
 }
 
