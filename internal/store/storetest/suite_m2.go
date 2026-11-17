@@ -22,6 +22,7 @@ var m2Tests = []struct {
 	{"Rows", testRows},
 	{"Import", testImport},
 	{"CancelUnsubmitted", testCancelUnsubmitted},
+	{"BackToConfirmation", testBackToConfirmation},
 	{"ConfirmImport", testConfirmImport},
 	{"PostSteps", testPostSteps},
 	{"ActiveJobsFor", testActiveJobsFor},

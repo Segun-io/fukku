@@ -162,6 +162,9 @@ func (f *Fake) Transition(ctx context.Context, id string, from, to store.State, 
 		return store.Job{}, err
 	}
 	defer f.mu.Unlock()
+	if store.OnlyBack(from, to) {
+		return store.Job{}, fmt.Errorf("%w: %s → %s is BackToConfirmation's", store.ErrInvalidTransition, from, to)
+	}
 	return f.transition(id, from, to, c)
 }
 

@@ -133,6 +133,19 @@ type M2 interface {
 	// it fails. Returns the job as it is after.
 	ConfirmImport(ctx context.Context, jobID string, t Target, rows []Row, options json.RawMessage, audit []AuditEntry, c Change) (Job, error)
 
+	// BackToConfirmation sends a flow 2a merge job that the merge task refused for a reason
+	// that will fail again back to its confirmation (#95), in one transaction: the job must
+	// be importing (else ErrConflict), have the target t (as ConfirmImport; else
+	// ErrConflict) and have no import submitted (no import record, or a zero SubmittedAt;
+	// else ErrConflict: nothing is ever taken back once an import was submitted). Then the
+	// target's Options are replaced by options (not nil), the retention date is set to
+	// c.ExpiresAt when that is later than the job's own (a job without a date keeps none; the
+	// date never moves earlier), so that retention does not cancel a job at once that went
+	// back after its date had nearly passed, the job moves to awaiting
+	// confirmation with c, and the audit entry is stored (its JobID is set to the job's) and
+	// logged. Nothing is changed when it fails. Returns the job as it is after.
+	BackToConfirmation(ctx context.Context, jobID string, t Target, options json.RawMessage, audit AuditEntry, c Change) (Job, error)
+
 	// PutImport inserts or replaces the job's import record.
 	PutImport(ctx context.Context, i Import) error
 	// Import returns the job's import record; ErrNotFound when it has none.

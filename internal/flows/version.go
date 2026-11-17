@@ -583,6 +583,10 @@ func (e *Engine) confirmVersion(ctx context.Context, user, email string, s *sess
 	if err != nil {
 		return Confirmation{}, err
 	}
+	// A merge refusal (#95) is not this job's any more.
+	if opts, err = withOption(opts, "mergeRefusal", nil); err != nil {
+		return Confirmation{}, err
+	}
 	audit := []store.AuditEntry{{Actor: user, Email: email, Action: "version.confirmed", Detail: map[string]string{
 		"app": s.t.App, "titleId": strconv.Itoa(s.t.TitleID), "title": s.t.Title,
 		"label": label, "name": name, "file": path.Base(f.Path), "finding": cmp.Finding,

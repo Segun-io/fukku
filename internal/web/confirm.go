@@ -108,8 +108,16 @@ import (
 // come with it (the job's subtitle files, handed over after the import); overrides and
 // seasonDub may not. The worker merges, Radarr replaces the film's file with the merged one
 // through Manual Import, and the film is unmonitored (merge.unmonitorAfterMerge). Audit:
-// merge.confirmed. The job's "import.merge" and "result.merge" show it. Errors besides the
-// common ones:
+// merge.confirmed. The job's "import.merge" and "result.merge" show it. A merge refused
+// for a reason the same choice would meet again (verify_failed, mux_failed,
+// track_not_found; the classification is merge.Classes) does not fail the job (#95): the
+// job goes back to awaiting confirmation with its preview, audited as merge.refused, and
+// flow2.mergeRefusal in GET /api/jobs/{id} says why ({"code", "message", "audioTracks",
+// "subtitleTracks", "offsetMs", "languageTag", "at"}: the choice that was refused). The
+// next confirmation (after another preview, if the offset or track changes) answers it.
+// Refusals that may pass (free space, an unreadable library file or upload, a busy
+// destination) fail the job as before, and the owner retries. Errors besides the common
+// ones:
 //
 //	409 merge_not_offered  the upload cannot be merged (flow2.notOffered says why), or the
 //	                       job is not Radarr's

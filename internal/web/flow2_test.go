@@ -153,7 +153,7 @@ func TestFlow2ThroughTheAPI(t *testing.T) {
 	             "durationMs": 5400400,
 	             "audio": [{"index": 1, "codec": "ac3", "language": "spa", "title": "Español (Latino)", "channels": 6, "default": true}],
 	             "subtitles": []},
-	  "finding": null, "deltaMs": null, "ratio": null, "offers": [], "notOffered": [], "version": null}`)
+	  "finding": null, "deltaMs": null, "ratio": null, "offers": [], "notOffered": [], "version": null, "mergeRefusal": null}`)
 
 	if j = e.step(j); j.State != store.Matched {
 		t.Fatalf("job %s", j.State)
@@ -182,7 +182,7 @@ func TestFlow2ThroughTheAPI(t *testing.T) {
 	             "audio": [{"index": 1, "codec": "ac3", "language": "spa", "title": "Español (Latino)", "channels": 6, "default": true}],
 	             "subtitles": []},
 	  "finding": "match", "deltaMs": 400, "ratio": 1.0000740740740741,
-	  "offers": ["merge"], "notOffered": [{"offer": "version", "reason": "versions_disabled"}], "version": null}`)
+	  "offers": ["merge"], "notOffered": [{"offer": "version", "reason": "versions_disabled"}], "version": null, "mergeRefusal": null}`)
 
 	// The flow 1 confirmation would import the upload over the film's file: refused.
 	code, body := e.call("POST", "/api/jobs/"+j.ID+"/confirm", `{}`)

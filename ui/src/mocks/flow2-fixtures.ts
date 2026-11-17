@@ -93,6 +93,7 @@ export function flow2Fixture(finding: Flow2Finding, over: Partial<Flow2> = {}): 
       problem: null,
       notices: ["outside_radarr", "regrouped_after_changes", "kept_on_delete"],
     },
+    mergeRefusal: null,
   };
   return { ...base, ...over };
 }

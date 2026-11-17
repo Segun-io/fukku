@@ -381,6 +381,21 @@ export type VersionOffer = {
   notices: string[];
 };
 
+/**
+ * A merge the worker refused for a reason the same choice would meet again (#95): the job is
+ * back at its confirmation. `code` is a merge refusal (`verify_failed`, `mux_failed`,
+ * `track_not_found`); `message` is English; the rest is the choice that was refused.
+ */
+export type MergeRefusal = {
+  code: string;
+  message: string;
+  audioTracks: number[];
+  subtitleTracks: number[];
+  offsetMs: number;
+  languageTag: string;
+  at: string;
+};
+
 /** `flow2` in the job detail: the film already has a file, the comparison and what can be done. */
 export type Flow2 = {
   state: "pending" | "ready";
@@ -395,6 +410,8 @@ export type Flow2 = {
   offers: Flow2Offer[];
   notOffered: NotOffered[];
   version: VersionOffer | null;
+  /** Why the last merge was refused, while the job waits for another confirmation; null otherwise. */
+  mergeRefusal: MergeRefusal | null;
 };
 
 export type JobDetail = Job & {

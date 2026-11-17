@@ -161,7 +161,7 @@ same settings.
 | `upload.archiveExtensions` | `FUKKU_UPLOAD_ARCHIVE_EXTENSIONS` | `.zip` | Accepted archives |
 | `upload.idleUploadExpiry` | `FUKKU_UPLOAD_IDLE_UPLOAD_EXPIRY` | `2d` | An unfinished upload with no progress for this long is deleted |
 | `upload.requestIdleTimeout` | `FUKKU_UPLOAD_REQUEST_IDLE_TIMEOUT` | `30s` | An upload request that sends no data for this long is closed, so a slow or vanished client cannot hold the server; the bytes received so far are kept and the upload continues from there |
-| `upload.jobRetention` | `FUKKU_UPLOAD_JOB_RETENTION` | `14d` | A job waiting for a decision is deleted after this; the date is shown from day one |
+| `upload.jobRetention` | `FUKKU_UPLOAD_JOB_RETENTION` | `14d` | A job waiting for a decision is deleted after this; the date is shown from day one. A merge refused for a reason that will fail again (`verify_failed`, `mux_failed`, `track_not_found`) puts the job back to waiting for a decision, and its date then becomes the later of the old one and this long from now, so that it is not deleted at once |
 | `upload.finishedJobRetention` | `FUKKU_UPLOAD_FINISHED_JOB_RETENTION` | `30d` | The record of a `done` or `cancelled` job is deleted after this (its audit entries are kept) |
 | `upload.sweepInterval` | `FUKKU_UPLOAD_SWEEP_INTERVAL` | `15m` | How often the retention sweep runs (it also runs once at start-up) |
 | `upload.largeFileHintThreshold` | `FUKKU_UPLOAD_LARGE_FILE_HINT_THRESHOLD` | `20GiB` | Files above this show the hint "large files: upload from home if you can"; `0` turns it off |
@@ -210,6 +210,12 @@ same settings.
 | `merge.coverageTolerance` | `FUKKU_MERGE_COVERAGE_TOLERANCE` | `3s` | How far each audio track a merge adds may fall short of the film, by the merged file's own timestamps (more than 0, at most `1m`): it must start no later than its start in the upload (after the offset) and end no earlier than the film's end (the video's end time or, when it ends sooner, the original audio's; a negative offset moves that end earlier by the offset) and than the end its DURATION tag in the upload states (shifted by the offset), each within this. A dub cut short, such as a truncated file whose header still states the full length, is refused (`verify_failed`) |
 | `merge.unmonitorAfterMerge` | `FUKKU_MERGE_UNMONITOR_AFTER_MERGE` | `true` | Unmonitor the film once Radarr has imported the merged file, so that RSS sync and the Wanted searches do not replace it with a release without the dub (B6). The film's own Search in Radarr still can; the job's result says so (`search_can_replace`). Off: the film's monitoring is left as it was, and the result warns that any upgrade can replace the file (`upgrade_can_replace`) |
 | `merge.unmonitorAfterDubOnlyImport` | `FUKKU_MERGE_UNMONITOR_AFTER_DUB_ONLY_IMPORT` | `true` | Same after importing a file that only has the dub |
+
+When the merge tool refuses a merge for a reason that will fail again with the same choice
+(`verify_failed`, `mux_failed`, `track_not_found`), the job goes back to waiting for a
+confirmation instead of failing: the page shows why next to the sync check, and the user
+picks another offset or track and confirms again. Refusals that may pass (free space, an
+unreadable file, a busy destination) still fail the job, to be retried.
 
 A merge (flow 2a) never writes the library file: the worker writes the merged file into the
 job's directory (`merged/<attempt>/`, under the library file's name with `.mkv`), and Radarr

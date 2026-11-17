@@ -227,6 +227,9 @@ func (s *sqliteStore) PutProposal(ctx context.Context, jobID string, from, to St
 }
 
 func (s *sqliteStore) TransitionFor(ctx context.Context, jobID string, t Target, from, to State, c Change) (Job, error) {
+	if OnlyBack(from, to) {
+		return Job{}, fmt.Errorf("%w: %s → %s is BackToConfirmation's", ErrInvalidTransition, from, to)
+	}
 	tx, err := s.w.BeginTx(ctx, nil)
 	if err != nil {
 		return Job{}, err
@@ -456,22 +459,8 @@ func (s *sqliteStore) ConfirmImport(ctx context.Context, jobID string, t Target,
 	}
 	entries := make([]AuditEntry, 0, len(audit))
 	for _, e := range audit {
-		e.JobID, e.Actor = jobID, actorOr(e.Actor)
-		e.At = normTime(e.At)
-		if e.At.IsZero() {
-			e.At = s.clock()
-		}
-		var detail any
-		if len(e.Detail) > 0 {
-			b, err := json.Marshal(e.Detail)
-			if err != nil {
-				return Job{}, err
-			}
-			detail = string(b)
-		}
-		if _, err := tx.ExecContext(ctx,
-			"INSERT INTO audit (at, actor, email, action, job_id, detail) VALUES (?, ?, ?, ?, ?, ?)",
-			nanos(e.At), e.Actor, e.Email, e.Action, e.JobID, detail); err != nil {
+		e, err := s.insertAudit(ctx, tx, jobID, e)
+		if err != nil {
 			return Job{}, err
 		}
 		entries = append(entries, e)
@@ -482,6 +471,81 @@ func (s *sqliteStore) ConfirmImport(ctx context.Context, jobID string, t Target,
 	for _, e := range entries {
 		s.log.InfoContext(ctx, "audit", auditAttrs(e)...)
 	}
+	return next, nil
+}
+
+// insertAudit stores the entry for the job inside tx and returns it as stored.
+func (s *sqliteStore) insertAudit(ctx context.Context, tx *sql.Tx, jobID string, e AuditEntry) (AuditEntry, error) {
+	e.JobID, e.Actor = jobID, actorOr(e.Actor)
+	e.At = normTime(e.At)
+	if e.At.IsZero() {
+		e.At = s.clock()
+	}
+	var detail any
+	if len(e.Detail) > 0 {
+		b, err := json.Marshal(e.Detail)
+		if err != nil {
+			return AuditEntry{}, err
+		}
+		detail = string(b)
+	}
+	if _, err := tx.ExecContext(ctx,
+		"INSERT INTO audit (at, actor, email, action, job_id, detail) VALUES (?, ?, ?, ?, ?, ?)",
+		nanos(e.At), e.Actor, e.Email, e.Action, e.JobID, detail); err != nil {
+		return AuditEntry{}, err
+	}
+	return e, nil
+}
+
+func (s *sqliteStore) BackToConfirmation(ctx context.Context, jobID string, t Target, options json.RawMessage, audit AuditEntry, c Change) (Job, error) {
+	if options == nil || audit.Action == "" {
+		return Job{}, errors.New("store: BackToConfirmation needs options and an audit action")
+	}
+	tx, err := s.w.BeginTx(ctx, nil)
+	if err != nil {
+		return Job{}, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if err := jobExists(ctx, tx, jobID); err != nil {
+		return Job{}, err
+	}
+	if err := hasTarget(ctx, tx, jobID, t); err != nil {
+		return Job{}, err
+	}
+	var submitted sql.NullInt64
+	err = tx.QueryRowContext(ctx, "SELECT submitted_at FROM imports WHERE job_id = ?", jobID).Scan(&submitted)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return Job{}, err
+	}
+	if !fromNanos(submitted).IsZero() {
+		return Job{}, ErrConflict
+	}
+	// The retention date is never moved earlier, and a date that is set is not left to pass
+	// while the job waits again: c.ExpiresAt is the earliest it may be.
+	var expires sql.NullInt64
+	if err := tx.QueryRowContext(ctx, "SELECT expires_at FROM jobs WHERE id = ?", jobID).Scan(&expires); err != nil {
+		return Job{}, err
+	}
+	if old := fromNanos(expires); old.IsZero() {
+		c.ExpiresAt = nil
+	} else if c.ExpiresAt != nil && old.After(normTime(*c.ExpiresAt)) {
+		c.ExpiresAt = &old
+	}
+	next, err := s.transitionTx(ctx, tx, jobID, Importing, AwaitingConfirmation, c)
+	if err != nil {
+		return Job{}, err
+	}
+	if _, err := tx.ExecContext(ctx, "UPDATE targets SET options = ? WHERE job_id = ?", report(options), jobID); err != nil {
+		return Job{}, err
+	}
+	e, err := s.insertAudit(ctx, tx, jobID, audit)
+	if err != nil {
+		return Job{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return Job{}, err
+	}
+	s.log.InfoContext(ctx, "audit", auditAttrs(e)...)
 	return next, nil
 }
 

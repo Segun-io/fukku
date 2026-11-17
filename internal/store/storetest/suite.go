@@ -99,6 +99,9 @@ func history(t *testing.T, s store.Store, id string) []store.Event {
 // allowed is what Transition must accept: the table, plus leaving failed or stalled for
 // the job's Resume state.
 func allowed(j store.Job, to store.State) bool {
+	if store.OnlyBack(j.State, to) {
+		return false // BackToConfirmation's: Transition refuses it (suite_back.go)
+	}
 	if store.CanTransition(j.State, to) {
 		return true
 	}
