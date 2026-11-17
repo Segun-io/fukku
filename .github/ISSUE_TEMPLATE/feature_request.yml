@@ -1,0 +1,34 @@
+name: Feature request
+description: Suggest a change or an addition.
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Fukku is pre-alpha, so please open an issue before working on a large change.
+        Replace hostnames, IP addresses and personal paths with `example.com`, `192.0.2.10`
+        or `/path/to/media`.
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What are you trying to do, and what gets in the way?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you would like
+      description: Behaviour you suggest, and any alternatives you considered.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Fukku version
+      description: The output of `fukku version`, or the image tag and digest.
+  - type: textarea
+    id: apps
+    attributes:
+      label: App versions
+      description: Radarr, Sonarr, Bazarr and Jellyfin, if the request involves them.
