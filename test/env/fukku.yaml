@@ -37,6 +37,16 @@ mediaServer:
 
 paths:
   intakeRoot: /data/intake
+  # Flow 2 reads the film's file only under these (library probe, sync-check clips, merge).
   libraryRoots: [/data/media/movies, /data/media/tv]
   # Created by `make dev-up`: proves the shared filesystem is mounted.
   sentinels: [/data/.mounted]
+
+# Second versions (flow 2b, #56, decision #20; and the season-dub policy version, #58), for the
+# M3 exit criteria (#61). Off by default in the product; on here only. The folder is outside
+# Radarr's and Sonarr's root folders, on the same /data mount as the intake root (a version is
+# a hard link), and a folder of the test Jellyfin's Movies library (the seeder adds it).
+# dev-up and up.sh create it.
+versions:
+  enabled: true
+  root: /data/media/versions

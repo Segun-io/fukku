@@ -8,12 +8,12 @@ import {
   type Episode,
   jellyfin,
   type Movie,
-  metadataUnavailable,
   radarr,
   type SubtitleHistory,
   sonarr,
 } from "./helpers/apps";
 import { dataDir, fixturesDir, online, simulateOutage, titleLinkTemplate } from "./helpers/env";
+import { needMetadata, outageOr } from "./helpers/online";
 
 // The M2 exit criteria (plan section 15, issue #47), on the dev stack with the test Radarr,
 // Sonarr, Bazarr and Jellyfin:
@@ -36,7 +36,6 @@ import { dataDir, fixturesDir, online, simulateOutage, titleLinkTemplate } from 
 // 1 and 2 confirm on the confirmation page (#44); the kills of 3 confirm through the API.
 
 const m2 = path.join(fixturesDir, "m2");
-const upstream = "upstream metadata service unavailable";
 /** Decision #22: visible in the media server within a minute of the import. */
 const visibleWithinMs = 60_000;
 
@@ -83,41 +82,8 @@ async function exists(p: string): Promise<boolean> {
   );
 }
 
-// ---- Online, and the upstream outage ---------------------------------------------------
-
-/**
- * The first line of every test here: skips without FUKKU_E2E_ONLINE=1, and when the app
- * cannot reach its metadata service (asked directly, as the probes do), so that an upstream
- * outage is a skip and anything else stays a failure.
- */
-async function needMetadata(app: "radarr" | "sonarr", id: number): Promise<void> {
-  test.skip(!online, "needs the internet: make e2e (FUKKU_E2E_ONLINE=1)");
-  test.skip(simulateOutage, `${upstream} (simulated by FUKKU_E2E_SIMULATE_METADATA_OUTAGE=1)`);
-  try {
-    await (app === "radarr" ? radarr.lookup(id) : sonarr.lookup(id));
-  } catch (err) {
-    test.skip(metadataUnavailable(err), `${upstream}: ${err}`);
-    throw err;
-  }
-}
-
-/** A refusal of Fukku's that may be the upstream outage (502 arr_unavailable): skip if so. */
-async function outageOr(
-  app: "radarr" | "sonarr",
-  id: number,
-  what: string,
-  status: number,
-  body: unknown,
-) {
-  if (status === 502) {
-    try {
-      await (app === "radarr" ? radarr.lookup(id) : sonarr.lookup(id));
-    } catch (err) {
-      test.skip(metadataUnavailable(err), `${upstream}: ${what}: ${err}`);
-    }
-  }
-  throw new Error(`${what}: ${status} ${JSON.stringify(body)}`);
-}
+// The first line of every test here is needMetadata (helpers/online.ts): it skips without
+// FUKKU_E2E_ONLINE=1, and when the app cannot reach its metadata service.
 
 // ---- Clean up ----------------------------------------------------------------------------
 

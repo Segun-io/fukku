@@ -17,7 +17,7 @@ import (
 
 func main() {
 	out := flag.String("out", ".cache/fixtures", "output directory")
-	quick := flag.Bool("quick", false, "only what the stack tests upload (make e2e): a short film, one season zip, the hostile corpus, and the M2 titles in m2/")
+	quick := flag.Bool("quick", false, "only what the stack tests upload (make e2e): a short film, one season zip, the hostile corpus, the M2 titles in m2/ and the M3 film and its dubs in m3/")
 	flag.Parse()
 	run := run
 	if *quick {
@@ -30,8 +30,8 @@ func main() {
 }
 
 // runQuick writes what test/e2e uploads: media/film.mkv (5 s), media/Probe Show - Season 01.zip
-// (two 5 s episodes), the hostile corpus in hostile/, and the M2 exit tests' files in m2/
-// (see writeM2).
+// (two 5 s episodes), the hostile corpus in hostile/, the M2 exit tests' files in m2/ (see
+// writeM2) and the M3 exit tests' in m3/ (see writeM3).
 func runQuick(ctx context.Context, out string) error {
 	media := filepath.Join(out, "media")
 	for _, d := range []string{media, filepath.Join(out, "hostile")} {
@@ -49,7 +49,83 @@ func runQuick(ctx context.Context, out string) error {
 	if err := buildHostile(filepath.Join(out, "hostile")); err != nil {
 		return err
 	}
-	return writeM2(ctx, filepath.Join(out, "m2"))
+	if err := writeM2(ctx, filepath.Join(out, "m2")); err != nil {
+		return err
+	}
+	return writeM3(ctx, filepath.Join(out, "m3"))
+}
+
+// The M3 exit tests (test/e2e/exit-m3.spec.ts, issue #61) put a film in the library through
+// flow 1 and then upload another language of it (flow 2). The film is one of the probes' free
+// titles at its real runtime, as in m2/; the uploads are made from the same picture with a
+// Spanish track that beeps at another pitch, in step with the flash, so the sync-check clips
+// can be measured (fixtures.SyncOffset).
+type m3Manifest struct {
+	Version string `json:"version"`
+	TMDBID  int    `json:"tmdbId"`
+	Title   string `json:"title"`
+	Year    int    `json:"year"`
+	// Film is the English original, imported first.
+	Film string `json:"film"`
+	// Dub is the same cut with a Spanish audio track only; Shifted the same with its audio
+	// 800 ms late (fixtures.ShiftAudio); PAL a PAL speed-up of it (fixtures.PALSpeedup).
+	Dub     string `json:"dub"`
+	Shifted string `json:"shifted"`
+	PAL     string `json:"pal"`
+}
+
+// m3Version changes whenever what writeM3 writes changes (the files are kept while it matches).
+const m3Version = "1"
+
+// writeM3 writes films/<Title>.<year>.mkv, its Spanish dub, the dub 800 ms late and a PAL
+// speed-up of the dub, and manifest.json.
+func writeM3(ctx context.Context, dir string) error {
+	manifestPath := filepath.Join(dir, "manifest.json")
+	if data, err := os.ReadFile(manifestPath); err == nil {
+		var m m3Manifest
+		if json.Unmarshal(data, &m) == nil && m.Version == m3Version {
+			return nil
+		}
+	}
+	if err := os.RemoveAll(dir); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "films"), 0o750); err != nil {
+		return err
+	}
+	f := m2Films[0] // Big Buck Bunny, 9 minutes
+	base := "films/" + strings.ReplaceAll(f.title, " ", ".") + fmt.Sprintf(".%d", f.year)
+	m := m3Manifest{
+		Version: m3Version, TMDBID: f.tmdb, Title: f.title, Year: f.year,
+		Film: base + ".mkv", Dub: base + ".SPANISH.mkv", Shifted: base + ".SPANISH.late.mkv", PAL: base + ".SPANISH.PAL.mkv",
+	}
+	spec := fixtures.Video{
+		Duration: time.Duration(f.minutes) * time.Minute, Width: 320, Height: 180, FrameRate: "5",
+		Audio: []fixtures.Audio{{Language: "eng", Title: "English", Default: true}},
+	}
+	dub := spec
+	dub.Audio = []fixtures.Audio{{Language: "spa", Title: "Español", ToneHz: 440, Default: true}}
+	at := func(rel string) string { return filepath.Join(dir, filepath.FromSlash(rel)) }
+	steps := []struct {
+		name string
+		fn   func() error
+	}{
+		{m.Film, func() error { return fixtures.Generate(ctx, at(m.Film), spec) }},
+		{m.Dub, func() error { return fixtures.Generate(ctx, at(m.Dub), dub) }},
+		{m.Shifted, func() error { return fixtures.ShiftAudio(ctx, at(m.Dub), at(m.Shifted), 800*time.Millisecond) }},
+		{m.PAL, func() error { return fixtures.PALSpeedup(ctx, at(m.Dub), at(m.PAL)) }},
+	}
+	for _, s := range steps {
+		if err := s.fn(); err != nil {
+			return fmt.Errorf("%s: %w", s.name, err)
+		}
+	}
+	data, err := json.MarshalIndent(m, "", "  ")
+	if err != nil {
+		return err
+	}
+	// Last: a manifest means every file is complete.
+	return os.WriteFile(manifestPath, data, 0o600)
 }
 
 // The M2 exit tests (test/e2e/exit-m2.spec.ts, issue #47) add real titles through Radarr and

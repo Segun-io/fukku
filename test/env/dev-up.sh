@@ -21,7 +21,8 @@ for size in "${FUKKU_DEV_MAX_FILE_SIZE:-256MiB}" "${FUKKU_DEV_MAX_IN_FLIGHT:-1Gi
   [[ "$size" =~ ^[0-9]+([KMGT]i?B)?$ ]] || { echo "FUKKU_DEV_MAX_FILE_SIZE and FUKKU_DEV_MAX_IN_FLIGHT are sizes such as 5GiB, got $size" >&2; exit 1; }
 done
 
-mkdir -p .run/fukku/data .run/fukku/spool .run/data/intake
+# .run/data/media/versions is versions.root of fukku.yaml (second versions, #56).
+mkdir -p .run/fukku/data .run/fukku/spool .run/data/intake .run/data/media/versions
 touch .run/data/.mounted
 cat > .run/dev.env <<ENV
 FUKKU_IMAGE=$image
@@ -32,8 +33,12 @@ FUKKU_DEV_MAX_IN_FLIGHT=${FUKKU_DEV_MAX_IN_FLIGHT:-1GiB}
 ENV
 compose=(docker compose --env-file .run/.env --env-file .run/dev.env -f compose.yaml --profile fukku)
 
-# The proxy is a tiny Go program, built in the dev image like the seeder.
+# The proxy is a tiny Go program, built in the dev image like the seeder; so is mediacheck,
+# which measures media for the e2e tests (the M3 exit criteria).
 "${compose[@]}" run --rm --no-deps -e CGO_ENABLED=0 tools go build -o .cache/bin/proxy ./test/env/proxy
+"${compose[@]}" run --rm --no-deps -e CGO_ENABLED=0 tools go build -o .cache/bin/mediacheck ./test/env/mediacheck
 
 "${compose[@]}" up -d --wait fukku-web fukku-worker fukku-proxy
+# Recreated on every run so it runs the binary just built (it keeps no state).
+"${compose[@]}" up -d --wait --force-recreate mediacheck
 echo "Fukku is up: UI http://127.0.0.1:18080 (sign in as user1, user2 or admin1 with /__test/login?user=<name>), proxy control API http://127.0.0.1:18081"

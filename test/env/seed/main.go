@@ -21,6 +21,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -38,6 +39,10 @@ const (
 	radarrKey = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	sonarrKey = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 )
+
+// versionsRoot is versions.root of test/env/fukku.yaml: films' second versions are kept
+// outside Radarr's root folder, in a folder of Jellyfin's Movies library (#56).
+const versionsRoot = "/data/media/versions"
 
 // Names of the seeded indexer and download client in Radarr and Sonarr.
 const (
@@ -502,23 +507,39 @@ func seedJellyfin(ctx context.Context, env *testenv.Env) (string, error) {
 	if err := j.Do(ctx, "GET", "/Library/VirtualFolders", nil, &folders); err != nil {
 		return "", err
 	}
-	have := map[string]bool{}
+	have := map[string][]string{}
 	for _, f := range folders {
-		have[f.Name] = true
+		have[f.Name] = append([]string{}, f.Locations...)
 	}
-	for _, lib := range []struct{ name, kind, itemType, path string }{
-		{"Movies", "movies", "Movie", "/data/media/movies"},
-		{"Shows", "tvshows", "Series", "/data/media/tv"},
+	for _, lib := range []struct {
+		name, kind, itemType string
+		paths                []string
+	}{
+		{"Movies", "movies", "Movie", []string{"/data/media/movies", versionsRoot}},
+		{"Shows", "tvshows", "Series", []string{"/data/media/tv"}},
 	} {
-		if have[lib.name] {
+		if locations, ok := have[lib.name]; ok {
+			// A library seeded before a folder joined this list gets it now.
+			for _, p := range lib.paths {
+				if slices.Contains(locations, p) {
+					continue
+				}
+				if err := j.AddLibraryPath(ctx, lib.name, p); err != nil {
+					return "", fmt.Errorf("add %s to the %s library: %w", p, lib.name, err)
+				}
+			}
 			continue
+		}
+		var paths []M
+		for _, p := range lib.paths {
+			paths = append(paths, M{"Path": p})
 		}
 		opts := M{"LibraryOptions": M{
 			"EnableRealtimeMonitor": false, "EnablePhotos": false, "EnableInternetProviders": false,
 			"SaveLocalMetadata": false, "MetadataSavers": []string{}, "DisabledLocalMetadataReaders": []string{},
 			"EnableEmbeddedTitles": false, "EnableChapterImageExtraction": false, "ExtractChapterImagesDuringLibraryScan": false,
 			"AutomaticRefreshIntervalDays": 0, "EnableTrickplayImageExtraction": false,
-			"PathInfos": []M{{"Path": lib.path}},
+			"PathInfos": paths,
 			"TypeOptions": []M{
 				{"Type": lib.itemType, "MetadataFetchers": []string{}, "ImageFetchers": []string{}},
 				{"Type": "Season", "MetadataFetchers": []string{}, "ImageFetchers": []string{}},
@@ -548,15 +569,20 @@ func primeLibraries(ctx context.Context, env *testenv.Env) error {
 	const name = "Fukku Seed Placeholder"
 	movieDir := filepath.Join(env.Data, "media/movies", name+" (2000)")
 	showDir := filepath.Join(env.Data, "media/tv", name)
+	// A version's folder in versions.root, which is part of the Movies library.
+	versionDir := filepath.Join(env.Data, "media/versions", name+" (2000)")
+	dirs := []string{movieDir, showDir, versionDir}
 	files := []string{
 		filepath.Join(movieDir, name+" (2000).mkv"),
 		filepath.Join(showDir, "Season 01", name+" - S01E01.mkv"),
+		filepath.Join(versionDir, name+" (2000) - Seed.mkv"),
 	}
 	spec := fixtures.Video{Duration: time.Second, Width: 160, Height: 90, FrameRate: "5",
 		Audio: []fixtures.Audio{{Language: "eng"}}}
 	defer func() {
-		_ = os.RemoveAll(movieDir)
-		_ = os.RemoveAll(showDir)
+		for _, d := range dirs {
+			_ = os.RemoveAll(d)
+		}
 	}()
 	for _, f := range files {
 		if err := os.MkdirAll(filepath.Dir(f), 0o750); err != nil {
@@ -569,15 +595,14 @@ func primeLibraries(ctx context.Context, env *testenv.Env) error {
 	if err := j.ScanAndWait(ctx, 5*time.Minute); err != nil {
 		return fmt.Errorf("library scan: %w", err)
 	}
-	if err := os.RemoveAll(movieDir); err != nil {
-		return err
-	}
-	if err := os.RemoveAll(showDir); err != nil {
-		return err
+	for _, d := range dirs {
+		if err := os.RemoveAll(d); err != nil {
+			return err
+		}
 	}
 	// The files are gone; their items stay until removed (a scan keeps them while the
 	// library's folder is empty). A show's item takes its seasons and episodes with it.
-	for _, dir := range []string{"/data/media/movies/" + name + " (2000)", "/data/media/tv/" + name} {
+	for _, dir := range []string{"/data/media/movies/" + name + " (2000)", "/data/media/tv/" + name, versionsRoot + "/" + name + " (2000)"} {
 		items, err := j.ItemsUnder(ctx, dir, "Movie", "Series")
 		if err != nil {
 			return err
