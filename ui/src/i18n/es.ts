@@ -1082,6 +1082,17 @@ const es: Record<keyof typeof en, string> = {
   "confirm.version.only.other":
     "No se importará nada nuevo. {count} episodios se conservan como segundas versiones.",
   "confirm.version.refused.title": "Estos archivos no se pueden conservar como segundas versiones",
+  "confirm.version.refused.leaveOut.hint":
+    "Puedes dejar estos archivos fuera. No tendrán segunda versión, sus episodios conservan sus propios archivos y el resto se confirma igual.",
+  "confirm.version.refused.leaveOut.one": "Dejar fuera {count} archivo",
+  "confirm.version.refused.leaveOut.other": "Dejar fuera {count} archivos",
+  "confirm.state.version": "Segunda versión",
+  "confirm.version.kept":
+    "Este episodio ya tiene un archivo. Tu archivo se conserva a su lado como segunda versión.",
+  "confirm.version.leaveOut": "Dejar fuera de las segundas versiones",
+  "confirm.version.takeBack": "Conservar de nuevo como segunda versión",
+  "confirm.version.leftOut":
+    "No se crea una segunda versión para este episodio. Su archivo se queda como está.",
   "confirm.version.refused.hint.fixed":
     "Este servidor lo decide por sí mismo. Cambia la etiqueta, o vuelve atrás y cambia la correspondencia.",
   "jobError.version_upgrade":

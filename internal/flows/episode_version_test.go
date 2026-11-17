@@ -818,6 +818,122 @@ func TestEpisodeVersionStrandedRecordIsSettled(t *testing.T) {
 
 // A label that starts with an episode number would make the name a double episode
 // ("S01E02 - E03"): refused as label_episode.
+// A refusal that names rows is fixed for just those rows (#102): the user leaves them out (a
+// skip edit on a row with an existing_file warning), and the confirmation goes through. The row
+// that is left out is neither imported nor kept as a version, and its library file is
+// untouched; the others are placed. Who skipped the row is in the proposal.
+func TestEpisodeVersionsLeaveOutARefusedRow(t *testing.T) {
+	x := newEpvEnv(t, func(c *config.Config) { c.SeasonDub.Policy = PolicyVersion }) // fixed: no other policy to fall back on
+	j := x.epvJob(2)                                                                 // S01E02's version is an upgrade for Sonarr
+	rows := x.rows(j)
+	library := map[string]string{}
+	for _, name := range x.libraryNames() {
+		b, err := os.ReadFile(filepath.Join(x.season, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		library[name] = string(b)
+	}
+	_, err := x.confirmEpv(j, "")
+	if e := wantRefusal(t, err, CodeVersionUpgrade); !slices.Equal(e.Rows, []string{rows[1].ID}) {
+		t.Fatalf("rows %v", e.Rows)
+	}
+
+	// The server skips both rows that have a file; the user records a skip for the refused one.
+	by := func() map[string]string {
+		out := map[string]string{}
+		for _, r := range x.view(j).Rows {
+			out[r.ID] = r.SkippedBy
+		}
+		return out
+	}
+	if got := by(); got[rows[0].ID] != SkippedByServer || got[rows[1].ID] != SkippedByServer || got[rows[2].ID] != "" {
+		t.Fatalf("skippedBy %v", got)
+	}
+	if v := x.edit(j, rows[1].ID, Edit{Skip: ptr(true)}); !v.Skip || v.SkippedBy != SkippedByUser {
+		t.Fatalf("row %+v", v)
+	}
+	if got := by(); got[rows[0].ID] != SkippedByServer || got[rows[1].ID] != SkippedByUser {
+		t.Fatalf("skippedBy %v", got)
+	}
+	if view := x.view(j).SeasonDub; view == nil || view.Version == nil || len(view.Version.Rows) != 1 || view.Version.Rows[0].Row != rows[0].ID {
+		t.Fatalf("version rows %+v", view)
+	}
+
+	c, err := x.confirmEpv(x.jobNow(j), "")
+	if err != nil || c.SeasonDub != PolicyVersion {
+		t.Fatalf("confirmation %+v, %v", c, err)
+	}
+	if !slices.Equal(c.Rows, []string{rows[2].ID}) {
+		t.Fatalf("rows %v", c.Rows)
+	}
+	j = x.drive(x.eng, j)
+	if j.State != store.Done {
+		t.Fatalf("job %s (%s: %s)", j.State, j.ErrorCode, j.ErrorText)
+	}
+	// S01E01 has its version; S01E02 has none, no record, no import; every library file is as it was.
+	names := x.libraryNames()
+	if !slices.Contains(names, "Some Show - S01E01 - Español.mkv") || slices.Contains(names, "Some Show - S01E02 - Español.mkv") {
+		t.Fatalf("library %v", names)
+	}
+	if _, err := x.st.VersionByPath(x.ctx, filepath.Join(x.season, "Some Show - S01E02 - Español.mkv")); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("a record for the row that was left out: %v", err)
+	}
+	for name, was := range library {
+		if b, err := os.ReadFile(filepath.Join(x.season, name)); err != nil || string(b) != was {
+			t.Fatalf("%s changed: %q, %v", name, b, err)
+		}
+	}
+	if len(x.series.Imports) != 1 || len(x.series.Imports[0].Rows) != 1 || x.series.Imports[0].Rows[0].EpisodeIDs[0] != 103 {
+		t.Fatalf("imports %+v", x.series.Imports)
+	}
+	x.wantRowResults(j, map[string]string{rows[0].ID: ResultVersion, rows[1].ID: store.ResultSkipped, rows[2].ID: store.ResultImported})
+}
+
+// Leaving out every row that has a file leaves the new episodes to import, and no version;
+// taking the skip back hands the row to the server's again.
+func TestEpisodeVersionsLeaveOutEveryRowWithAFile(t *testing.T) {
+	x := newEpvEnv(t, nil)
+	j := x.epvJob()
+	rows := x.rows(j)
+	x.edit(j, rows[0].ID, Edit{Skip: ptr(true)})
+	x.edit(j, rows[1].ID, Edit{Skip: ptr(true)})
+	// Nothing is left to choose for: the proposal has no season-dub question, and no policy is sent.
+	if v := x.view(j); v.SeasonDub != nil {
+		t.Fatalf("season dub %+v", v.SeasonDub)
+	}
+	if _, err := x.eng.Confirm(x.ctx, "user1", "user1@example.com", x.jobNow(j), ConfirmRequest{}); err != nil {
+		t.Fatal(err)
+	}
+	if j = x.drive(x.eng, j); j.State != store.Done || len(x.series.Imports) != 1 {
+		t.Fatalf("job %s (%s), imports %+v", j.State, j.ErrorText, x.series.Imports)
+	}
+	if len(x.libraryNames()) != 2 {
+		t.Fatalf("library %v", x.libraryNames())
+	}
+	y := newEpvEnv(t, nil)
+	jy := y.epvJob()
+	ry := y.rows(jy)
+	y.edit(jy, ry[0].ID, Edit{Skip: ptr(true)})
+	if v := y.edit(jy, ry[0].ID, Edit{Skip: ptr(false)}); v.SkippedBy != SkippedByServer {
+		t.Fatalf("row %+v", v)
+	}
+}
+
+// A refused label says why, as the proposal's label problem does.
+func TestEpisodeVersionLabelRefusalCarriesTheReason(t *testing.T) {
+	x := newEpvEnv(t, nil)
+	j := x.epvJob()
+	_, err := x.confirmEpv(j, "S02E05")
+	if e := wantRefusal(t, err, CodeVersionLabel); e.Reason != LabelEpisode || e.Token != "" {
+		t.Fatalf("error %+v", e)
+	}
+	_, err = x.confirmEpv(j, "Bluray")
+	if e := wantRefusal(t, err, CodeVersionLabel); e.Reason != LabelForbidden || e.Token != "bluray" {
+		t.Fatalf("error %+v", e)
+	}
+}
+
 func TestEpisodeLabelWithAnEpisodeNumber(t *testing.T) {
 	x := newEpvEnv(t, nil)
 	s := &session{p: x.p}

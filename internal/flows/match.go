@@ -39,10 +39,12 @@ const (
 
 // Error is a refusal the caller reports to the user. Code is stable; Message is English.
 // Rows names the rows a refusal is about (the confirmation's needs_override and
-// incomplete_rows), in the job's row order.
+// incomplete_rows), in the job's row order. Reason and Token are set for version_label: the
+// label problem's reason and its token, as the proposal's label problem carries them.
 type Error struct {
 	Code, Message string
 	Rows          []string
+	Reason, Token string
 }
 
 func (e *Error) Error() string { return e.Code + ": " + e.Message }

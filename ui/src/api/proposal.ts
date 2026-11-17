@@ -38,6 +38,12 @@ export type ProposalRow = {
   name: string;
   durationMs: number;
   skip: boolean;
+  /**
+   * Who left the row out while `skip` is set: the user, or the server (the app did not offer
+   * the file, or an episode of it has a file and the policy does not replace it). The user can
+   * record a skip on a row the server skips: it keeps its own file and gets no version (#102).
+   */
+  skippedBy?: "user" | "server";
   /** Shows only. Absent while unknown. */
   seasonNumber?: number;
   /** Shows only. */

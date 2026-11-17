@@ -251,7 +251,7 @@ export function SkipCell({ row }: { row: ProposalRow }) {
         name={`skip-${row.id}`}
         className="size-5 accent-primary"
         aria-label={t("mapping.skip.for", { name: row.name })}
-        checked={row.skip}
+        checked={row.skip && (row.skippedBy !== "server" || isNotOffered(row))}
         onChange={(e) => edit(row.id, { skip: e.target.checked })}
       />
       <span aria-hidden="true">{t("mapping.skip.label")}</span>

@@ -138,8 +138,24 @@ describe("the mapping editor", () => {
     open();
     await loaded();
     const row = rowOf(e07);
-    expect(row.getByRole("checkbox", { name: `Skip ${e07}` })).toBeChecked();
+    expect(row.getByText("Skipped")).toBeVisible();
     expect(row.getByText(/already has a file in Sonarr/)).toBeVisible();
+  });
+
+  it("lets the user record their own skip on a row the server skips (#102)", async () => {
+    const u = user();
+    const sent = record();
+    open();
+    await loaded();
+    // The server's skip is not the user's: the box stays open for theirs.
+    const box = () => rowOf(e07).getByRole("checkbox", { name: `Skip ${e07}` });
+    expect(box()).not.toBeChecked();
+    await u.click(box());
+    await waitFor(() => expect(box()).toBeChecked());
+    expect(edits(sent).map((s) => s.body)).toContainEqual({ skip: true });
+    await u.click(box());
+    await waitFor(() => expect(box()).not.toBeChecked());
+    expect(rowOf(e07).getByText("Skipped")).toBeVisible();
   });
 
   it("explains the dvd_order hint", async () => {

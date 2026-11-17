@@ -61,7 +61,7 @@ export function ConfirmView({ job, proposal, subtitleManager }: Props) {
   // With `replace`, the rows that have a file are in, and the choice answers what the app says
   // of replacing it. With `subtitlesOnly` they stay out and the subtitles are all that moves.
   const rows = proposal.rows.map((r) =>
-    policy === "replace" && hasExistingFile(r) ? replacedRow(r) : r,
+    policy === "replace" && hasExistingFile(r) && r.skippedBy !== "user" ? replacedRow(r) : r,
   );
   const leftIn = rows.filter((r) => !r.skip);
   const subtitlesOnly = policy === "subtitlesOnly";
@@ -76,6 +76,17 @@ export function ConfirmView({ job, proposal, subtitleManager }: Props) {
   };
   const needTick = leftIn.filter((r) => hasIssues(r) && !overridable(r.id));
   const checkingId = edit.isPending ? edit.variables?.rowId : undefined;
+
+  /** Leaves out the rows a refusal named, one edit each, so that the user confirms again (#102). */
+  async function leaveOut(ids: string[]) {
+    setRefusal(null);
+    confirm.reset();
+    try {
+      for (const rowId of ids) await edit.mutateAsync({ rowId, edit: { skip: true } });
+    } catch {
+      // The failed edit is shown under the rows (`edit.error`).
+    }
+  }
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -203,8 +214,14 @@ export function ConfirmView({ job, proposal, subtitleManager }: Props) {
             setRefusal(null);
             confirm.reset();
           }}
-          labelRefused={confirm.error instanceof ApiError && confirm.error.code === "version_label"}
+          labelRefusal={
+            confirm.error instanceof ApiError && confirm.error.code === "version_label"
+              ? { reason: confirm.error.reason, token: confirm.error.token }
+              : null
+          }
           refusal={refusal}
+          onLeaveOut={(ids) => void leaveOut(ids)}
+          leavingOut={edit.isPending}
           asks={dub?.ask === true}
         />
       )}
@@ -219,6 +236,7 @@ export function ConfirmView({ job, proposal, subtitleManager }: Props) {
               proposal={proposal}
               file={job.files.find((f) => f.id === row.fileId)}
               title={titleText}
+              version={isVersion}
               checking={checkingId === row.id}
               overridden={overridable(row.id)}
               missing={missing.includes(row.id)}

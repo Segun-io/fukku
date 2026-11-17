@@ -161,6 +161,14 @@ type LabelProblem struct {
 	Message string `json:"message"`
 }
 
+// refuseLabel is the refusal version_label for a label problem: its message, reason and
+// token, so that the UI can say why in the user's language.
+func refuseLabel(p *LabelProblem) *Error {
+	err := refuse(CodeVersionLabel, "%s", p.Message)
+	err.Reason, err.Token = p.Reason, p.Token
+	return err
+}
+
 // VersionOffer is Flow2View.Version: what a second version of the job would be, while
 // "version" is offered. Label is the proposed label ("" when none can be proposed), Name
 // the file name with it, Problem why the proposed label cannot be used as it is (null: it
@@ -513,7 +521,7 @@ func (e *Engine) confirmVersion(ctx context.Context, user, email string, s *sess
 	}
 	label, problem := checkLabel(label, cfg.Versions)
 	if problem != nil {
-		return Confirmation{}, refuse(CodeVersionLabel, "%s", problem.Message)
+		return Confirmation{}, refuseLabel(problem)
 	}
 	if e.p.radarr == nil {
 		return Confirmation{}, appFailure(AppRadarr, errors.New("not configured"))
@@ -537,7 +545,7 @@ func (e *Engine) confirmVersion(ctx context.Context, user, email string, s *sess
 	}
 	name := versionName(folder, label, strings.ToLower(path.Ext(f.Path)))
 	if len(name) > maxNameBytes {
-		return Confirmation{}, refuse(CodeVersionLabel, "%s", nameTooLong().Message)
+		return Confirmation{}, refuseLabel(nameTooLong())
 	}
 	stem := strings.TrimSuffix(name, path.Ext(name))
 	if cfg.Versions.RequireNotUpgradeVerdict {
@@ -554,7 +562,7 @@ func (e *Engine) confirmVersion(ctx context.Context, user, email string, s *sess
 			return Confirmation{}, appFailure(AppRadarr, err)
 		}
 		if p := radarrVerdict(parsed, base, stem); p != nil {
-			return Confirmation{}, refuse(CodeVersionLabel, "%s", p.Message)
+			return Confirmation{}, refuseLabel(p)
 		}
 	}
 	dest := filepath.Join(cfg.Versions.Root, folder, name)

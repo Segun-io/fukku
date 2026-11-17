@@ -23,6 +23,8 @@ type Props = {
   /** The job file the row is made of, for what the probe found. */
   file: JobFile | undefined;
   title: string;
+  /** The policy is `version`: a row whose episode has a file is kept as a second version. */
+  version: boolean;
   /** True while the app re-checks an edit of this row. */
   checking: boolean;
   /** The user has agreed to import the row despite its rejections and warnings. */
@@ -46,6 +48,7 @@ export function RowCard({
   proposal,
   file,
   title,
+  version,
   checking,
   overridden,
   missing,
@@ -57,9 +60,23 @@ export function RowCard({
   const app = appName[proposal.app];
   const issues = hasIssues(row);
   const offered = row.quality !== null;
-  // The server skips a file the app did not offer, or one for an episode that has a file:
-  // that is not the user's to undo here.
-  const forced = row.warnings.filter((w) => w.code === "not_offered" || w.code === "existing_file");
+  // The server skips a file the app did not offer, or one for an episode that has a file: that
+  // is not the user's to undo here. Under `version` the user can leave the second version out
+  // instead (#102): the row then keeps no version and its episode keeps its own file.
+  const existingFile = row.warnings.some((w) => w.code === "existing_file");
+  const leftOut = row.skip && row.skippedBy === "user";
+  const keptAsVersion = version && existingFile && row.skip && !leftOut;
+  const forced = row.warnings.filter(
+    (w) => w.code === "not_offered" || (w.code === "existing_file" && !leftOut),
+  );
+  const mayToggle = forced.length === 0 || keptAsVersion;
+  const toggleLabel = keptAsVersion
+    ? "confirm.version.leaveOut"
+    : leftOut && version && existingFile
+      ? "confirm.version.takeBack"
+      : row.skip
+        ? "confirm.skip.undo"
+        : "confirm.skip";
 
   const chosen = new Set(row.languages.map((l) => l.id));
   const addable = proposal.languages.filter((l) => !chosen.has(l.id));
@@ -80,6 +97,8 @@ export function RowCard({
             <StatusLabel tone="waiting" role="status">
               {t("confirm.checking", { app })}
             </StatusLabel>
+          ) : keptAsVersion ? (
+            <StatusLabel tone="done">{t("confirm.state.version")}</StatusLabel>
           ) : row.skip ? (
             <StatusLabel tone="waiting" icon={Ban}>
               {t("confirm.state.out")}
@@ -268,22 +287,29 @@ export function RowCard({
 
       {row.skip && (
         <div role="note" className="grid max-w-[65ch] gap-1 text-sm text-ink-2">
-          <p>{t("confirm.skipped")}</p>
-          {forced.map((w) => (
-            <p key={w.code}>{t(warningText(w.code).key)}</p>
-          ))}
+          {keptAsVersion ? (
+            <p>{t("confirm.version.kept")}</p>
+          ) : (
+            <>
+              <p>{t("confirm.skipped")}</p>
+              {leftOut && version && existingFile && <p>{t("confirm.version.leftOut")}</p>}
+              {forced.map((w) => (
+                <p key={w.code}>{t(warningText(w.code).key)}</p>
+              ))}
+            </>
+          )}
         </div>
       )}
 
-      {forced.length === 0 && (
+      {mayToggle && (
         <div>
           <Button
             type="button"
             variant="outline"
             disabled={checking}
-            onClick={() => onEdit({ skip: !row.skip })}
+            onClick={() => onEdit({ skip: keptAsVersion || !row.skip })}
           >
-            {row.skip ? t("confirm.skip.undo") : t("confirm.skip")}
+            {t(toggleLabel)}
           </Button>
         </div>
       )}

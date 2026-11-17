@@ -260,6 +260,7 @@ function view(p: MockProposal, s: Stored): ProposalRow {
     warnings,
     importable: false,
   };
+  if (row.skip) row.skippedBy = s.skip ? "user" : "server";
   if (show) {
     if (s.seasonNumber !== undefined) row.seasonNumber = s.seasonNumber;
     row.episodes = eps.map(rowEpisode);

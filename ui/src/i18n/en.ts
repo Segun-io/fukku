@@ -1066,6 +1066,17 @@ const en = {
   "confirm.version.only.other":
     "Nothing new will be imported. {count} episodes are kept as second versions.",
   "confirm.version.refused.title": "These files cannot be kept as second versions",
+  "confirm.version.refused.leaveOut.hint":
+    "You can leave these files out. They get no second version, their episodes keep their own files, and the rest is confirmed as before.",
+  "confirm.version.refused.leaveOut.one": "Leave out {count} file",
+  "confirm.version.refused.leaveOut.other": "Leave out {count} files",
+  "confirm.state.version": "Second version",
+  "confirm.version.kept":
+    "This episode already has a file. Your file is kept next to it as a second version.",
+  "confirm.version.leaveOut": "Leave out of the second versions",
+  "confirm.version.takeBack": "Keep as a second version again",
+  "confirm.version.leftOut":
+    "No second version is made for this episode. Its own file stays as it is.",
   "confirm.version.refused.hint":
     "Choose another option above, change the label, or go back and change the match.",
   "confirm.version.refused.hint.fixed":

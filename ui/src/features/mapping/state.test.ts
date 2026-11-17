@@ -214,6 +214,23 @@ describe("applyEdit", () => {
   });
 });
 
+describe("who skipped a row (#102)", () => {
+  const p = proposal([row("r1")]);
+  it("records the user's skip, and hands a row with a file back to the server's", () => {
+    const withFile = row("r1", {
+      skip: true,
+      skippedBy: "server",
+      warnings: [{ code: "existing_file" }],
+    });
+    const left = applyEdit(withFile, { skip: true }, p);
+    expect(left).toMatchObject({ skip: true, skippedBy: "user" });
+    expect(applyEdit(left, { skip: false }, p)).toMatchObject({ skip: true, skippedBy: "server" });
+    const plain = applyEdit(row("r2", { skip: true, skippedBy: "user" }), { skip: false }, p);
+    expect(plain.skip).toBe(false);
+    expect(plain).not.toHaveProperty("skippedBy");
+  });
+});
+
 describe("the summary and the filter", () => {
   const rows = [
     row("ok"),
