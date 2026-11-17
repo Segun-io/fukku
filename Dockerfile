@@ -99,6 +99,12 @@ RUN sed -i \
 COPY --from=ffmpeg /out/bin/ffmpeg /out/bin/ffprobe /usr/local/bin/
 COPY --from=build /out/fukku /usr/local/bin/fukku
 
+# Licences and third-party notices (THIRD_PARTY_NOTICES.md is generated: make notices). ffmpeg's
+# own licence texts come from the tarball it was built from.
+COPY LICENSE THIRD_PARTY_NOTICES.md /usr/share/doc/fukku/
+COPY ui/src/assets/fonts/OFL-*.txt /usr/share/doc/fukku/fonts/
+COPY --from=ffmpeg /build/LICENSE.md /build/COPYING.GPLv2 /usr/share/doc/fukku/ffmpeg/
+
 LABEL org.opencontainers.image.title="Fukku" \
       org.opencontainers.image.description="Self-hosted media intake for Radarr and Sonarr" \
       org.opencontainers.image.licenses="AGPL-3.0-only" \

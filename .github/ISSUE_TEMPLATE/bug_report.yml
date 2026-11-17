@@ -1,0 +1,54 @@
+name: Bug report
+description: Something does not work as documented.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Security problems are not issues: report them privately (see SECURITY.md).
+
+        Make the report independent of your setup. Replace hostnames, IP addresses and personal
+        paths with `example.com`, `192.0.2.10` or `/path/to/media`. Never paste API keys, cookies
+        or log lines that hold them.
+  - type: input
+    id: version
+    attributes:
+      label: Fukku version
+      description: The output of `fukku version`, or the image tag and digest.
+    validations:
+      required: true
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Deployment mode
+      options: [split, combined]
+    validations:
+      required: true
+  - type: textarea
+    id: check-config
+    attributes:
+      label: "`fukku check-config` output"
+      description: With secrets, hostnames and IP addresses redacted.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: apps
+    attributes:
+      label: App versions
+      description: Radarr, Sonarr, Bazarr and Jellyfin, as far as they matter.
+      placeholder: "Radarr x.y.z, Sonarr x.y.z"
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: As few as you can make them.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What happened, and what you expected
+      description: Include the relevant log lines, redacted.
+    validations:
+      required: true
