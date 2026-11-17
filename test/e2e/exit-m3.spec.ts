@@ -274,7 +274,10 @@ async function clipsAt(page: Page, offsetMs: number): Promise<number[]> {
   const offset = page.getByRole("textbox", { name: "Offset in milliseconds" });
   await offset.fill(String(offsetMs));
   await page.getByRole("button", { name: /^Make the clips/ }).click();
-  await expect(page.getByText(`at an offset of ${offsetMs} ms`)).toBeVisible({ timeout: 240_000 });
+  // The page puts a non-breaking space before the unit (#103).
+  await expect(page.getByText(new RegExp(`at an offset of ${offsetMs}\\s?ms`))).toBeVisible({
+    timeout: 240_000,
+  });
   const players = page.getByRole("list", { name: "Clips" }).locator("video");
   await expect(players.first()).toBeVisible();
   const offsets: number[] = [];
