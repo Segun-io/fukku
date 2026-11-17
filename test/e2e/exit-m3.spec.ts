@@ -1,12 +1,13 @@
 import { createHash, randomBytes } from "node:crypto";
 import { open, readdir, readFile, rm, stat } from "node:fs/promises";
 import path from "node:path";
-import { expect, type Page, test } from "@playwright/test";
+import type { Page } from "@playwright/test";
 import { loginAs, stack } from "./helpers";
 import { Api, type Job, type JobFile, type VersionRecord } from "./helpers/api";
 import { indexer, jellyfin, type Movie, mediacheck, radarr } from "./helpers/apps";
 import { dataDir, fixturesDir, online, simulateOutage, versionsRoot } from "./helpers/env";
 import { needMetadata, outageOr } from "./helpers/online";
+import { expect, test } from "./test";
 
 // The M3 exit criteria (plan section 15, issue #61), on the dev stack with the test Radarr,
 // Jellyfin and the fake indexer (#24), with versions.enabled on in the test config only:

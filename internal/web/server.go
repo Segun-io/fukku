@@ -107,7 +107,17 @@ func (s *Server) spa() http.Handler {
 		}
 		name := strings.TrimPrefix(path.Clean(r.URL.Path), "/")
 		if name != "" && name != "index.html" {
-			if _, err := fs.Stat(s.ui, name); err == nil {
+			// Source maps are never served (the product build makes none), and a directory
+			// is never listed: /assets/ is a 404, not index.html and not a file list.
+			if strings.HasSuffix(name, ".map") {
+				http.NotFound(w, r)
+				return
+			}
+			if info, err := fs.Stat(s.ui, name); err == nil {
+				if info.IsDir() {
+					http.NotFound(w, r)
+					return
+				}
 				if strings.HasPrefix(name, "assets/") {
 					w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 				}
@@ -130,10 +140,19 @@ func (s *Server) spa() http.Handler {
 	})
 }
 
+// contentSecurityPolicy is what the UI needs and no more: scripts and styles only from the
+// origin (React's style props go through the CSSOM, which the policy does not govern, and
+// the build emits no inline style or script), blob: and data: images and blob: media for
+// the preview clips, and the tus upload endpoint and the API on the same origin
+// (connect-src falls back to default-src). Plugins are off, nothing may frame the UI.
+const contentSecurityPolicy = "default-src 'self'; script-src 'self'; style-src 'self'; object-src 'none'; " +
+	"img-src 'self' data: blob:; media-src 'self' blob:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
+
 func securityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h := w.Header()
-		h.Set("Content-Security-Policy", "default-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
+		h.Set("Content-Security-Policy", contentSecurityPolicy)
+		h.Set("Cross-Origin-Resource-Policy", "same-origin")
 		h.Set("X-Content-Type-Options", "nosniff")
 		h.Set("Referrer-Policy", "same-origin")
 		h.Set("Cross-Origin-Opener-Policy", "same-origin")

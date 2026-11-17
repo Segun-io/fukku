@@ -158,3 +158,7 @@ directory must have the source's SHA-256 (also checked over 16 MiB around each i
   limits. Run on its own: `make e2e ARGS='exit-m1-large-upload.spec.ts'`.
 - A failed run attaches `upload-events.json`: every upload request the page sent and what it
   got, in order.
+
+## Content-Security-Policy guard
+
+Specs import `test` and `expect` from `./test`, not from `@playwright/test`: that `test` fails any test during which the page raised a `securitypolicyviolation` event or logged a CSP message. The policy (`internal/web/server.go`) allows only what the UI needs, so a violation means the UI and the policy disagree.

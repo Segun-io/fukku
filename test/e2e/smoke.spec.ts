@@ -1,5 +1,6 @@
-import { expect, type Page, test } from "@playwright/test";
+import type { Page } from "@playwright/test";
 import { loginAs, network, session, stack } from "./helpers";
+import { expect, test } from "./test";
 
 test.afterEach(async () => {
   await network.reset();

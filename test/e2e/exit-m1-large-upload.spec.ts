@@ -1,6 +1,6 @@
 import { rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { expect, type Page, test } from "@playwright/test";
+import type { Page } from "@playwright/test";
 import { loginAs, network, session, stack } from "./helpers";
 import { Api, type Job } from "./helpers/api";
 import { dataDir, fixturesDir } from "./helpers/env";
@@ -13,6 +13,7 @@ import {
   parseSize,
   sha256,
 } from "./helpers/large-file";
+import { expect, test } from "./test";
 
 // M1 exit criterion (plan §15, issue #15): a large upload survives a reload, a container
 // restart, dropped connections and an expired session, through the real upload page, and
