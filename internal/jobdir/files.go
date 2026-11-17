@@ -29,8 +29,8 @@ var (
 	ErrChanged = errors.New("jobdir: the file is not the one that was checked")
 )
 
-// rename is renameNoReplace; a test replaces it to swap the name during the move.
-var rename = renameNoReplace
+// link is LinkFile; a test replaces it to swap the worker's name during the move.
+var link = LinkFile
 
 // elements splits rel, a job-relative path such as files/Season 01/e1.mkv, into its
 // elements. It must be clean, local and slash-separated: no "", ".", ".." element, no
@@ -64,9 +64,11 @@ func OpenFile(root *os.Root, rel string) (*os.File, fs.FileInfo, error) {
 }
 
 // CheckFile checks that rel inside root is a regular file reached without a symbolic link
-// (OpenFile), of size bytes unless size is negative, and returns its information. The web
-// process calls it right before it hands a job's file to Radarr or Sonarr, which open the
-// path themselves.
+// (OpenFile), of size bytes unless size is negative, with no other hard link (WantLinks 1),
+// and returns its information. The web process calls it right before it hands a job's file
+// to Radarr or Sonarr, which open the path themselves: a second name of the file could be
+// one the worker made in its own folder through a descriptor it kept, and writes through
+// it would change the imported file.
 func CheckFile(root *os.Root, rel string, size int64) (fs.FileInfo, error) {
 	f, info, err := OpenFile(root, rel)
 	if err != nil {
@@ -76,7 +78,23 @@ func CheckFile(root *os.Root, rel string, size int64) (fs.FileInfo, error) {
 	if size >= 0 && info.Size() != size {
 		return nil, fmt.Errorf("%w: %s is %d bytes, not %d", ErrChanged, rel, info.Size(), size)
 	}
+	if err := WantLinks(info, rel, 1); err != nil {
+		return nil, err
+	}
 	return info, nil
+}
+
+// Links is a file's number of hard links (1 when the platform does not say).
+func Links(info fs.FileInfo) uint64 { return links(info) }
+
+// WantLinks refuses (ErrChanged) a file with another number of hard links than want: the
+// names the web process made itself (the job's, a staged or placed version). The worker
+// never makes a hard link, so any other is one it made to keep a writable name.
+func WantLinks(info fs.FileInfo, rel string, want uint64) error {
+	if n := links(info); n != want {
+		return fmt.Errorf("%w: %s has %d names, not %d (a hard link somewhere else)", ErrChanged, rel, n, want)
+	}
+	return nil
 }
 
 // MakeDir opens the directory rel inside root, creating the elements that are missing
@@ -94,21 +112,25 @@ func MakeDir(root *os.Root, rel string) (*os.File, error) {
 	return openDirs(root, el, true)
 }
 
-// Seal moves the regular file rel from the worker's directory of a job (from, OpenWorker)
-// to the same place in the job's directory (to, Open), whose missing directories it creates:
-// a rename, so the file keeps its inode and nothing is copied. It refuses a file reached
-// through a symbolic link, one that is not size bytes, and one that has another name (a
-// hard link the worker could still write through). The rename never replaces anything; what
-// it moved is checked again afterwards, and taken back out of the job when it is not the
-// file checked before (the worker swapped the name meanwhile).
+// Seal takes the regular file rel from the worker's directory of a job (from, OpenWorker)
+// into the same place in the job's directory (to, Open), whose missing directories it
+// creates. It opens the file without following a link and checks it: a regular file of size
+// bytes with no other name. It then hard-links that open file into the job (LinkFile: the
+// file the descriptor refers to, whatever the worker's name points to by then) and removes
+// the worker's name when it is still that file. The file keeps its inode; nothing is copied,
+// and nothing but the checked regular file ever gets a name under the job's directory. If the
+// file has a name besides the job's when Seal is done (the worker kept one, or made one
+// meanwhile), the job's name is removed again and Seal fails.
 //
-// After Seal the worker can no longer change the file through any name: the job's directory
-// is read-only to it (docs/install.md). Only a descriptor it kept open from before reaches
-// the file's data: what it wrote itself, whose content it chooses anyway
-// (docs/threat-model.md, §6).
+// After Seal the worker can no longer reach the file by a name in the job: the job's
+// directory is read-only to it (docs/install.md). A descriptor it kept from before still
+// reaches the data, and can give the file a new name in the worker's folder; that is what
+// WantLinks, right before each hand-over, and the sweep of the worker's folder are for
+// (docs/threat-model.md, §5.5 and §6).
 //
 // A file that is already in the job and no longer in the worker's directory is a repeat
-// after a crash: it is checked as above and Seal succeeds.
+// after a crash: it is checked as above and Seal succeeds; so does one that is in both, as
+// the same file, which a crash between the link and the removal leaves.
 func Seal(from, to *os.Root, rel string, size int64) error {
 	el, err := elements(rel)
 	if err != nil {
@@ -116,14 +138,8 @@ func Seal(from, to *os.Root, rel string, size int64) error {
 	}
 	sd, src, info, err := open(from, rel)
 	if errors.Is(err, fs.ErrNotExist) {
-		got, err := CheckFile(to, rel, size)
-		if err != nil {
-			return err
-		}
-		if links(got) != 1 {
-			return fmt.Errorf("%w: %s has another name", ErrChanged, rel)
-		}
-		return nil
+		_, err := CheckFile(to, rel, size)
+		return err
 	}
 	if err != nil {
 		return err
@@ -133,23 +149,51 @@ func Seal(from, to *os.Root, rel string, size int64) error {
 	if info.Size() != size {
 		return fmt.Errorf("%w: %s is %d bytes, not %d", ErrChanged, rel, info.Size(), size)
 	}
-	if links(info) != 1 {
-		return fmt.Errorf("%w: %s has another name", ErrChanged, rel)
-	}
 	dd, err := openDirs(to, el[:len(el)-1], true)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = dd.Close() }()
 	base := el[len(el)-1]
-	if err := rename(sd, base, dd); err != nil {
-		return &fs.PathError{Op: "seal", Path: rel, Err: err}
+	want := uint64(1)
+	if sameAt(dd, base, src) == nil { // linked before a crash: the job's name is the second
+		want = 2
 	}
-	if err := sameAt(dd, base, src, size); err != nil {
-		if rerr := to.RemoveAll(rel); rerr != nil {
-			err = errors.Join(err, rerr)
+	if err := WantLinks(info, rel, want); err != nil {
+		if want == 2 { // the job's name, linked before a crash, goes too
+			return removeName(dd, base, err)
 		}
 		return err
 	}
+	if err := link(src, dd, base); errors.Is(err, fs.ErrExist) {
+		if sameAt(dd, base, src) != nil { // a file of the job's, not this one
+			return &fs.PathError{Op: "seal", Path: rel, Err: err}
+		}
+	} else if err != nil {
+		return &fs.PathError{Op: "seal", Path: rel, Err: err}
+	}
+	// The worker's name goes, if it is still this file (a swapped-in name is left: it is the
+	// worker's own, in its own folder).
+	if sameAt(sd, base, src) == nil {
+		if err := unlinkAt(sd, base); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return removeName(dd, base, &fs.PathError{Op: "seal", Path: rel, Err: err})
+		}
+	}
+	now, err := src.Stat()
+	if err != nil {
+		return removeName(dd, base, err)
+	}
+	if err := WantLinks(now, rel, 1); err != nil {
+		return removeName(dd, base, err)
+	}
 	return nil
+}
+
+// removeName removes the job's name of a file Seal refused, and returns err. The job's
+// directory is the web process's own, so the name is still the link Seal made.
+func removeName(dir *os.File, name string, err error) error {
+	if rerr := unlinkAt(dir, name); rerr != nil && !errors.Is(rerr, fs.ErrNotExist) {
+		return errors.Join(err, rerr)
+	}
+	return err
 }

@@ -339,6 +339,9 @@ func validateShared(p *problems, cfg Config) {
 	if w.HeartbeatMaxAge <= w.HeartbeatInterval {
 		p.add("worker.heartbeatMaxAge", "must be longer than worker.heartbeatInterval")
 	}
+	if w.SweepMaxEntries < 10_000 || w.SweepMaxEntries > 10_000_000 {
+		p.add("worker.sweepMaxEntries", "must be between 10000 and 10000000")
+	}
 	for _, c := range []struct {
 		key string
 		v   int

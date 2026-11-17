@@ -34,7 +34,8 @@ report a vulnerability is in [SECURITY.md](SECURITY.md).
 
 ## What it needs
 
-- Docker with Compose v2, and **Radarr** and/or **Sonarr** (v3 API; the tested versions are in
+- Docker with Compose v2.12 or later (for the compose example's `create_host_path: false`),
+  and **Radarr** and/or **Sonarr** (v3 API; the tested versions are in
   [docs/compatibility.md](docs/compatibility.md)). Bazarr and Jellyfin are optional.
 - **One filesystem** for the intake folder and the library when Radarr and Sonarr import by
   moving (the default), mounted at the same path in every container.

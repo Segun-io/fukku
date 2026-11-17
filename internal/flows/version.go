@@ -726,6 +726,11 @@ func (e *Engine) placeVersion(ctx context.Context, job store.Job, t store.Target
 			_, err := e.p.backToProbed(ctx, job, t, why)
 			return err
 		}
+		// Right before the link: the job's name is the file's only one (#114).
+		if err := wantLinks(src, files[i].Path, 1); err != nil {
+			e.log.Warn("version_refused", "job", job.ID, "file", files[i].Path, "error", err)
+			return e.failVersion(ctx, job, t, CodeVersionFailed, "the job's video has another name besides the job's: nothing was placed")
+		}
 		// The record first, so that the version keeper knows of the file once it exists.
 		if rec, err = e.st.PutVersion(ctx, versionRecord(rec, job, t, c, store.VersionPlacing)); err != nil {
 			return err
@@ -852,7 +857,7 @@ func uploadOf(ctx context.Context, st store.Store, intakeRoot string, rec store.
 // openJobFile opens the job's file rel for reading through the job's directory, without
 // following a symbolic link anywhere on the way, and checks that it is a regular file of
 // size bytes (any size when negative): jobdir.OpenFile. Links into the library are made
-// from this open file (linkAt), so what was checked is what is linked (#113).
+// from this open file (jobdir.LinkFile), so what was checked is what is linked (#113).
 func openJobFile(intakeRoot, jobID, rel string, size int64) (*os.File, fs.FileInfo, error) {
 	root, err := jobdir.Open(intakeRoot, jobID)
 	if err != nil {
@@ -868,6 +873,19 @@ func openJobFile(intakeRoot, jobID, rel string, size int64) (*os.File, fs.FileIn
 		return nil, nil, fmt.Errorf("%w: %s is %d bytes, not %d", jobdir.ErrChanged, rel, info.Size(), size)
 	}
 	return f, info, nil
+}
+
+// wantLinks checks, right before the open job file src is linked, that it has exactly want
+// names: the job's own and those the web process made itself (a staged version). A worker
+// that kept a descriptor to a file it produced can give it a name in its own folder after
+// the file was moved into the job; writes through that name would reach the placed version
+// (#114), so such a file is not linked.
+func wantLinks(src *os.File, rel string, want uint64) error {
+	info, err := src.Stat()
+	if err != nil {
+		return err
+	}
+	return jobdir.WantLinks(info, rel, want)
 }
 
 // samePlaced reports whether dest is already the job's file src (the same inode): placed
@@ -907,5 +925,5 @@ func linkVersion(root string, src *os.File, folder, name string) error {
 		return err
 	}
 	defer func() { _ = dir.Close() }()
-	return linkAt(src, dir, name)
+	return jobdir.LinkFile(src, dir, name)
 }

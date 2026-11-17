@@ -123,8 +123,9 @@ func Prepare(intakeRoot string) error {
 	return nil
 }
 
-// Remove deletes a job's directories and everything in them, the worker's (worker/<id>)
-// first and jobs/<id> last, so that a job whose jobs/<id> is gone has nothing left. It goes
+// Remove deletes a job's directories: it sets the worker's (worker/<id>) aside first, for a
+// WorkerSweeper to remove, and removes jobs/<id> last, so that a job whose jobs/<id> is gone
+// has nothing left. It goes
 // through an os.Root of the intake root: a symbolic link at jobs/ or worker/ that leads out
 // of the intake root is refused, and one at jobs/<id> or worker/<id> is removed itself,
 // never followed. A missing intake root or job directory is not an error.
@@ -139,7 +140,9 @@ func Remove(intakeRoot, id string) error {
 		return err
 	}
 	defer func() { _ = r.Close() }()
-	if err := r.RemoveAll(filepath.Join(Worker, id)); err != nil {
+	// The worker's folder may hold anything the worker made, however many entries and
+	// levels: it is set aside (SpillWorker), and a WorkerSweeper removes it in bounded steps.
+	if err := SpillWorker(intakeRoot, id, ""); err != nil {
 		return err
 	}
 	return r.RemoveAll(filepath.Join(Jobs, id))

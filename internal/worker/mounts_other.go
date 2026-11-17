@@ -10,3 +10,7 @@ func writable(p string) bool {
 	info, err := os.Stat(p)
 	return err == nil && info.Mode().Perm()&0o200 != 0
 }
+
+// device is not known on this platform: every writable folder above the intake root counts
+// as the host's.
+func device(string) (uint64, bool) { return 0, true }

@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strconv"
 	"syscall"
 	"testing"
 )
@@ -250,43 +251,187 @@ func TestSealRefuses(t *testing.T) {
 	}
 }
 
-// TestSealSwap swaps the worker's name for a link to an outside file between the check and
-// the rename: what was moved is not the file checked, so it is taken back out of the job.
+// TestSealSwap changes the worker's name between the check and the link, as a worker that
+// can act at any moment may: it moves the checked file away and puts a link to an outside
+// file, another file, or a directory it keeps open in its place, or gives the checked file
+// a second name. Seal links the open file it checked, never what the name points to, so
+// nothing but that regular file ever appears under the job's directory, and Seal fails
+// because the file keeps a name in the worker's folder.
 func TestSealSwap(t *testing.T) {
 	library := filepath.Join(t.TempDir(), "film.mkv")
 	write(t, library, "12345")
 	for name, swap := range map[string]func(t *testing.T, p string){
-		"a link":         func(t *testing.T, p string) { symlink(t, library, p) },
-		"another file":   func(t *testing.T, p string) { write(t, p, "54321") },
-		"a directory":    func(t *testing.T, p string) { symlink(t, library, filepath.Join(p, "inner")) },
-		"a hard link of": nil,
+		"a link":        func(t *testing.T, p string) { symlink(t, library, p) },
+		"another file":  func(t *testing.T, p string) { write(t, p, "54321") },
+		"a directory":   func(t *testing.T, p string) { symlink(t, library, filepath.Join(p, "inner")) },
+		"a second name": nil,
 	} {
 		t.Run(name, func(t *testing.T) {
 			intake, job, wrk := tree(t)
-			wdir := filepath.Join(intake, Worker, id)
+			wdir, jdir := filepath.Join(intake, Worker, id), Dir(intake, id)
 			p := filepath.Join(wdir, "files/x.mkv")
 			write(t, p, "12345")
-			rename = func(from *os.File, n string, to *os.File) error {
-				if swap == nil { // a second name made after the check
-					if err := os.Link(p, filepath.Join(wdir, "keep.mkv")); err != nil {
-						t.Fatal(err)
-					}
+			var held *os.File // what the worker keeps open, to go on writing through it
+			link = func(src *os.File, dir *os.File, n string) error {
+				if swap == nil {
+					mustLink(t, p, filepath.Join(wdir, "keep.mkv"))
 				} else {
 					if err := os.Rename(p, filepath.Join(wdir, "moved.mkv")); err != nil {
 						t.Fatal(err)
 					}
 					swap(t, p)
+					if f, err := os.Open(p); err == nil {
+						held = f
+					}
 				}
-				return renameNoReplace(from, n, to)
+				err := LinkFile(src, dir, n)
+				onlyRegularFiles(t, jdir)
+				return err
 			}
-			t.Cleanup(func() { rename = renameNoReplace })
+			t.Cleanup(func() {
+				link = LinkFile
+				if held != nil {
+					_ = held.Close()
+				}
+			})
 			if err := Seal(wrk, job, "files/x.mkv", 5); !errors.Is(err, ErrChanged) {
 				t.Fatalf("Seal = %v", err)
 			}
-			if _, err := os.Lstat(filepath.Join(Dir(intake, id), "files/x.mkv")); !errors.Is(err, fs.ErrNotExist) {
+			onlyRegularFiles(t, jdir)
+			if _, err := os.Lstat(filepath.Join(jdir, "files/x.mkv")); !errors.Is(err, fs.ErrNotExist) {
 				t.Errorf("left in the job: %v", err)
 			}
+			if data, _ := os.ReadFile(library); string(data) != "12345" {
+				t.Errorf("the outside file changed: %q", data)
+			}
 		})
+	}
+}
+
+// TestSealSwapAgain runs the directory swap many times against a worker that swaps as fast
+// as it can, from another goroutine: never does a directory, a link or anything but the
+// checked regular file get a name under the job's directory.
+func TestSealSwapAgain(t *testing.T) {
+	for i := range 200 {
+		intake, job, wrk := tree(t)
+		wdir, jdir := filepath.Join(intake, Worker, id), Dir(intake, id)
+		p := filepath.Join(wdir, "files/x.mkv")
+		write(t, p, "12345")
+		stop := make(chan struct{})
+		done := make(chan struct{})
+		go func() { // the worker: the name is a file or a directory, in turn
+			defer close(done)
+			for n := 0; ; n++ {
+				select {
+				case <-stop:
+					return
+				default:
+				}
+				tmp := filepath.Join(wdir, "files", "t"+strconv.Itoa(n))
+				if n%2 == 0 {
+					_ = os.Mkdir(tmp, 0o755)
+				} else {
+					_ = os.WriteFile(tmp, []byte("12345"), 0o644)
+				}
+				_ = os.Rename(tmp, p) // replaces a file; fails onto a directory
+				if n%2 == 1 {
+					_ = os.RemoveAll(p)
+				}
+			}
+		}()
+		err := Seal(wrk, job, "files/x.mkv", 5)
+		close(stop)
+		<-done
+		onlyRegularFiles(t, jdir)
+		if err == nil {
+			if _, cerr := CheckFile(job, "files/x.mkv", 5); cerr != nil {
+				t.Fatalf("round %d: sealed, but %v", i, cerr)
+			}
+		}
+	}
+}
+
+// onlyRegularFiles fails the test when anything under dir but its directories made by the
+// web process (files/ and below) is not a regular file.
+func onlyRegularFiles(t *testing.T, dir string) {
+	t.Helper()
+	_ = filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
+		if err != nil || p == dir {
+			return nil
+		}
+		rel, _ := filepath.Rel(dir, p)
+		switch {
+		case d.Type().IsRegular():
+		case d.IsDir() && (rel == "files" || rel == "files/a" || rel == "files/a/Season 01"):
+		default:
+			t.Errorf("under the job's directory: %s (%v)", rel, d.Type())
+		}
+		return nil
+	})
+}
+
+func mustLink(t *testing.T, from, to string) {
+	t.Helper()
+	if err := os.Link(from, to); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestSealRepeatAfterACrash: a crash between the link and the removal of the worker's name
+// leaves the file in both; Seal again finishes the move. A crash after it finds the file in
+// the job only.
+func TestSealRepeatAfterACrash(t *testing.T) {
+	intake, job, wrk := tree(t)
+	wdir, jdir := filepath.Join(intake, Worker, id), Dir(intake, id)
+	write(t, filepath.Join(wdir, "files/x.mkv"), "12345")
+	if err := os.MkdirAll(filepath.Join(jdir, "files"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	mustLink(t, filepath.Join(wdir, "files/x.mkv"), filepath.Join(jdir, "files/x.mkv"))
+	for range 2 {
+		if err := Seal(wrk, job, "files/x.mkv", 5); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := os.Lstat(filepath.Join(wdir, "files/x.mkv")); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("the worker's name is left: %v", err)
+	}
+	if _, err := CheckFile(job, "files/x.mkv", 5); err != nil {
+		t.Error(err)
+	}
+}
+
+// TestSealAfterACrashWithAThirdName: linked before a crash, then given a third name by the
+// worker: Seal refuses, and the job's name goes too.
+func TestSealAfterACrashWithAThirdName(t *testing.T) {
+	intake, job, wrk := tree(t)
+	wdir, jdir := filepath.Join(intake, Worker, id), Dir(intake, id)
+	write(t, filepath.Join(wdir, "files/x.mkv"), "12345")
+	if err := os.MkdirAll(filepath.Join(jdir, "files"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	mustLink(t, filepath.Join(wdir, "files/x.mkv"), filepath.Join(jdir, "files/x.mkv"))
+	mustLink(t, filepath.Join(wdir, "files/x.mkv"), filepath.Join(wdir, "kept"))
+	if err := Seal(wrk, job, "files/x.mkv", 5); !errors.Is(err, ErrChanged) {
+		t.Fatalf("Seal = %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(jdir, "files/x.mkv")); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("the job's name is left: %v", err)
+	}
+}
+
+// TestCheckFileRefusesASecondName: a name the worker gives a file after it was sealed, in
+// its own folder, through a descriptor it kept, makes the hand-over fail (#114).
+func TestCheckFileRefusesASecondName(t *testing.T) {
+	intake, job, wrk := tree(t)
+	wdir, jdir := filepath.Join(intake, Worker, id), Dir(intake, id)
+	write(t, filepath.Join(wdir, "files/x.mkv"), "12345")
+	if err := Seal(wrk, job, "files/x.mkv", 5); err != nil {
+		t.Fatal(err)
+	}
+	mustLink(t, filepath.Join(jdir, "files/x.mkv"), filepath.Join(wdir, "alias"))
+	if _, err := CheckFile(job, "files/x.mkv", 5); !errors.Is(err, ErrChanged) {
+		t.Fatalf("CheckFile with a second name: %v", err)
 	}
 }
 

@@ -815,7 +815,53 @@ func (e *Engine) stageEpisodeVersion(jobID string, f store.File, v episodeVersio
 	if err := job.Remove(dst); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return err
 	}
-	return linkAt(src, d, v.Name)
+	if err := wantLinks(src, f.Path, 1); err != nil { // no name but the job's (#114)
+		return err
+	}
+	return jobdir.LinkFile(src, d, v.Name)
+}
+
+// staged is 1 when the job's staged copy of version v (versions/<row>/<name>, for Sonarr's
+// verdict) is the file src, else 0: a name of the file the web process made itself. Any
+// other staged copy of src under versions/ (an earlier label's or row's, left when the
+// version was confirmed again without a verdict, versions.requireNotUpgradeVerdict off) is
+// removed first: it is the web process's own, and would otherwise count as a second name.
+func (e *Engine) staged(jobID string, v episodeVersion, src fs.FileInfo) uint64 {
+	job, err := jobdir.Open(e.p.cfg.Paths.IntakeRoot, jobID)
+	if err != nil {
+		return 0
+	}
+	defer func() { _ = job.Close() }()
+	current := path.Join(jobdir.Versions, v.Row, v.Name)
+	rows, _ := readDirNames(job, jobdir.Versions)
+	for _, row := range rows {
+		names, _ := readDirNames(job, path.Join(jobdir.Versions, row))
+		for _, n := range names {
+			p := path.Join(jobdir.Versions, row, n)
+			if at, err := job.Lstat(p); p != current && err == nil && os.SameFile(at, src) {
+				if err := job.Remove(p); err != nil {
+					e.log.Warn("version_unstage_failed", "job", jobID, "path", p, "error", err)
+				}
+			}
+		}
+	}
+	if at, err := job.Lstat(current); err == nil && os.SameFile(at, src) {
+		return 1
+	}
+	return 0
+}
+
+// readDirNames lists the names in the real directory rel of root (none for anything else).
+func readDirNames(root *os.Root, rel string) ([]string, error) {
+	if info, err := root.Lstat(rel); err != nil || !info.IsDir() {
+		return nil, err
+	}
+	d, err := root.Open(rel)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = d.Close() }()
+	return d.Readdirnames(-1)
 }
 
 // Verdict is Sonarr's verdict on an episode's version (EpisodeVerdict). Code is "" when the
@@ -1162,6 +1208,12 @@ func (e *Engine) placeEpisodeVersion(ctx context.Context, job store.Job, t store
 				return no(vd.Code, "%s; nothing was placed for it", vd.Reason)
 			}
 		}
+		// Right before the link: the job's name and its staged copy for Sonarr's verdict are
+		// the file's only names (#114).
+		if err := wantLinks(src, f.Path, 1+e.staged(job.ID, v, srcInfo)); err != nil {
+			e.log.Warn("version_refused", "job", job.ID, "file", f.Path, "error", err)
+			return no(CodeVersionFailed, "the job's video for %s has another name besides the job's: nothing was placed", v.Name)
+		}
 		if rec, err = e.st.PutVersion(ctx, episodeVersionRecord(rec, job, t, c, v, store.VersionPlacing)); err != nil {
 			return false, nil, err
 		}
@@ -1227,7 +1279,7 @@ func linkEpisodeVersion(roots []string, src *os.File, folder, name string) error
 		return err
 	}
 	defer func() { _ = dir.Close() }()
-	return linkAt(src, dir, name)
+	return jobdir.LinkFile(src, dir, name)
 }
 
 // ---- the result ---------------------------------------------------------------------------

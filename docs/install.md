@@ -11,7 +11,10 @@ state is one SQLite file.
 
 ## What you need
 
-- **Docker with Compose v2** (`docker compose version`) on a Linux host, amd64 or arm64.
+- **Docker with Compose v2.12 or later** (`docker compose version`) on a Linux host, amd64 or arm64.
+  The compose example names the project at its top and mounts the intake folders with
+  `create_host_path: false` (a missing folder is an error, not a folder made as root); both were
+  checked with Compose v2.12.0, v2.20.0 and v5.7.0.
 - **Radarr or Sonarr** (or both), the v3 API. The versions the project tests against, with
   Bazarr and Jellyfin, are in [compatibility.md](compatibility.md). Their API keys.
 - **One filesystem for intake and library.** The folder uploads land in (the intake root) must
@@ -246,7 +249,8 @@ says what is wrong.
 | each of `paths.libraryRoots`, read-only (worker) | the worker reads a film's file to compare a dub with it and to merge (flow 2), only under these. Nothing else of `/path/to/data`: not the downloads, not `.incoming/` (the unfinished uploads) |
 
 The worker checks this when it starts and refuses to start if it can write `jobs/`,
-`.incoming/` or a library root, or cannot write `worker/` (`worker.requireSeparateMounts`,
+`.incoming/`, a library root, `versions.root` or the data folder itself, or cannot write
+`worker/` (`worker.requireSeparateMounts`,
 [settings.md](settings.md)); the log line `worker_mounts` names the paths. The intake folders
 are mounted with `create_host_path: false`: a missing one stops the container instead of being
 created as root.
@@ -277,6 +281,25 @@ The database is migrated when the web process starts; a database written by a ne
 refused, so back up first ([backup.md](backup.md)). Jobs in progress carry on. Read the release
 notes for settings that changed: `docker compose run --rm --no-deps web check-config` names any
 that were removed.
+
+### From a compose file that mounted the whole intake folder into the worker
+
+The worker now writes only `intake/worker`, reads `intake/jobs` and the library roots
+read-only, and refuses to start with the old mounts (`worker_mounts` in its log). Take the
+volumes of both services from the new `deploy/compose.example.yaml`, and **make the intake
+folders first**, as the media user, before `docker compose up -d` with the new file: they are
+mounted with `create_host_path: false`, so a missing one stops both containers
+(`bind source path does not exist`) instead of being created as root.
+
+```sh
+install -d /path/to/data/intake/jobs /path/to/data/intake/worker /path/to/data/intake/.incoming
+docker compose up -d
+```
+
+A job that was extracting or merging during the upgrade fails its task; retry it. The
+preview clips of a job awaiting confirmation are looked up in `intake/worker` now: the ones
+rendered before the upgrade answer 404 until they are rendered again (ask for the preview once
+more on the job's page).
 
 ## Backup
 

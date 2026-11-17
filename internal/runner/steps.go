@@ -330,7 +330,7 @@ func (r *Runner) seal(job store.Job, dest string, files []extract.Entry) error {
 			return err
 		}
 	}
-	if err := from.RemoveAll(dest); err != nil {
+	if err := jobdir.SpillWorker(r.cfg.Paths.IntakeRoot, job.ID, dest); err != nil {
 		r.log.Warn("extract_leftover", "job", job.ID, "dir", dest, "error", err)
 	}
 	return nil

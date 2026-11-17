@@ -92,9 +92,8 @@ func classify(dir *os.File, name, rel string, err error) error {
 	return &fs.PathError{Op: "open", Path: rel, Err: err}
 }
 
-// sameAt checks that name in dir is the open file f, a regular file of size bytes with no
-// other name.
-func sameAt(dir *os.File, name string, f *os.File, size int64) error {
+// sameAt checks that name in dir is the open file f (the same inode) and a regular file.
+func sameAt(dir *os.File, name string, f *os.File) error {
 	var st unix.Stat_t
 	if err := unix.Fstatat(int(dir.Fd()), name, &st, unix.AT_SYMLINK_NOFOLLOW); err != nil {
 		return &fs.PathError{Op: "stat", Path: name, Err: err}
@@ -106,10 +105,15 @@ func sameAt(dir *os.File, name string, f *os.File, size int64) error {
 	s, ok := now.Sys().(*syscall.Stat_t)
 	if !ok || st.Mode&unix.S_IFMT != unix.S_IFREG ||
 		uint64(st.Dev) != uint64(s.Dev) || uint64(st.Ino) != uint64(s.Ino) { //nolint:unconvert // the types differ between platforms
-		return fmt.Errorf("%w: %s was replaced while it was moved", ErrChanged, name)
+		return fmt.Errorf("%w: %s is another file", ErrChanged, name)
 	}
-	if links(now) != 1 || now.Size() != size {
-		return fmt.Errorf("%w: %s changed while it was moved", ErrChanged, name)
+	return nil
+}
+
+// unlinkAt removes the name in dir, never a directory.
+func unlinkAt(dir *os.File, name string) error {
+	if err := unix.Unlinkat(int(dir.Fd()), name, 0); err != nil {
+		return &fs.PathError{Op: "unlink", Path: name, Err: err}
 	}
 	return nil
 }

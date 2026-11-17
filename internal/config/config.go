@@ -241,4 +241,6 @@ type Worker struct {
 	// RequireSeparateMounts makes the worker refuse to start when it can write anything of
 	// the intake root but its own worker/ folder, or a library root (docs/install.md).
 	RequireSeparateMounts bool `yaml:"requireSeparateMounts"`
+	// SweepMaxEntries bounds the entries one sweep of worker/ and of jobs/ looks at.
+	SweepMaxEntries int `yaml:"sweepMaxEntries"`
 }

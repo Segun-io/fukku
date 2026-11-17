@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/segun-io/fukku/internal/config"
 	"github.com/segun-io/fukku/internal/store"
 )
 
@@ -36,6 +37,11 @@ var swaps = map[string]func(t *testing.T, dir, rel, outside string){
 		away := filepath.Join(filepath.Dir(outside), "away")
 		mustDo(t, os.Rename(top, away))
 		mustDo(t, os.Symlink(away, top))
+	},
+	// A name the worker gave the file in its own folder, through a descriptor it kept:
+	// writes through it would change what is imported or placed (#114).
+	"a second name": func(t *testing.T, dir, rel, outside string) {
+		mustDo(t, os.Link(filepath.Join(dir, filepath.FromSlash(rel)), filepath.Join(filepath.Dir(outside), "alias.mkv")))
 	},
 	"another size": func(t *testing.T, dir, rel, _ string) {
 		mustDo(t, os.Truncate(filepath.Join(dir, filepath.FromSlash(rel)), 7))
@@ -127,6 +133,33 @@ func TestEpisodeVersionRefusesAFileThatIsNotTheJobs(t *testing.T) {
 				t.Errorf("the season folder: %v (before %v)", got, before)
 			}
 		})
+	}
+}
+
+// Staged copies the web process made earlier (another label's, another row's), left when a
+// version was confirmed again without a verdict, are its own names: they are removed before
+// the placement, which then goes through.
+func TestEpisodeVersionStaleStagedCopiesDoNotBlock(t *testing.T) {
+	x := newEpvEnv(t, func(c *config.Config) { c.Versions.RequireNotUpgradeVerdict = false })
+	j := x.epvJob()
+	rows := x.rows(j)
+	c, err := x.confirmEpv(j, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := x.src(j, "files/Show.S01E01.mkv")
+	for _, p := range []string{
+		filepath.Join(x.root, "jobs", j.ID, "versions", rows[0].ID, "Some Show - S01E01 - Old label.mkv"),
+		filepath.Join(x.root, "jobs", j.ID, "versions", "r-earlier", "Some Show - S01E01 - Older.mkv"),
+	} {
+		mustDo(t, os.MkdirAll(filepath.Dir(p), 0o755))
+		mustDo(t, os.Link(src, p))
+	}
+	if j = x.drive(x.eng, c.Job); j.State != store.Done {
+		t.Fatalf("job %s (%s: %s)", j.State, j.ErrorCode, j.ErrorText)
+	}
+	if !slices.Contains(x.libraryNames(), "Some Show - S01E01 - Español.mkv") {
+		t.Errorf("not placed: %v", x.libraryNames())
 	}
 }
 

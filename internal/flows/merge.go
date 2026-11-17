@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"os"
 	"path"
 	"slices"
 	"strconv"
@@ -1111,19 +1110,21 @@ func discardTask(ctx context.Context, q spool.Queue, id string) (saw bool, err e
 // outside the job is reached. Each merged file is a full copy of the film. A job without a
 // directory has nothing to remove.
 func (e *Engine) removeMerged(jobID, rel string) error {
-	for _, open := range []func(string, string) (*os.Root, error){jobdir.OpenWorker, jobdir.Open} {
-		root, err := open(e.p.cfg.Paths.IntakeRoot, jobID)
-		if errors.Is(err, fs.ErrNotExist) {
-			continue
-		}
-		if err != nil {
-			return err
-		}
-		err = root.RemoveAll(rel)
-		_ = root.Close()
-		if err != nil && !errors.Is(err, fs.ErrNotExist) {
-			return fmt.Errorf("merge: remove %s: %w", rel, err)
-		}
+	// The worker's folder may hold anything the worker made there, however many entries:
+	// that part is set aside for the bounded sweep of worker/ (jobdir.SpillWorker).
+	if err := jobdir.SpillWorker(e.p.cfg.Paths.IntakeRoot, jobID, rel); err != nil {
+		return fmt.Errorf("merge: remove %s: %w", rel, err)
+	}
+	root, err := jobdir.Open(e.p.cfg.Paths.IntakeRoot, jobID)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	defer func() { _ = root.Close() }()
+	if err := root.RemoveAll(rel); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("merge: remove %s: %w", rel, err)
 	}
 	return nil
 }

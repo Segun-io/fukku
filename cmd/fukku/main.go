@@ -146,6 +146,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 			}
 			log.Warn("worker_mounts", "error", merr.Error(), "note", "worker.requireSeparateMounts is off")
 		}
+		sweepWorker(cfg, log)
 		err = worker.New(cfg, log, worker.Handlers(cfg)).Run(ctx)
 	case "combined":
 		err = runCombined(ctx, cfg, log, worker.Handlers(cfg))
@@ -155,6 +156,21 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	return 0
+}
+
+// sweepWorker removes, when the worker starts, what an earlier run of it may have left in
+// worker/ to keep a writable name of a file the web process took into a job
+// (jobdir.WorkerSweeper, one bounded sweep); the web process sweeps at every retention sweep.
+func sweepWorker(cfg config.Config, log *slog.Logger) {
+	root, err := os.OpenRoot(cfg.Paths.IntakeRoot)
+	if err != nil {
+		log.Warn("worker_sweep", "error", err.Error())
+		return
+	}
+	defer func() { _ = root.Close() }()
+	sw := &jobdir.WorkerSweeper{Limits: retention.SweepLimits(cfg)}
+	res, err := sw.Sweep(root)
+	retention.LogWorkerSweep(log, res, err)
 }
 
 // runWeb runs the web process with its dependencies.

@@ -18,6 +18,12 @@ func open(*os.Root, string) (dir, f *os.File, info fs.FileInfo, err error) {
 
 func openDirs(*os.Root, []string, bool) (*os.File, error) { return nil, errUnsupported }
 
-func sameAt(*os.File, string, *os.File, int64) error { return errUnsupported }
+func sameAt(*os.File, string, *os.File) error { return errUnsupported }
+
+func unlinkAt(*os.File, string) error { return errUnsupported }
 
 func links(fs.FileInfo) uint64 { return 1 }
+
+func (s *sweep) run(string) (bool, string, error) { return false, "", errUnsupported }
+
+func (s *sweep) removeTop(string) {}
