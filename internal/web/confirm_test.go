@@ -66,6 +66,7 @@ func newConfirmEnvWith(t *testing.T, mutate func(*config.Config)) *confirmEnv {
 	}
 	cfg := config.Defaults()
 	cfg.Auth.TrustedProxies = []string{"127.0.0.1"}
+	cfg.Auth.GroupsHeader = "Remote-Groups"
 	cfg.Auth.AdminGroup = "admins"
 	cfg.Server.PublicBaseURL = "https://fukku.example.com"
 	cfg.Paths.IntakeRoot = "/data/intake"

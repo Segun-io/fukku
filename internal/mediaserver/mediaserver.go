@@ -4,6 +4,7 @@ package mediaserver
 
 import (
 	"context"
+	"net/url"
 	"strings"
 )
 
@@ -48,10 +49,13 @@ type Grouper interface {
 }
 
 // TitleLink fills the {itemId} placeholder of mediaServer.titleLinkTemplate. An empty
-// template or item id gives "": no link.
+// template or item id gives "": no link. The id is URL-escaped (it comes from the media
+// server and may hold characters that mean something in a URL), so it stays one value
+// wherever the template puts it: in the path, a query or the fragment.
 func TitleLink(template, itemID string) string {
 	if template == "" || itemID == "" {
 		return ""
 	}
-	return strings.ReplaceAll(template, "{itemId}", itemID)
+	escaped := strings.ReplaceAll(url.QueryEscape(itemID), "+", "%20")
+	return strings.ReplaceAll(template, "{itemId}", escaped)
 }

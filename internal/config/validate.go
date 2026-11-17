@@ -6,6 +6,7 @@ import (
 	"net/netip"
 	"net/url"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"slices"
 	"strings"
@@ -46,12 +47,7 @@ func Validate(cfg Config, role Role, opts ValidateOptions) error {
 	}
 
 	if role == RoleWorker {
-		// The worker parses untrusted files: it must not hold any credentials.
-		for _, leaf := range Leaves(&cfg) {
-			if leaf.Secret && leaf.value.String() != "" {
-				p.add(leaf.Key, "the worker must not be given API keys; pass secrets to the web process only")
-			}
-		}
+		validateWorkerHoldsNoSecrets(&p, cfg)
 	} else {
 		validateWeb(&p, cfg, opts)
 	}
@@ -92,8 +88,12 @@ func validateWeb(p *problems, cfg Config, opts ValidateOptions) {
 			p.add("auth.trustedProxies", "required when auth.mode=proxyHeaders: the addresses or CIDRs the reverse proxy connects from")
 		}
 		for _, tp := range a.TrustedProxies {
-			if _, err := ParsePrefix(tp); err != nil {
+			pf, err := ParsePrefix(tp)
+			switch {
+			case err != nil:
 				p.add("auth.trustedProxies", "%q is not an address or CIDR", tp)
+			case !a.AllowWideTrustedProxies && pf.Bits() < minTrustedBits(pf):
+				p.add("auth.trustedProxies", "%q is too wide: a prefix shorter than /%d would let almost any host pose as the proxy (auth.allowWideTrustedProxies overrides this)", tp, minTrustedBits(pf))
 			}
 		}
 		if a.UserHeader == "" {
@@ -108,6 +108,9 @@ func validateWeb(p *problems, cfg Config, opts ValidateOptions) {
 	}
 	if a.GroupsHeader != "" && a.GroupsSeparator == "" {
 		p.add("auth.groupsSeparator", "must be set when auth.groupsHeader is set")
+	}
+	if a.Mode == "proxyHeaders" && a.AdminGroup != "" && a.GroupsHeader == "" {
+		p.add("auth.groupsHeader", "must be set when auth.adminGroup is set: nobody could be a member of the group (the proxy must set and strip that header)")
 	}
 
 	if cfg.Radarr.URL == "" && cfg.Sonarr.URL == "" {
@@ -134,10 +137,59 @@ func validateWeb(p *problems, cfg Config, opts ValidateOptions) {
 	if ms.Provider == "jellyfin" {
 		service(p, "mediaServer", ms.URL, ms.APIKey)
 	}
+	if ms.TitleLinkTemplate != "" {
+		validateTitleLinkTemplate(p, ms.TitleLinkTemplate)
+	}
 	positive(p, "mediaServer.requestTimeout", int64(ms.RequestTimeout))
 	positive(p, "mediaServer.itemWait", int64(ms.ItemWait))
 	positive(p, "mediaServer.itemPollInterval", int64(ms.ItemPollInterval))
 	positive(p, "worker.heartbeatMaxAge", int64(cfg.Worker.HeartbeatMaxAge))
+}
+
+// minTrustedBits is the shortest prefix auth.trustedProxies accepts without
+// auth.allowWideTrustedProxies: /8 for IPv4, /32 for IPv6.
+func minTrustedBits(p netip.Prefix) int {
+	if p.Addr().Is4() {
+		return 8
+	}
+	return 32
+}
+
+// titleLinkPlaceholder is the one placeholder of mediaServer.titleLinkTemplate.
+const titleLinkPlaceholder = "{itemId}"
+
+// validateTitleLinkTemplate wants an http(s) URL (once {itemId} is filled in) that holds
+// {itemId} and no other placeholder.
+func validateTitleLinkTemplate(p *problems, tmpl string) {
+	const key = "mediaServer.titleLinkTemplate"
+	if !strings.Contains(tmpl, titleLinkPlaceholder) {
+		p.add(key, "must contain %s, which is replaced by the item's id", titleLinkPlaceholder)
+	}
+	if rest := strings.ReplaceAll(tmpl, titleLinkPlaceholder, ""); strings.ContainsAny(rest, "{}") {
+		p.add(key, "the only placeholder is %s", titleLinkPlaceholder)
+		return
+	}
+	httpURL(p, key, strings.ReplaceAll(tmpl, titleLinkPlaceholder, "0"))
+}
+
+// credentialURL matches a URL with user info: scheme://user[:password]@host.
+var credentialURL = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9+.-]*://[^/?#]*@`)
+
+// validateWorkerHoldsNoSecrets refuses what would give the worker a credential: a secret
+// setting with a value (or given as <NAME>_FILE, even when the file is empty), and a URL
+// setting with user info. The worker parses untrusted files and its tools run as its user.
+func validateWorkerHoldsNoSecrets(p *problems, cfg Config) {
+	for _, leaf := range Leaves(&cfg) {
+		switch {
+		case leaf.Secret && leaf.value.String() != "":
+			p.add(leaf.Key, "the worker must not be given API keys; pass secrets to the web process only")
+		case !leaf.Secret && leaf.value.Kind() == reflect.String && credentialURL.MatchString(leaf.value.String()):
+			p.add(leaf.Key, "the worker must not be given credentials in a URL; pass them to the web process only")
+		}
+	}
+	for _, key := range cfg.SecretFiles {
+		p.add(key, "the worker must not be given a secret file (%s_FILE); pass secrets to the web process only", envFor(key))
+	}
 }
 
 func validateArr(p *problems, name string, a Arr) {

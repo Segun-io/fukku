@@ -57,6 +57,7 @@ func metricsServer(t *testing.T, on bool) (*Server, *storetest.Fake, *metrics.Se
 	cfg := newReadyEnv(t).cfg
 	cfg.Server.Metrics = on
 	cfg.Auth.TrustedProxies = []string{"192.0.2.10"}
+	cfg.Auth.GroupsHeader = "Remote-Groups"
 	cfg.Auth.AdminGroup = "admins"
 	st := storetest.NewFake(nil)
 	m := metrics.New()

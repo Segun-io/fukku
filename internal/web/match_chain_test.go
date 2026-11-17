@@ -53,6 +53,7 @@ func newMatchEnv(t *testing.T, tweak func(*config.Config)) *matchEnv {
 	t.Helper()
 	cfg := config.Defaults()
 	cfg.Auth.TrustedProxies = []string{"127.0.0.1"}
+	cfg.Auth.GroupsHeader = "Remote-Groups"
 	cfg.Auth.AdminGroup = "admins"
 	cfg.Server.PublicBaseURL = "https://fukku.example.com"
 	cfg.Paths.IntakeRoot = t.TempDir()
