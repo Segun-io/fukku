@@ -196,9 +196,14 @@ func (e *Engine) plan(job store.Job, t store.Target, rows []store.Row, files []s
 	for _, f := range files {
 		byID[f.ID] = f
 	}
-	merged := "" // a merge's verified file (#55): the one job file outside files/ that is imported
-	if c, ok := mergeOf(t); ok && c.Output != nil {
-		merged = c.Output.Path
+	// A merge (#55) imports its verified file and nothing else: never an upload under files/,
+	// which would replace the film's file with the dub alone.
+	isMerge, merged := false, ""
+	if c, ok := mergeOf(t); ok {
+		isMerge = true
+		if c.Output != nil {
+			merged = c.Output.Path
+		}
 	}
 	var out []planned
 	for _, r := range rows {
@@ -213,7 +218,10 @@ func (e *Engine) plan(job store.Job, t store.Target, rows []store.Row, files []s
 			return nil, fmt.Errorf("row %s: the app did not offer its file", r.ID)
 		}
 		f, ok := byID[r.FileID]
-		inJob := strings.HasPrefix(f.Path, jobdir.Files+"/") || (merged != "" && f.Path == merged)
+		inJob := strings.HasPrefix(f.Path, jobdir.Files+"/")
+		if isMerge {
+			inJob = merged != "" && f.Path == merged
+		}
 		if !ok || !inJob || f.Kind != store.KindVideo || f.Status != store.FileOK {
 			return nil, fmt.Errorf("row %s: its file is not one of the job's videos", r.ID)
 		}
@@ -264,7 +272,11 @@ func titleOK(t store.Target, ar arr.Row) error {
 func (e *Engine) Importing(ctx context.Context, job store.Job) error {
 	// subtitlesOnly (#57): when the confirmation skipped every row (every episode has a file),
 	// nothing is imported; the post-processing hands the subtitles over.
-	if t, err := e.st.Target(ctx, job.ID); err == nil {
+	t, terr := e.st.Target(ctx, job.ID)
+	if terr != nil && !errors.Is(terr, store.ErrNotFound) {
+		return terr
+	}
+	if terr == nil {
 		if v, ok := versionOf(t); ok { // a second version (#56): placed by Fukku, not imported
 			return e.placeVersion(ctx, job, t, v)
 		}
@@ -278,19 +290,15 @@ func (e *Engine) Importing(ctx context.Context, job store.Job) error {
 				return e.p.move(ctx, job, &t, store.Imported, store.Change{Note: "nothing imported: the season dub policy is subtitlesOnly"})
 			}
 		}
-	} else if !errors.Is(err, store.ErrNotFound) {
-		return err
 	}
 	if !e.due(job.ID) {
 		return nil
 	}
 	// A merge (#55, merge.go): the merge task and the merged file's row come first.
-	if t, err := e.st.Target(ctx, job.ID); err == nil {
-		if c, ok := mergeOf(t); ok {
-			ready, err := e.mergeStep(ctx, job, t, c)
-			if err != nil || !ready {
-				return err
-			}
+	if c, ok := mergeOf(t); ok && terr == nil {
+		ready, err := e.mergeStep(ctx, job, t, c)
+		if err != nil || !ready {
+			return err
 		}
 	}
 	w, err := e.load(ctx, job)

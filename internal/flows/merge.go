@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
@@ -93,7 +94,10 @@ import (
 //     M3-merge). Before each submission Radarr's tracked file is checked once more; if it
 //     changed, the job goes back to probed and nothing is imported.
 //
-// Every failure before the import leaves the library as it was. The imported step
+// Every failure before the import leaves the library as it was. A merged file that is not
+// imported is removed once its task has ended (a refused or unusable result, going back to
+// probed, an earlier attempt's late result), and merged/ is emptied when the job is done; a
+// verified file stays while the job fails after it, for the retry. The imported step
 // unmonitors the film when merge.unmonitorAfterMerge is on (B6), records it in the job's
 // result (unmonitorReason merged) and says what can still replace the file (the merge
 // result's warnings). The upload and the merged file stay in the job directory until the
@@ -128,9 +132,15 @@ const (
 	// WarnUpgradeCanReplace: the film is still monitored (merge.unmonitorAfterMerge off),
 	// so any better release without the dub can replace the merged file.
 	WarnUpgradeCanReplace = "upgrade_can_replace"
+	// WarnLanguageUnknown: Radarr has no language for the added tracks' tag, so in Radarr the
+	// merged file carries only the existing file's languages (the tracks themselves are
+	// tagged; custom formats and searches by language do not see them).
+	WarnLanguageUnknown = "language_unknown_to_radarr"
 )
 
 var mergeWarningText = map[string]string{
+	WarnLanguageUnknown: "Radarr has no language for the added tracks, so it lists the merged file with the existing file's languages only. " +
+		"The tracks themselves carry the language tag; the media server shows them.",
 	WarnSearchCanReplace: "The film is unmonitored, so Radarr's RSS sync and its Wanted searches leave the merged file alone. " +
 		"The film's own Search in Radarr can still replace it with a release that has no dub, and the added language is then lost.",
 	WarnUpgradeCanReplace: "The film is still monitored (merge.unmonitorAfterMerge is off): a better release without the dub, " +
@@ -315,7 +325,7 @@ func (e *Engine) confirmMerge(ctx context.Context, user, email string, s *sessio
 		return Confirmation{}, appFailure(AppRadarr, err)
 	}
 	if why := trackedChanged(rec.Library, m); why != nil {
-		if _, err := e.p.backToProbed(ctx, s.job, s.t, why); err != nil {
+		if err := e.backFromMerge(ctx, s.job, s.t, why); err != nil {
 			return Confirmation{}, err
 		}
 		return Confirmation{}, refuse(CodeLibraryChanged, "The film's file in Radarr changed since the match, so the comparison and the clips no longer hold: the job goes back to the match. Match the film again.")
@@ -346,6 +356,14 @@ func (e *Engine) confirmMerge(ctx context.Context, user, email string, s *sessio
 	// The write, under the job's lock: the target as it is now, so that a preview requested
 	// since the checks is neither written over nor taken for the one the user watched.
 	defer e.locks.Lock(s.job.ID)()
+	// The job must still wait for its confirmation: another confirmation of it (a second
+	// tab, a double click) may have moved it on since the session was read, and its import
+	// record must not be touched then. Every confirmation moves the job under this lock.
+	if j, err := e.st.Job(ctx, s.job.ID); err != nil {
+		return Confirmation{}, err
+	} else if j.State != store.AwaitingConfirmation {
+		return Confirmation{}, wrongState()
+	}
 	cur, err := e.st.Target(ctx, s.job.ID)
 	if errors.Is(err, store.ErrNotFound) {
 		return Confirmation{}, wrongState()
@@ -437,11 +455,15 @@ func joinInts(v []int) string {
 var (
 	arrRegional = map[string]string{"es-419": "Spanish (Latino)", "pt-BR": "Portuguese (Brazil)", "nl-BE": "Flemish"}
 	arrBase     = map[string]string{"nb": "Norwegian", "nn": "Norwegian", "no": "Norwegian", "fil": "Tagalog", "tl": "Tagalog"}
+	// latinAmerica is UN M.49 region 419; Spanish of any country in it is Spanish (Latino).
+	latinAmerica = language.MustParseRegion("419")
 )
 
 // arrLanguageFor is the app's language (from its GET /language) for a BCP 47 tag: its own
-// name for a regional variant it lists (es-419: Spanish (Latino)), else the base language's
-// English name (es: Spanish). nil when the app lists none of them.
+// name for a regional variant it lists (es-419 and the Spanish of every country in region
+// 419, es-MX or es-AR: Spanish (Latino); pt-BR: Portuguese (Brazil); nl-BE: Flemish), else
+// the base language's English name (es, es-ES, es-US: Spanish; pt-PT: Portuguese). nil
+// when the app lists none of them (the result then warns, WarnLanguageUnknown).
 func arrLanguageFor(tag string, langs []arr.Language) *Ref {
 	t, err := language.Parse(tag)
 	if err != nil {
@@ -454,6 +476,9 @@ func arrLanguageFor(tag string, langs []arr.Language) *Ref {
 	var names []string
 	if n, ok := arrRegional[t.String()]; ok {
 		names = append(names, n)
+	} else if r, rc := t.Region(); base.String() == "es" && rc == language.Exact && latinAmerica.Contains(r) {
+		// es-MX, es-AR, es-CO…: Latin American Spanish is Radarr's Spanish (Latino), as es-419.
+		names = append(names, "Spanish (Latino)")
 	}
 	if n, ok := arrBase[base.String()]; ok {
 		names = append(names, n)
@@ -498,6 +523,31 @@ func (e *Engine) mergeStep(ctx context.Context, job store.Job, t store.Target, c
 	if !ok {
 		return false, e.failMerge(ctx, job, t, CodeMergeFailed, "", "the job is no longer flow 2")
 	}
+	q := e.p.queue
+	if q == nil {
+		return false, errors.New("merge: the engine has no spool queue")
+	}
+	// The merges of earlier attempts stop; a result one leaves is acknowledged and its
+	// directory removed (the task has ended, so nothing writes there after that). The
+	// attempt whose merged file is in use is kept.
+	keep := 0
+	if c.Output != nil {
+		keep = c.Attempt
+	}
+	for a := 1; a < job.Attempt; a++ {
+		if a == keep {
+			continue
+		}
+		saw, err := discardTask(ctx, q, runner.MergeID(job.ID, a))
+		if err != nil {
+			return false, err
+		}
+		if saw {
+			if err := e.removeMerged(job.ID, runner.MergeDest(a)); err != nil {
+				return false, err
+			}
+		}
+	}
 	if c.Output == nil {
 		return false, e.runMerge(ctx, job, t, rec, c)
 	}
@@ -509,10 +559,8 @@ func (e *Engine) mergeStep(ctx context.Context, job store.Job, t store.Target, c
 		return true, nil
 	}
 	// The task's result, when a crash came between registering the file and acknowledging it.
-	if q := e.p.queue; q != nil {
-		if err := discardTask(ctx, q, runner.MergeID(job.ID, c.Attempt)); err != nil {
-			return false, err
-		}
+	if _, err := discardTask(ctx, q, runner.MergeID(job.ID, c.Attempt)); err != nil {
+		return false, err
 	}
 	return e.proposeMerged(ctx, job, t, rec, c)
 }
@@ -520,17 +568,9 @@ func (e *Engine) mergeStep(ctx context.Context, job store.Job, t store.Target, c
 // runMerge is the merge task's part of the step: submit it, or take in its result.
 func (e *Engine) runMerge(ctx context.Context, job store.Job, t store.Target, rec Flow2, c mergeChoice) error {
 	q := e.p.queue
-	if q == nil {
-		return errors.New("merge: the engine has no spool queue")
-	}
-	// The merges of earlier attempts and the sync check's clips stop, and what they leave goes.
-	for a := 1; a < job.Attempt; a++ {
-		if err := discardTask(ctx, q, runner.MergeID(job.ID, a)); err != nil {
-			return err
-		}
-	}
+	// The sync check's clips stop, and what they leave goes.
 	for slot := 1; slot <= runner.PreviewSlots; slot++ {
-		if err := discardTask(ctx, q, runner.PreviewID(job.ID, slot)); err != nil {
+		if _, err := discardTask(ctx, q, runner.PreviewID(job.ID, slot)); err != nil {
 			return err
 		}
 	}
@@ -575,11 +615,15 @@ func (e *Engine) startMerge(ctx context.Context, job store.Job, t store.Target, 
 		return e.mergeAppError(ctx, job, t, "film", err)
 	}
 	if why := trackedChanged(rec.Library, m); why != nil {
-		return e.p.rescan(ctx, job, t, why)
+		return e.backFromMerge(ctx, job, t, why)
 	}
 	// What the id holds now belongs to no merge of this choice (an earlier confirmation of
-	// the attempt, which went back to the match): it goes.
-	if err := discardTask(ctx, e.p.queue, id); err != nil {
+	// the attempt, which went back to the match): it goes. So does any merged file in the
+	// job, with its row: before this attempt's merge none is in use.
+	if _, err := discardTask(ctx, e.p.queue, id); err != nil {
+		return err
+	}
+	if err := e.dropMerged(ctx, job.ID); err != nil {
 		return err
 	}
 	c.Attempt, c.Refusal = job.Attempt, ""
@@ -615,18 +659,43 @@ func (e *Engine) submitMerge(ctx context.Context, job store.Job, t store.Target,
 // useMerge takes in the result of the attempt's merge task (see the top of this file).
 func (e *Engine) useMerge(ctx context.Context, job store.Job, t store.Target, rec Flow2, c mergeChoice, res spool.Result) error {
 	q := e.p.queue
+	var out merge.Output
+	// A result that is not used leaves nothing behind: the task has ended, so what it wrote
+	// into its destination (a full copy of the film, verified or not) can go. Removed
+	// before the result is acknowledged, so that after a crash in between the next pass
+	// (or the next attempt's, which takes in an earlier attempt's result) removes it again.
+	drop := func() error {
+		if err := e.removeMerged(job.ID, runner.MergeDest(c.Attempt)); err != nil {
+			return err
+		}
+		if d := path.Dir(out.Path); out.Path != "" && d != runner.MergeDest(c.Attempt) && merge.ValidDest(d) {
+			return e.removeMerged(job.ID, d)
+		}
+		return nil
+	}
 	fail := func(code, refusal, text string) error {
 		if err := e.failMerge(ctx, job, t, code, refusal, text); err != nil {
 			return err
 		}
+		if err := drop(); err != nil {
+			return err
+		}
 		return q.Ack(ctx, res.ID)
 	}
-	again := func(why string) error {
+	again := func(why string, clean bool) error {
 		e.log.Info("task_discarded", "job", job.ID, "kind", res.Kind, "task", res.ID, "note", why)
+		if clean {
+			if err := drop(); err != nil {
+				return err
+			}
+		}
 		return q.Ack(ctx, res.ID) // the next pass submits it again
 	}
 	back := func(why error) error {
-		if err := e.p.rescan(ctx, job, t, why); err != nil {
+		if err := e.backFromMerge(ctx, job, t, why); err != nil {
+			return err
+		}
+		if err := drop(); err != nil {
 			return err
 		}
 		return q.Ack(ctx, res.ID)
@@ -635,7 +704,7 @@ func (e *Engine) useMerge(ctx context.Context, job store.Job, t store.Target, re
 		code, text := runner.CodeTaskFailed, "no error given"
 		if res.Error != nil {
 			if res.Error.Code == spool.CodeCancelled {
-				return again("a cancelled merge: submitted again")
+				return again("a cancelled merge: submitted again", true)
 			}
 			if res.Error.Code == spool.CodeTimeout {
 				code = runner.CodeTaskTimeout
@@ -644,14 +713,14 @@ func (e *Engine) useMerge(ctx context.Context, job store.Job, t store.Target, re
 		}
 		return fail(code, "", res.Kind+" task "+res.ID+": "+text)
 	}
-	var out merge.Output
 	if err := json.Unmarshal(res.Output, &out); err != nil {
 		return fail(runner.CodeTaskFailed, "", res.Kind+" task "+res.ID+": unreadable output: "+err.Error())
 	}
 	if !out.OK {
 		switch out.Refusal {
 		case merge.RefusalBusy:
-			return again("another merge into the destination was running: submitted again")
+			// The destination belongs to the merge that holds its lock: it is left alone.
+			return again("another merge into the destination was running: submitted again", false)
 		case merge.RefusalLibraryChanged:
 			return back(fmt.Errorf("the library file %q changed while it was merged (%s): rescan the film in Radarr, then match it again", rec.Library.Path, out.Detail))
 		}
@@ -862,16 +931,67 @@ func (e *Engine) mergeAppError(ctx context.Context, job store.Job, t store.Targe
 	return e.p.move(ctx, job, &t, store.Stalled, store.Change{ErrorCode: CodeArrUnavailable, ErrorText: text})
 }
 
-// discardTask cancels a task and acknowledges the result it left.
-func discardTask(ctx context.Context, q spool.Queue, id string) error {
+// discardTask cancels a task and acknowledges the result it left; saw reports that there
+// was one (the task has ended).
+func discardTask(ctx context.Context, q spool.Queue, id string) (saw bool, err error) {
 	if err := q.Cancel(ctx, id); err != nil {
-		return err
+		return false, err
 	}
 	_, ok, err := q.Result(ctx, id)
 	if err != nil || !ok {
+		return false, err
+	}
+	return true, q.Ack(ctx, id)
+}
+
+// removeMerged removes rel (job-relative: merged/<attempt>, or all of merged/) from the job's
+// directory, through a root of it, so nothing outside the job is reached. Each merged file
+// is a full copy of the film. A job without a directory has nothing to remove.
+func (e *Engine) removeMerged(jobID, rel string) error {
+	root, err := os.OpenRoot(jobdir.Dir(e.p.cfg.Paths.IntakeRoot, jobID))
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
 		return err
 	}
-	return q.Ack(ctx, id)
+	defer func() { _ = root.Close() }()
+	if err := root.RemoveAll(rel); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("merge: remove %s: %w", rel, err)
+	}
+	return nil
+}
+
+// dropMerged removes every merged file of the job, on disk (merged/) and as job files: when
+// no merge of the job is in use (before an attempt's merge, after going back to the match).
+func (e *Engine) dropMerged(ctx context.Context, jobID string) error {
+	if err := e.removeMerged(jobID, jobdir.Merged); err != nil {
+		return err
+	}
+	files, err := e.st.Files(ctx, jobID)
+	if err != nil {
+		return err
+	}
+	for _, f := range files {
+		if strings.HasPrefix(f.Path, jobdir.Merged+"/") {
+			if err := e.st.DeleteFile(ctx, f.ID); err != nil && !errors.Is(err, store.ErrNotFound) {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// backFromMerge sends a merge job whose film's file changed back to probed (rescan) and,
+// once it has gone, removes its merged files: nothing of them is imported any more. A crash
+// in between leaves them to the next attempt's merge (startMerge), or to the removal of the
+// job's directory.
+func (e *Engine) backFromMerge(ctx context.Context, job store.Job, t store.Target, why error) error {
+	moved, err := e.p.backToProbed(ctx, job, t, why)
+	if err != nil || !moved {
+		return err
+	}
+	return e.dropMerged(ctx, job.ID)
 }
 
 // mergeStillTracked checks, before a merge job's import is submitted, that Radarr's tracked
@@ -888,7 +1008,7 @@ func (e *Engine) mergeStillTracked(ctx context.Context, job store.Job, w work) (
 	}
 	if why := trackedChanged(rec.Library, m); why != nil {
 		e.forget(job.ID)
-		return true, e.p.rescan(ctx, job, w.t, why)
+		return true, e.backFromMerge(ctx, job, w.t, why)
 	}
 	return false, nil
 }
@@ -922,6 +1042,18 @@ func (e *Engine) mergeImported(ctx context.Context, job store.Job, t store.Targe
 		return err
 	}
 	return e.p.move(ctx, job, &t, store.PostProcessing, store.Change{Note: note})
+}
+
+// mergeDone removes a done merge job's merged/ (with importMode copy Radarr leaves the merged
+// file there, a full copy of the film; with move only what an earlier attempt could have
+// left). The upload stays until the job is removed. A failure is logged: the job is done.
+func (e *Engine) mergeDone(ctx context.Context, job store.Job) {
+	if j, err := e.st.Job(ctx, job.ID); err != nil || j.State != store.Done {
+		return // it did not move (another pass, a cancel): nothing is removed
+	}
+	if err := e.removeMerged(job.ID, jobdir.Merged); err != nil {
+		e.log.Warn("merge_cleanup_failed", "job", job.ID, "error", err)
+	}
 }
 
 // ---- the views ----------------------------------------------------------------------------
@@ -999,14 +1131,15 @@ func mergeResult(t store.Target) *MergeResult {
 		return nil
 	}
 	r := &MergeResult{Name: path.Base(c.Output.Path), Warnings: []MergeWarning{}}
-	mon, ok := monitoringOf(t)
-	if !ok {
-		return r
+	if mon, ok := monitoringOf(t); ok {
+		code := WarnSearchCanReplace
+		if mon.Monitored {
+			code = WarnUpgradeCanReplace
+		}
+		r.Warnings = append(r.Warnings, MergeWarning{Code: code, Message: mergeWarningText[code]})
 	}
-	code := WarnSearchCanReplace
-	if mon.Monitored {
-		code = WarnUpgradeCanReplace
+	if c.ArrLanguage == nil {
+		r.Warnings = append(r.Warnings, MergeWarning{Code: WarnLanguageUnknown, Message: mergeWarningText[WarnLanguageUnknown]})
 	}
-	r.Warnings = append(r.Warnings, MergeWarning{Code: code, Message: mergeWarningText[code]})
 	return r
 }

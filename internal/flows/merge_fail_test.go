@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"os"
+	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/segun-io/fukku/internal/arr"
@@ -151,6 +153,10 @@ func TestMergeConfirmLibraryChanged(t *testing.T) {
 		"replaced": func(f *arr.MovieFile) *arr.MovieFile { f.ID = 13; return f },
 		"resized":  func(f *arr.MovieFile) *arr.MovieFile { f.Size = 4001; return f },
 		"deleted":  func(*arr.MovieFile) *arr.MovieFile { return nil },
+		"renamed": func(f *arr.MovieFile) *arr.MovieFile {
+			f.Path = appLibRoot + "/Some Film (2001)/Some Film (2001) - WEBDL-1080p.mkv"
+			return f
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			x := newMergeEnv(t)
@@ -219,6 +225,7 @@ func TestMergeFailuresLeaveTheLibraryUntouched(t *testing.T) {
 		state  store.State
 		code   string
 		refuse string // the merge view's refusal
+		kept   bool   // the verified merged file stays for a retry (it was in before the failure)
 	}{
 		{name: "refused: truncated dub", out: func(o *merge.Output) {
 			*o = merge.Output{Refusal: merge.RefusalVerifyFailed, Detail: "audio ends early"}
@@ -246,15 +253,15 @@ func TestMergeFailuresLeaveTheLibraryUntouched(t *testing.T) {
 			state: store.Probed},
 		{name: "rejected proposal", after: func(x *mergeEnv, j store.Job) {
 			x.movies.Verdicts = map[string][]arr.Rejection{x.propose(j, 1): {{Reason: "Sample", Permanent: true}}}
-		}, state: store.Failed, code: CodeMergeRejected},
+		}, state: store.Failed, code: CodeMergeRejected, kept: true},
 		{name: "not in the proposal", after: func(x *mergeEnv, j store.Job) { delete(x.movies.Proposed, x.mergedFolder(j, 1)) },
-			state: store.Failed, code: CodeMergeRejected},
+			state: store.Failed, code: CodeMergeRejected, kept: true},
 		{name: "proposal refused", after: func(x *mergeEnv, j store.Job) {
 			x.movies.Err = map[string]error{"Proposal": errors.New("radarr: 400 bad request")}
-		}, state: store.Failed, code: CodeMergeFailed},
+		}, state: store.Failed, code: CodeMergeFailed, kept: true},
 		{name: "sentinel missing before the import", after: func(x *mergeEnv, j store.Job) {
 			x.eng.checkStorage = func() error { return errors.New("sentinel /data/media/.fukku-sentinel is missing") }
-		}, state: store.Failed, code: CodeImportFailed},
+		}, state: store.Failed, code: CodeImportFailed, kept: true},
 		{name: "film replaced before the import", after: func(x *mergeEnv, j store.Job) { x.movies.Library[0].File.ID = 13 },
 			state: store.Probed},
 		{name: "merged file gone before the import", after: func(x *mergeEnv, j store.Job) {
@@ -289,6 +296,7 @@ func TestMergeFailuresLeaveTheLibraryUntouched(t *testing.T) {
 				if c.fail != "" {
 					for _, task := range x.q.Tasks() {
 						if task.Kind == spool.KindMerge {
+							x.leave(j, "merged/1/half.mkv") // what a task that dies may leave
 							x.q.Fail(task.ID, c.fail, "boom")
 						}
 					}
@@ -318,8 +326,59 @@ func TestMergeFailuresLeaveTheLibraryUntouched(t *testing.T) {
 			if tasks := x.q.Tasks(); len(tasks) != 0 {
 				t.Errorf("tasks left %+v", tasks)
 			}
+			// No copy of the film is left behind, but the one a retry imports.
+			left, rows := x.mergedOnDisk(j), x.mergedRows(j)
+			switch {
+			case c.kept && (len(left) != 1 || len(rows) != 1):
+				t.Errorf("kept for the retry: on disk %v, rows %+v", left, rows)
+			case !c.kept && len(left) != 0:
+				t.Errorf("left behind on disk: %v", left)
+			case c.state == store.Probed && len(rows) != 0:
+				t.Errorf("merged file rows after going back: %+v", rows)
+			}
 		})
 	}
+}
+
+// leave writes a file into the job's directory, as a merge task may leave one.
+func (x *mergeEnv) leave(j store.Job, rel string) {
+	x.t.Helper()
+	p := x.src(j, rel)
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		x.t.Fatal(err)
+	}
+	if err := os.WriteFile(p, []byte("half"), 0o644); err != nil {
+		x.t.Fatal(err)
+	}
+}
+
+// mergedOnDisk lists the files under the job's merged/.
+func (x *mergeEnv) mergedOnDisk(j store.Job) []string {
+	x.t.Helper()
+	var out []string
+	_ = filepath.WalkDir(x.src(j, "merged"), func(p string, d os.DirEntry, err error) error {
+		if err == nil && !d.IsDir() {
+			out = append(out, p)
+		}
+		return nil
+	})
+	return out
+}
+
+// mergedRows are the job's files under merged/.
+func (x *mergeEnv) mergedRows(j store.Job) []store.File {
+	x.t.Helper()
+	files, err := x.st.Files(x.ctx, j.ID)
+	if err != nil {
+		x.t.Fatal(err)
+	}
+	var out []store.File
+	for _, f := range files {
+		if strings.HasPrefix(f.Path, "merged/") {
+			out = append(out, f)
+		}
+	}
+	return out
 }
 
 // After a refused merge the user retries: the next attempt merges with its own task and

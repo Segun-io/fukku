@@ -214,15 +214,22 @@ same settings.
 A merge (flow 2a) never writes the library file: the worker writes the merged file into the
 job's directory (`merged/<attempt>/`, under the library file's name with `.mkv`), and Radarr
 replaces its file with it through Manual Import (with `radarr.importMode` `move` it takes
-the merged file away; the upload stays in the job until the job is removed). Radarr deletes
-the file it replaces unless its recycle bin is on: set Radarr's recycle bin (Settings, Media
-Management) to a folder on the library's filesystem to keep the previous file for a while.
-Before the merge and again before the import, Radarr's file for the film must still be the
-one of the match (its movie-file id and size); if it is not, the job goes back to the match
-and nothing is written. The merged file gets the existing file's quality and its languages
-plus Radarr's language for the tag (`es-419` is Spanish (Latino), `pt-BR` Portuguese
-(Brazil), any other tag its base language's English name); a tag Radarr has no language for
-leaves the existing languages only.
+the merged file away; the upload stays in the job until the job is removed). Each merged
+file is a full copy of the film: one that is not imported (a refused or failed merge, a job
+that goes back to the match, an earlier attempt's) is removed as soon as its task has ended,
+and whatever is left in `merged/` (with `copy`, the imported copy) once the job is done. One
+already verified stays while the job fails after it, for the retry to import. Radarr
+deletes the file it replaces unless its recycle bin is on: set Radarr's recycle bin
+(Settings, Media Management) to a folder on the library's filesystem to keep the previous
+file for a while. At the confirmation, before the merge and again before the import,
+Radarr's file for the film must still be the one of the match (its movie-file id, size and
+path); if it is not, the job goes back to the match and nothing is written. The merged file
+gets the existing file's quality and its languages plus Radarr's language for the tag:
+`es-419` and the Spanish of any Latin American country (`es-MX`, `es-AR`, …, UN M.49 region
+419) are Spanish (Latino), `pt-BR` is Portuguese (Brazil), `nl-BE` Flemish, and any other tag
+its base language's English name (`es`, `es-ES`, `es-US`: Spanish; `pt-PT`: Portuguese). A
+tag Radarr has no language for leaves the existing languages only, and the job's result
+says so (`language_unknown_to_radarr`).
 
 ## versions
 

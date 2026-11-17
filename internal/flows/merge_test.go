@@ -400,6 +400,8 @@ func TestArrLanguageFor(t *testing.T) {
 		{ID: 18, Name: "Portuguese"}, {ID: 15, Name: "Norwegian"}, {ID: 23, Name: "Hebrew"}}
 	for tag, want := range map[string]*Ref{
 		"es-419": {ID: 37, Name: "Spanish (Latino)"}, "es": {ID: 3, Name: "Spanish"}, "es-ES": {ID: 3, Name: "Spanish"},
+		"es-MX": {ID: 37, Name: "Spanish (Latino)"}, "es-AR": {ID: 37, Name: "Spanish (Latino)"}, "es-US": {ID: 3, Name: "Spanish"},
+		"pt-PT": {ID: 18, Name: "Portuguese"},
 		"pt-BR": {ID: 18, Name: "Portuguese"}, "nb": {ID: 15, Name: "Norwegian"}, "he": {ID: 23, Name: "Hebrew"},
 		"en": {ID: 1, Name: "English"}, "eu": nil, "und": nil, "": nil,
 	} {

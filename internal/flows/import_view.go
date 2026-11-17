@@ -34,6 +34,9 @@ import (
 // import.merge.state is pending, running (the worker merges), merged or failed (the job
 // failed before the merge was made; refusal is the merge task's, e.g. verify_failed, or ""
 // when it did not refuse). arrLanguage is null when Radarr has no language for the tag.
+// result.merge.warnings are search_can_replace (the film is unmonitored; its own Search can
+// still replace the file), upgrade_can_replace (merge.unmonitorAfterMerge is off), and
+// language_unknown_to_radarr (Radarr lists the file with the existing languages only).
 
 // Import statuses.
 const (
