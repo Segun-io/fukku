@@ -14,6 +14,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/segun-io/fukku/internal/safehttp"
 )
 
 // Bazarr is a SubtitleManager for Bazarr (checked against 1.6.2; probes C5, C5a-C5f).
@@ -34,7 +36,7 @@ func NewBazarr(baseURL, apiKey string, timeout time.Duration) *Bazarr {
 	return &Bazarr{
 		base:     strings.TrimRight(baseURL, "/"),
 		key:      apiKey,
-		client:   &http.Client{Timeout: timeout},
+		client:   safehttp.NoRedirect(&http.Client{Timeout: timeout}),
 		baseline: map[string]int{},
 	}
 }

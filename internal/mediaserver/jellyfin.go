@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/segun-io/fukku/internal/config"
+	"github.com/segun-io/fukku/internal/safehttp"
 )
 
 const defaultTimeout = 30 * time.Second
@@ -96,7 +97,7 @@ func NewJellyfin(cfg config.MediaServer) *Jellyfin {
 	if m == "" {
 		m = MethodLibraryRefresh
 	}
-	return &Jellyfin{base: strings.TrimRight(cfg.URL, "/"), key: cfg.APIKey.Reveal(), method: m, timeout: t, http: &http.Client{}}
+	return &Jellyfin{base: strings.TrimRight(cfg.URL, "/"), key: cfg.APIKey.Reveal(), method: m, timeout: t, http: safehttp.NoRedirect(&http.Client{})}
 }
 
 // Version returns the server version (GET /System/Info/Public).

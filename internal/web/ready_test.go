@@ -273,3 +273,25 @@ func TestReadyzArrTimeoutAndCache(t *testing.T) {
 		t.Fatalf("app called %d times after the cache time, want 2", calls.Load())
 	}
 }
+
+// /readyz does not follow a redirect of an app's URL: the key stays at that address, and
+// the check says what to fix.
+func TestReadyzArrRedirectIsNotFollowed(t *testing.T) {
+	env := newReadyEnv(t)
+	var hits atomic.Int32
+	target := arrServer(t, http.StatusOK, &hits)
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, target.URL+r.URL.Path, http.StatusFound)
+	}))
+	defer origin.Close()
+	env.cfg.Radarr.URL = origin.URL
+	env.cfg.Radarr.APIKey = "test-key"
+	_, got := readyz(t, newServer(env.cfg), "")
+	c, ok := find(got, "radarr")
+	if !ok || c.OK || !strings.Contains(c.Detail, "redirects") {
+		t.Fatalf("%+v", got)
+	}
+	if hits.Load() != 0 {
+		t.Fatalf("the redirect target was reached %d times", hits.Load())
+	}
+}

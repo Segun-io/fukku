@@ -95,7 +95,7 @@ same settings.
 
 | Setting | Environment | Default | Description |
 | --- | --- | --- | --- |
-| `radarr.url` | `FUKKU_RADARR_URL` | (empty) | Base URL, e.g. `http://radarr:7878` |
+| `radarr.url` | `FUKKU_RADARR_URL` | (empty) | Base URL, e.g. `http://radarr:7878`. The app's own address, with its URL base if it has one: a redirect from it is never followed (the API key must not leave this address) and is reported as an error |
 | `radarr.publicUrl` | `FUKKU_RADARR_PUBLIC_URL` | (empty) | Address of Radarr that a browser can open, e.g. `https://radarr.example.com`; `radarr.url` is for the server and may not open in a browser. A finished job links to its Manual Import page (`/wanted/missing`). Empty means no link, only the folder to copy |
 | `radarr.apiKey` | `FUKKU_RADARR_API_KEY` | (empty) | API key (secret) |
 | `radarr.qualityProfile` | `FUKKU_RADARR_QUALITY_PROFILE` | (empty) | Quality profile name for added films; empty means the user picks |
@@ -105,7 +105,7 @@ same settings.
 | `radarr.importMode` | `FUKKU_RADARR_IMPORT_MODE` | `move` | `move` or `copy` for Manual Import. A row counts as imported when the app tracks a new file for it of the job's file's size; with `move` the job's file must also be gone (a size the app reports as 0 is then accepted), with `copy` a size of 0 is not enough and an import without a recorded baseline (submitted by an earlier version) counts nothing as imported |
 | `radarr.minimumAvailability` | `FUKKU_RADARR_MINIMUM_AVAILABILITY` | `released` | When a film Fukku adds counts as available for searches: `announced`, `inCinemas` or `released` |
 | `radarr.requestTimeout` | `FUKKU_RADARR_REQUEST_TIMEOUT` | `30s` | Timeout of one API request |
-| `sonarr.url` | `FUKKU_SONARR_URL` | (empty) | Base URL, e.g. `http://sonarr:8989` |
+| `sonarr.url` | `FUKKU_SONARR_URL` | (empty) | Base URL, e.g. `http://sonarr:8989`. The app's own address, with its URL base if it has one: a redirect from it is never followed (the API key must not leave this address) and is reported as an error |
 | `sonarr.publicUrl` | `FUKKU_SONARR_PUBLIC_URL` | (empty) | Address of Sonarr that a browser can open, e.g. `https://sonarr.example.com`; `sonarr.url` is for the server and may not open in a browser. A finished job links to its Manual Import page (`/wanted/missing`). Empty means no link, only the folder to copy |
 | `sonarr.apiKey` | `FUKKU_SONARR_API_KEY` | (empty) | API key (secret) |
 | `sonarr.qualityProfile` | `FUKKU_SONARR_QUALITY_PROFILE` | (empty) | Quality profile name for added shows; empty means the user picks |
@@ -121,7 +121,7 @@ same settings.
 | Setting | Environment | Default | Description |
 | --- | --- | --- | --- |
 | `subtitles.provider` | `FUKKU_SUBTITLES_PROVIDER` | `none` | `bazarr` or `none` |
-| `subtitles.url` | `FUKKU_SUBTITLES_URL` | (empty) | Base URL, e.g. `http://bazarr:6767` |
+| `subtitles.url` | `FUKKU_SUBTITLES_URL` | (empty) | Base URL, e.g. `http://bazarr:6767`. The app's own address, with its URL base if it has one: a redirect from it is never followed (the API key must not leave this address) and is reported as an error |
 | `subtitles.apiKey` | `FUKKU_SUBTITLES_API_KEY` | (empty) | API key (secret) |
 | `subtitles.handOverUploads` | `FUKKU_SUBTITLES_HAND_OVER_UPLOADS` | `true` | Give uploaded subtitle files to the subtitle manager after import |
 | `subtitles.requestTimeout` | `FUKKU_SUBTITLES_REQUEST_TIMEOUT` | `30s` | Timeout of one API request |
@@ -136,7 +136,7 @@ same settings.
 | Setting | Environment | Default | Description |
 | --- | --- | --- | --- |
 | `mediaServer.provider` | `FUKKU_MEDIA_SERVER_PROVIDER` | `none` | `jellyfin` or `none` (Plex and Emby are backlog) |
-| `mediaServer.url` | `FUKKU_MEDIA_SERVER_URL` | (empty) | Base URL, e.g. `http://jellyfin:8096` |
+| `mediaServer.url` | `FUKKU_MEDIA_SERVER_URL` | (empty) | Base URL, e.g. `http://jellyfin:8096`. The app's own address, with its URL base if it has one: a redirect from it is never followed (the API key must not leave this address) and is reported as an error |
 | `mediaServer.apiKey` | `FUKKU_MEDIA_SERVER_API_KEY` | (empty) | API key (secret) |
 | `mediaServer.refreshMethod` | `FUKKU_MEDIA_SERVER_REFRESH_METHOD` | `libraryRefresh` | `libraryRefresh` (refresh the library item that holds the path; the new title is visible in under a second, decision #22), `pathUpdate` (report the path to `/Library/Media/Updated`; the server shows it only after its `LibraryMonitorDelay`, 60 s by default, so lower that delay on the server or raise `mediaServer.itemWait`), `libraryScan` (full scan) or `none` |
 | `mediaServer.refreshFallback` | `FUKKU_MEDIA_SERVER_REFRESH_FALLBACK` | `true` | When the title is still not visible after `mediaServer.itemWait`, ask the server to scan every library on it (`POST /Library/Refresh`, not only the title's) and wait another `mediaServer.itemWait`. Needed for a library the server has never scanned with content in it (a brand-new Shows library), where `libraryRefresh` and `pathUpdate` find nothing new. It runs once per attempt of the step (the step is retried, `postStepAttempts` times), and is skipped while the server's scan task is already running; if the scan request fails, the step fails with the not-visible error and the reason. Logged as the event `media_server_fallback_scan` and named in the job's step detail. Not used with `libraryScan` (already a scan) or `none` |
