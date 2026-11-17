@@ -100,7 +100,8 @@ func TestAdminVersions(t *testing.T) {
 	}
 	// An episode's version (#58) of a special: season 0 is shown, not dropped.
 	if _, err := e.st.PutVersion(ctx, store.Version{JobID: "j2", App: "sonarr", TitleID: 11, EpisodeID: 1001, SeasonNumber: 0, EpisodeNumber: 3,
-		Path: "/data/media/tv/Show/Specials/Show - S00E03 - Español.mkv", Label: "Español", Status: store.VersionLinked}); err != nil {
+		Path: "/data/media/tv/Show/Specials/Show - S00E03 - Español.mkv", Label: "Español", Status: store.VersionAdopted,
+		Detail: "Sonarr tracks the version as the file of S00E03 (episode file 9)"}); err != nil {
 		t.Fatal(err)
 	}
 	if code, _ := e.call("GET", "/api/admin/versions", ""); code != http.StatusNotFound {
@@ -124,7 +125,9 @@ func TestAdminVersions(t *testing.T) {
 	if len(out.Versions) != 2 {
 		t.Fatalf("versions %s", rec.Body)
 	}
-	if ep := out.Versions[1]; ep["seasonNumber"] != float64(0) || ep["episodeNumber"] != float64(3) || ep["episodeId"] != float64(1001) {
+	// The re-check's notices (#96) are the status and its detail.
+	if ep := out.Versions[1]; ep["seasonNumber"] != float64(0) || ep["episodeNumber"] != float64(3) || ep["episodeId"] != float64(1001) ||
+		ep["status"] != "adopted" || ep["detail"] != "Sonarr tracks the version as the file of S00E03 (episode file 9)" {
 		t.Errorf("episode's version %v", ep)
 	}
 	v := out.Versions[0]

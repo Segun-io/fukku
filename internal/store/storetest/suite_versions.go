@@ -53,6 +53,15 @@ func testVersions(t *testing.T, s store.Store) {
 	if e := must(s.VersionByPath(ctx, ev.Path))(t); e.App != "sonarr" || e.EpisodeID != 103 || e.SeasonNumber != 1 || e.EpisodeNumber != 3 || e.Status != store.VersionLinked {
 		t.Fatalf("an episode's version read back %+v", e)
 	}
+	// The re-check's statuses (#96) and their details are kept as written.
+	for _, status := range []string{store.VersionAdopted, store.VersionAdoptable, store.VersionEpisodeFileMissing, store.VersionSeriesMoved, store.VersionSeriesDeleted} {
+		ev = must(s.VersionByPath(ctx, ev.Path))(t)
+		ev.Status, ev.Detail = status, "why "+status
+		_ = must(s.PutVersion(ctx, ev))(t)
+		if e := must(s.VersionByPath(ctx, ev.Path))(t); e.Status != status || e.Detail != "why "+status || e.EpisodeID != 103 {
+			t.Fatalf("status %s read back %+v", status, e)
+		}
+	}
 	if err := s.DeleteVersion(ctx, ev.ID); err != nil {
 		t.Fatal(err)
 	}

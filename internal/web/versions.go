@@ -20,9 +20,16 @@ import (
 //
 // status is placing, linked, grouped, waiting (detail says why: the media server does not
 // list a file yet, Radarr has no file for the film), film_deleted (Radarr no longer has the
-// film; the file is left on disk) or missing (the file is gone). primaryChangedAt is when
-// the version was last grouped with another film file than before: Radarr renamed or
-// upgraded it (versions.regroupInterval).
+// film; the file is left on disk) or missing (the file is gone). An episode's version may
+// also be, from the keeper's re-check against Sonarr (#96, versions.regroupInterval; detail
+// says why, and Fukku touches no file for any of them): adopted (Sonarr tracks the version as
+// an episode's file now), adoptable (Sonarr's verdict no longer rejects it as not an upgrade:
+// its next rescan takes it), episode_file_missing (the episode's own file is gone: Sonarr's
+// next rescan takes the version), series_moved (Sonarr's folder for the series is elsewhere
+// and the version is not in it) or series_deleted (Sonarr no longer has the series or the
+// episode). A version Sonarr moved with its series' folder is listed at its new path.
+// primaryChangedAt is when the version was last grouped with another film or episode file
+// than before: Radarr renamed or upgraded the film's, Sonarr upgraded the episode's.
 func (s *Server) versionRoutes(mux *http.ServeMux) {
 	if s.deps.Store == nil {
 		return

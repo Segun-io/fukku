@@ -261,7 +261,7 @@ episode that already has a file is placed **next to that file**, in Sonarr's sea
 `<series folder> - S01E02 - <label>.<ext>` (the series folder is the name of Sonarr's folder for the
 show). Jellyfin 12.4 groups the two as versions of one episode by the `SxxEyy` (probe B2), so no
 merge call is needed and Sonarr's renames and upgrades of the episode's own file do not undo it
-(probe M3-episode-versions); the keeper leaves episodes' versions alone. Sonarr does not track the
+(probe M3-episode-versions). Sonarr does not track the
 version: it never renames it, an upgrade replaces only Sonarr's own file, and deleting the series
 with its files deletes the version too. On each rescan Sonarr judges the version against the
 episode's file and would adopt it if it were an upgrade (probe B3-sonarr), so before each version
@@ -274,6 +274,48 @@ and on the same mount as the intake root** (each confirmation checks every seaso
 same trial link), and inside `paths.libraryRoots` as `paths.mappings.sonarr` maps Sonarr's paths.
 The job's subtitle files for those episodes are not handed over (the subtitle manager knows only
 Sonarr's file), and Sonarr's monitoring of them is left as it is.
+
+Sonarr can still adopt a placed version later: when the episode's own file is deleted, when a
+worse file replaces it, or when a change of the quality profile or its custom formats makes the
+version win. So every `versions.regroupInterval` the keeper re-checks each episode's version
+against Sonarr (#96), whatever `versions.enabled` says, and records what it finds as the version's
+status, with an audit entry and a log event when it changes; admins see them in
+`GET /api/admin/versions`. In that order:
+
+- `series_deleted`: Sonarr answers 404 for the series, or the series no longer has the episode.
+  The version, if still on disk, is left there (remove it by hand). A series added back to Sonarr
+  gets new ids and is not followed.
+- `series_moved`: Sonarr's folder for the series is elsewhere and the version is not in it.
+  Sonarr moves the whole folder when it moves a series with its files, the version with it: then
+  Fukku's record follows the version to its new path (audit `version.followed`) and the check
+  goes on there. A version left at the old path (the series moved without its files) is
+  `series_moved`.
+- `missing`: the version file is gone.
+- `adopted`: Sonarr tracks the version as an episode's file. Sonarr now renames, upgrades and
+  deletes it as its own; the detail says whether the episode's earlier file is still on disk.
+- `episode_file_missing`: Sonarr lists no file for the episode, or its file is not on disk.
+  Sonarr's next rescan takes the version for the episode's file: import the episode's file
+  through Sonarr first to keep the version a second version.
+- `adoptable`: with `versions.requireNotUpgradeVerdict`, Sonarr's verdict on the version, asked
+  of the file where it is (Manual Import's proposal of the season folder, re-checked for the
+  episode, the check made before it was placed), no longer rejects it as not an upgrade: its next
+  rescan takes the version for the episode's file. The verdict is asked when the episode's file
+  changed, every six intervals (at least hourly), and on every pass while the version is
+  `adoptable`.
+
+Otherwise the version is `grouped` once Jellyfin lists both files as one episode, or `waiting`,
+with the same refresh and backoff as films' versions (Jellyfin 12.4.0 was seen to leave a version
+removed and placed again at the same path unlisted for minutes). Fukku never deletes, moves,
+renames or places a library file for any of these, and never asks Sonarr to rescan. A status
+that ends with the problem solved goes back to `grouped` (audit `version.recovered`); `adopted`,
+`series_deleted` and `missing` are checked again every six intervals (at least
+hourly), the others on every pass (`series_moved` too: a move in Sonarr may be under way). As for films, nothing is decided from a passing fault: while a
+`paths.sentinels` file, the library root holding the version (`paths.libraryRoots`) or Sonarr's
+folder for the series (as `paths.mappings.sonarr` maps it) is missing, or Sonarr does not
+answer, the version keeps its status and its detail says why, and `series_deleted`,
+`series_moved` and `adopted` are decided only when Sonarr's own status call answers, asked again
+for each decision. A version whose job is still importing or post-processing is left to the
+job's step.
 
 The file is placed by a hard link from the job's folder, which never replaces an existing file,
 so `versions.root` must be on **the same mount** as the intake root and writable by the web
@@ -298,8 +340,8 @@ outside the film folder, and episodes naming. A configuration that still sets it
 | `versions.root` | `FUKKU_VERSIONS_ROOT` | (empty) | Folder for films' second versions, as Fukku sees it. Required when `versions.enabled` is on. Must not overlap `paths.libraryRoots` or `paths.intakeRoot`, and before each version Fukku also checks it against Radarr's root folders (as `paths.mappings.radarr` maps them). Fukku creates one folder per film in it, never the root itself |
 | `versions.labelTemplate` | `FUKKU_VERSIONS_LABEL_TEMPLATE` | `{languageName}` | Label in `<film folder> - <label>.<ext>` (and `<series folder> - S01E02 - <label>.<ext>` for episodes), proposed to the user, who may change it. `{languageName}` is the upload's new audio language in that language (`Español` for a Spanish track the library file does not have; for episodes, the first tagged audio language that is not the series' original one), `{languageCode}` its ISO 639-1 code (`es`). Without a tagged audio language the user must type a label. An episode's label must not hold a season and episode number (`S02E05`, `2x05`) |
 | `versions.forbiddenLabelTokens` | `FUKKU_VERSIONS_FORBIDDEN_LABEL_TOKENS` | `2160p, 1080p, 720p, 576p, 480p, 4k, uhd, hd, sd, bluray, blu-ray, bdrip, brrip, remux, web, webdl, web-dl, webrip, hdtv, dvd, dvdrip, hdr, dv, proper, repack` | Words a label must not contain (whole words, any case; a token with `-` also matches with a space or `.`), so the version's name never reads as a quality or source (B3): such a label is refused with `version_label` |
-| `versions.requireNotUpgradeVerdict` | `FUKKU_VERSIONS_REQUIRE_NOT_UPGRADE_VERDICT` | `true` | Before a version is placed, ask the app what it reads in the version's name. Films: Radarr's `GET /parse` of `<film folder> - <label>` (no extension: with `.mkv` Radarr reads WEBDL-720p in any name) must read no quality, source, resolution, proper, real or repack beyond what it reads in `<film folder>` alone (so a film whose own title reads as a quality, such as `Cam (2018)`, can still have versions), else the label is refused (`version_label`). A name Radarr cannot parse at all gives no verdict, and is refused too: try another label, or turn this off. Episodes (#58): the upload is hard-linked under the version's name into the job's folder (`jobs/<job>/versions/<row>/`), and Sonarr's Manual Import proposal for it, re-checked for the episode, must reject it as not an upgrade for the episode's file (the check Sonarr's rescan runs: quality from the name and the file's resolution, then the custom-format score), or because the quality profile allows no upgrade (Sonarr then never takes another file for the episode's). Else the rows are refused with `version_upgrade`: replace those episodes instead, or skip them. A file Sonarr does not offer, or reads as another episode, gives no verdict: `version_unchecked`, with the reason. Asked at the confirmation and again right before each link; a version refused there fails its row only (result `refused`, audit `version.refused`), and the other versions and episodes go on; only when every version is refused and nothing else is imported does the job fail. Off, nothing stops a version Sonarr would take for the episode's file |
-| `versions.regroupInterval` | `FUKKU_VERSIONS_REGROUP_INTERVAL` | `10m` | How often every film version's grouping is checked: Fukku asks Radarr for the film's current file and merges the version with it again when the grouping was lost (audit `version.regrouped`, which names the old and the new file). Files the media server does not list yet get one refresh per pass for all of them (with `mediaServer.refreshMethod: libraryScan`, one scan, skipped while a scan runs), and one wait of up to `mediaServer.itemWait` for all of them together; a file in no library of the media server is skipped (logged) and the others go on. A version still not listed after that backs off: the gap between its attempts doubles (1, 2, 4… passes), up to the hourly recheck (a nudge after an import tries at once; a restart starts over). Fukku also checks a film's versions right after each of its own imports for that film. `film_deleted` and `missing` versions are checked every six intervals (at least hourly). `0` turns the schedule off (then only the checks after imports run) |
+| `versions.requireNotUpgradeVerdict` | `FUKKU_VERSIONS_REQUIRE_NOT_UPGRADE_VERDICT` | `true` | Before a version is placed, ask the app what it reads in the version's name. Films: Radarr's `GET /parse` of `<film folder> - <label>` (no extension: with `.mkv` Radarr reads WEBDL-720p in any name) must read no quality, source, resolution, proper, real or repack beyond what it reads in `<film folder>` alone (so a film whose own title reads as a quality, such as `Cam (2018)`, can still have versions), else the label is refused (`version_label`). A name Radarr cannot parse at all gives no verdict, and is refused too: try another label, or turn this off. Episodes (#58): the upload is hard-linked under the version's name into the job's folder (`jobs/<job>/versions/<row>/`), and Sonarr's Manual Import proposal for it, re-checked for the episode, must reject it as not an upgrade for the episode's file (the check Sonarr's rescan runs: quality from the name and the file's resolution, then the custom-format score), or because the quality profile allows no upgrade (Sonarr then never takes another file for the episode's). Else the rows are refused with `version_upgrade`: replace those episodes instead, or skip them. A file Sonarr does not offer, or reads as another episode, gives no verdict: `version_unchecked`, with the reason. Asked at the confirmation and again right before each link; a version refused there fails its row only (result `refused`, audit `version.refused`), and the other versions and episodes go on; only when every version is refused and nothing else is imported does the job fail. The re-check of placed episodes' versions (#96, `versions.regroupInterval`) asks the same verdict of the file where it is, and marks a version Sonarr would now take `adoptable`. Off, nothing stops a version Sonarr would take for the episode's file, and the re-check does not ask |
+| `versions.regroupInterval` | `FUKKU_VERSIONS_REGROUP_INTERVAL` | `10m` | How often every film version's grouping is checked: Fukku asks Radarr for the film's current file and merges the version with it again when the grouping was lost (audit `version.regrouped`, which names the old and the new file). Files the media server does not list yet get one refresh per pass for all of them (with `mediaServer.refreshMethod: libraryScan`, one scan, skipped while a scan runs), and one wait of up to `mediaServer.itemWait` for all of them together; a file in no library of the media server is skipped (logged) and the others go on. A version still not listed after that backs off: the gap between its attempts doubles (1, 2, 4… passes), up to the hourly recheck (a nudge after an import tries at once; a restart starts over). Fukku also checks a film's versions right after each of its own imports for that film. `film_deleted` and `missing` versions are checked every six intervals (at least hourly). The same passes re-check every episode's version against Sonarr (#96, see the episodes above: `adopted`, `adoptable`, `episode_file_missing`, `series_moved`, `series_deleted`), reading each series once per pass and asking Sonarr's verdict once per season folder, when the episode's file changed and every six intervals; a nudge after an import does not check them. `0` turns the schedule off (then only the checks of films after imports run, and episodes' versions are re-checked only once, at start-up) |
 
 ## seasonDub
 

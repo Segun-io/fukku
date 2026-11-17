@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -169,8 +170,10 @@ func TestRefreshStepSkipsAJobOfOnlyEpisodeVersions(t *testing.T) {
 	}
 }
 
-// The keeper leaves episodes' versions alone: Jellyfin groups them by their names.
-func TestKeeperLeavesEpisodeVersions(t *testing.T) {
+// The keeper never groups an episode's version with Radarr's movie of the same id, and a
+// nudge for the film does not check it: episodes' versions are re-checked against Sonarr, on
+// scheduled passes (#96; here without Sonarr, nothing is decided).
+func TestKeeperLeavesEpisodeVersionsToSonarr(t *testing.T) {
 	x := newKeeperEnv(t)
 	ctx := t.Context()
 	ep, err := x.st.PutVersion(ctx, store.Version{JobID: "j9", App: "sonarr", TitleID: 7, EpisodeID: 101, Path: x.version + ".episode", Status: store.VersionLinked})
@@ -189,7 +192,11 @@ func TestKeeperLeavesEpisodeVersions(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 	cancel()
 	<-ended
-	if rec, _ := x.st.VersionByPath(ctx, ep.Path); rec.Status != store.VersionLinked || rec.Detail != "" || !rec.CheckedAt.IsZero() {
-		t.Fatalf("the keeper checked an episode's version (with Radarr's movie of the same id): %+v", rec)
+	rec, _ := x.st.VersionByPath(ctx, ep.Path)
+	if rec.Status != store.VersionLinked || rec.PrimaryItemID != "" || rec.PrimaryFileID != 0 || strings.Contains(strings.ToLower(rec.Detail), "radarr") {
+		t.Fatalf("the keeper checked an episode's version with Radarr's movie of the same id: %+v", rec)
+	}
+	if merged := x.server.MergeCalls(); len(merged) != 1 {
+		t.Fatalf("merges %v, want the film's only", merged)
 	}
 }

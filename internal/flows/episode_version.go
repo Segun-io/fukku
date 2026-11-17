@@ -857,11 +857,18 @@ func (e *Engine) sonarrVerdict(ctx context.Context, jobID string, t store.Target
 // Sonarr's rescans, and Code is "". Otherwise version_upgrade. An error is a call to Sonarr
 // that failed.
 func EpisodeVerdict(ctx context.Context, sonarr arr.Importer, folder, file string, seriesID, episodeID, season, number int) (Verdict, error) {
-	name := path.Base(file)
 	items, err := sonarr.Proposal(ctx, folder)
 	if err != nil {
 		return Verdict{}, err
 	}
+	return EpisodeVerdictIn(ctx, sonarr, items, file, seriesID, episodeID, season, number)
+}
+
+// EpisodeVerdictIn is EpisodeVerdict on the items of a proposal already asked for the file's
+// folder: the re-check of placed versions (#96) asks once per season folder for all of the
+// versions in it.
+func EpisodeVerdictIn(ctx context.Context, sonarr arr.Importer, items []arr.Row, file string, seriesID, episodeID, season, number int) (Verdict, error) {
+	name := path.Base(file)
 	i := slices.IndexFunc(items, func(it arr.Row) bool { return path.Clean(it.Path) == path.Clean(file) })
 	if i < 0 {
 		return unchecked("Sonarr does not offer %s, so it gives no verdict", name), nil

@@ -11,8 +11,9 @@ import (
 // outlives the job that placed it: the version keeper checks it on a schedule and groups it
 // again. Second versions of episodes (#58) are records too (App "sonarr", with the episode):
 // a file next to the episode's own in Sonarr's season folder, which Jellyfin groups by its
-// SxxEyy, so the keeper leaves them alone. DeleteJob leaves it (like audit entries); only DeleteVersion removes one, for a
-// record of a placement that failed before its file existed.
+// SxxEyy; the keeper re-checks them against Sonarr (#96), which can adopt them. DeleteJob
+// leaves a record (like audit entries); only DeleteVersion removes one, for a record of a
+// placement that failed before its file existed.
 
 // Version statuses.
 const (
@@ -22,6 +23,27 @@ const (
 	VersionWaiting     = "waiting"      // not grouped now: Detail says why; checked again
 	VersionFilmDeleted = "film_deleted" // Radarr no longer has the film; the file is left alone
 	VersionMissing     = "missing"      // the version file is no longer on disk
+)
+
+// Statuses of episodes' versions only (#96): what the keeper's re-check found in Sonarr. Each
+// is a notice: Fukku never deletes, moves or renames a library file for them.
+const (
+	// VersionAdopted: Sonarr tracks the version as an episode's file now. It renames, upgrades
+	// and deletes it as its own.
+	VersionAdopted = "adopted"
+	// VersionAdoptable: Sonarr's verdict on the version no longer rejects it as not an upgrade
+	// for the episode's file (a worse file replaced it, or the quality profile or its custom
+	// formats changed): its next rescan takes the version for the episode's file.
+	VersionAdoptable = "adoptable"
+	// VersionEpisodeFileMissing: the episode's own file is gone (Sonarr lists none, or its file
+	// is not on disk): Sonarr's next rescan takes the version for the episode's file.
+	VersionEpisodeFileMissing = "episode_file_missing"
+	// VersionSeriesMoved: Sonarr's folder for the series is elsewhere, and the version was not
+	// found next to the episode's file there.
+	VersionSeriesMoved = "series_moved"
+	// VersionSeriesDeleted: Sonarr no longer has the series (or the episode); the file, if
+	// still there, is left alone.
+	VersionSeriesDeleted = "series_deleted"
 )
 
 // Version is one placed second version.
@@ -36,7 +58,7 @@ type Version struct {
 	Path    string // the version file as Fukku sees it; unique
 	Label   string
 	Status  string
-	Detail  string // why it is waiting, film_deleted or missing; "" otherwise
+	Detail  string // why it is waiting, film_deleted, missing or an episode's notice status; "" otherwise
 	// The film's tracked file the version was last grouped with (Radarr's movie-file id and
 	// the path as Fukku sees it), and the media server's items of both. Empty until grouped.
 	PrimaryFileID int

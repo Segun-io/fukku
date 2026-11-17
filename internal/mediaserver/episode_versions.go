@@ -223,8 +223,14 @@ func (s *EpisodeVersionStep) waitGrouped(ctx context.Context, g Grouper, checks 
 
 // groupedNow finds the item of either file and reports whether its sources are both files.
 func (s *EpisodeVersionStep) groupedNow(ctx context.Context, g Grouper, look [2]string) (string, bool, error) {
+	return episodeGrouped(ctx, s.Server, g, look)
+}
+
+// episodeGrouped finds the item of either file (the episode's, the version's: as the server
+// sees them) and reports whether its sources are both files.
+func episodeGrouped(ctx context.Context, server MediaServer, g Grouper, look [2]string) (string, bool, error) {
 	for _, p := range look {
-		id, err := s.Server.Find(ctx, p)
+		id, err := server.Find(ctx, p)
 		if err != nil || id == "" {
 			if err != nil {
 				return "", false, err
