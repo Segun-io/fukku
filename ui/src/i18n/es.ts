@@ -63,8 +63,9 @@ const es: Record<keyof typeof en, string> = {
   "patterns.timeline.step.done": "Hecho",
   "patterns.timeline.step.current": "Ahora",
   "patterns.timeline.step.upcoming": "Pendiente",
-  "patterns.timeline.failed": "Se detuvo aquí. Te necesita: inténtalo de nuevo o cancela.",
-  "patterns.timeline.stalled": "Espera aquí algo que no respondió. Continuará solo.",
+  "patterns.timeline.failed":
+    "Se detuvo aquí y necesita que intervengas: inténtalo de nuevo o cancela.",
+  "patterns.timeline.stalled": "Está en espera aquí: algo no respondió. Continuará solo.",
   "patterns.timeline.cancelled": "Cancelado aquí.",
   "patterns.state.uploading": "Subiendo",
   "patterns.state.uploaded": "Subida completa",
@@ -85,7 +86,7 @@ const es: Record<keyof typeof en, string> = {
 
   // ---- patterns: file list -------------------------------------------------------------
   "patterns.files.label": "Archivos de este envío",
-  "patterns.files.kind.video": "Vídeo",
+  "patterns.files.kind.video": "Video",
   "patterns.files.kind.subtitle": "Subtítulos",
   "patterns.files.kind.archive": "Archivo comprimido",
   "patterns.files.status.ok": "Aceptado",
@@ -105,11 +106,11 @@ const es: Record<keyof typeof en, string> = {
   "patterns.demo.progress.failed": "El servidor rechazó el archivo: pesa más de 80 GB.",
   "patterns.demo.timeline.title": "Línea de estado",
   "patterns.demo.timeline.running": "En marcha",
-  "patterns.demo.timeline.failed": "Con fallo",
+  "patterns.demo.timeline.failed": "Fallido",
   "patterns.demo.timeline.stalled": "En espera",
   "patterns.demo.timeline.cancelled": "Cancelado",
   "patterns.demo.timeline.done": "Terminado",
-  "patterns.demo.timeline.failedDetail": "El proceso de revisión no arrancó en 10 minutos.",
+  "patterns.demo.timeline.failedDetail": "El proceso de trabajo no arrancó en 10 minutos.",
   "patterns.demo.timeline.stalledDetail": "Radarr no responde.",
   "patterns.demo.timeline.cancel": "Cancelar este envío",
   "patterns.demo.confirm.title": "Confirmación con avisos",
@@ -128,9 +129,9 @@ const es: Record<keyof typeof en, string> = {
   "patterns.demo.confirm.result": "Confirmado. En una página real, aquí empieza la importación.",
   "patterns.demo.files.title": "Lista de archivos",
   "patterns.demo.files.refused1":
-    "No se encontró vídeo dentro de este archivo. Puede estar dañado o tener otro nombre.",
+    "No se encontró video dentro de este archivo. Puede estar dañado o tener otro nombre.",
   "patterns.demo.files.refused2":
-    "Este tipo de archivo no se acepta: solo vídeo, subtítulos y zip.",
+    "Este tipo de archivo no se acepta: solo video, subtítulos y zip.",
   "patterns.demo.picker.title": "Selector de archivos",
   "patterns.demo.picker.full": "Nada elegido todavía",
   "patterns.demo.picker.compact": "Con archivos debajo",
@@ -138,9 +139,9 @@ const es: Record<keyof typeof en, string> = {
   "patterns.demo.select.title": "Campo de selección",
   "patterns.demo.choice.title": "Elección con consecuencias",
   "patterns.demo.compare.title": "Dos cosas lado a lado",
-  "patterns.demo.nudge.title": "Campo con botones de paso",
+  "patterns.demo.nudge.title": "Campo con botones de ajuste",
   "patterns.demo.status.title": "Estado de una fila",
-  "patterns.demo.flow.title": "Cabecera de un paso",
+  "patterns.demo.flow.title": "Encabezado de un paso",
   "patterns.demo.shell.title": "Estados de la aplicación",
   "patterns.demo.shell.banner": "Aviso de desarrollo inseguro",
   "patterns.demo.shell.offline": "Sin conexión",
@@ -148,7 +149,7 @@ const es: Record<keyof typeof en, string> = {
   "patterns.demo.shell.empty": "Vacío",
   "patterns.demo.shell.error": "Error",
   "patterns.demo.shell.loading": "Cargando",
-  "patterns.demo.shell.nav": "Navegación de la cabecera",
+  "patterns.demo.shell.nav": "Navegación del encabezado",
   "patterns.demo.empty.title": "Todavía no has subido nada",
   "patterns.demo.empty.body":
     "Las películas y temporadas que subas aparecen aquí, con lo que pasa con cada una.",
@@ -162,7 +163,7 @@ const es: Record<keyof typeof en, string> = {
   "admin.title": "Administración",
   "admin.intro":
     "Cómo va el servidor y los ajustes con los que funciona. Aquí no se puede cambiar nada.",
-  "admin.health.title": "Salud",
+  "admin.health.title": "Estado de salud",
   "admin.health.refresh": "Revisar de nuevo",
   "admin.health.checked": "Revisado {date}",
   "admin.health.version": "Fukku {version}",
@@ -170,9 +171,9 @@ const es: Record<keyof typeof en, string> = {
   "admin.status.ready": "Todo funciona",
   "admin.status.degraded": "Funciona, pero una aplicación no responde",
   "admin.status.not_ready": "No está listo: algo falla en este servidor",
-  "admin.checks.title": "Revisiones",
+  "admin.checks.title": "Verificaciones",
   "admin.check.ok": "Correcta",
-  "admin.check.failing": "Falla",
+  "admin.check.failing": "Fallida",
   "admin.check.database": "Base de datos",
   "admin.check.spool": "Carpeta de intercambio",
   "admin.check.sentinels": "Almacenamiento montado",
@@ -186,9 +187,9 @@ const es: Record<keyof typeof en, string> = {
   "admin.apps.noVersion": "Sin versión: la aplicación no respondió",
   "admin.apps.none": "Radarr y Sonarr no están configurados.",
   "admin.worker.title": "Proceso de trabajo",
-  "admin.worker.age": "Último latido hace {age}. Es un problema pasados {max}.",
+  "admin.worker.age": "Última señal de vida hace {age}. Es un problema a partir de {max}.",
   "admin.worker.none":
-    "Sin latido. El proceso de trabajo no está en marcha o no puede escribir en la carpeta de intercambio.",
+    "Sin señal de vida. El proceso de trabajo no está en marcha o no puede escribir en la carpeta de intercambio.",
   "admin.jobs.title": "Envíos por estado",
   "admin.jobs.total.one": "{count} envío en total, de todos los usuarios",
   "admin.jobs.total.other": "{count} envíos en total, de todos los usuarios",
@@ -206,7 +207,7 @@ const es: Record<keyof typeof en, string> = {
   "admin.settings.onlySet": "Solo los ajustes que no tienen el valor predeterminado",
   "admin.settings.error.title": "No se pudieron cargar los ajustes",
   "admin.settings.none": "Todos los ajustes tienen su valor predeterminado.",
-  "admin.setting.default": "Por defecto",
+  "admin.setting.default": "Predeterminado",
   "admin.setting.set": "Definido",
   "admin.setting.empty": "Vacío",
   "admin.setting.hidden": "Definido, oculto",
@@ -226,14 +227,14 @@ const es: Record<keyof typeof en, string> = {
   "upload.summary.other": "{done} de {count} archivos subidos",
   "upload.start": "Empezar a subir",
   "upload.starting": "Empezando…",
-  "upload.submitting": "Llegaron todos los archivos. Terminando la subida…",
-  "upload.submitFailed.title": "Los archivos llegaron, pero no se pudo terminar la subida",
-  "upload.discard": "Descartar esta subida",
+  "upload.submitting": "Llegaron todos los archivos. Terminando el envío…",
+  "upload.submitFailed.title": "Los archivos llegaron, pero no se pudo terminar el envío",
+  "upload.discard": "Descartar este envío",
   "upload.pausedSignedOut":
     "En pausa hasta que vuelvas a iniciar sesión. Continúa desde donde se quedó.",
-  "upload.discard.confirm": "¿Descartar esta subida? Lo que ya se envió se borra.",
+  "upload.discard.confirm": "¿Descartar este envío? Lo que ya se subió se borra.",
   "upload.startOver": "Empezar de nuevo",
-  "upload.remove.confirm": "¿Quitar {name}? Lo que ya se envió se borra.",
+  "upload.remove.confirm": "¿Quitar {name}? Lo que ya se subió se borra.",
   "upload.rejected.title": "Algunos archivos no se añadieron",
   "upload.rejected.dismiss": "Ocultar esta lista",
   "upload.reason.file_mismatch":
@@ -244,7 +245,7 @@ const es: Record<keyof typeof en, string> = {
   "upload.large.title": "Archivo muy grande",
   "upload.large.body":
     "Los archivos muy grandes se suben mejor desde casa o con otra conexión rápida. Si tienes que usar esta, mantén abierta la página; si se corta, la subida continúa desde donde se quedó.",
-  "upload.jobGone.title": "Esta subida no puede continuar",
+  "upload.jobGone.title": "Este envío no puede continuar",
   "upload.jobGone.body": "{reason} Empieza de nuevo para enviar los archivos otra vez.",
 
   "jobs.title": "Tus envíos",
@@ -290,17 +291,17 @@ const es: Record<keyof typeof en, string> = {
   "job.uploads.continue": "Seguir subiendo",
   "job.probe.title": "Lo que se encontró en {name}",
   "job.probe.duration": "Duración",
-  "job.probe.video": "Vídeo",
+  "job.probe.video": "Video",
   "job.probe.audio": "Audio",
   "job.probe.subtitles": "Subtítulos",
   "job.probe.none": "Ninguno",
   "job.probe.noLanguage": "Idioma sin indicar",
   "job.probe.rate": "{rate} fps",
   "job.probe.flag.default": "predeterminada",
-  "job.probe.flag.forced": "forzados",
-  "job.probe.flag.hearingImpaired": "para personas sordas",
+  "job.probe.flag.forced": "forzada",
+  "job.probe.flag.hearingImpaired": "para personas con dificultades auditivas",
   "job.skipped.title": "Lo que quedó fuera de {name}",
-  "job.skipped.note": "Estos elementos no se sacaron. Todo lo demás sí.",
+  "job.skipped.note": "Estos elementos no se extrajeron. Todo lo demás sí.",
   "job.skipped.item": "{name}: {reason}",
   "job.manual.title": "Impórtalo a mano",
   "job.manual.intro":
@@ -359,7 +360,7 @@ const es: Record<keyof typeof en, string> = {
   "jobError.worker_unavailable":
     "La parte de Fukku que revisa los archivos no responde. El envío continúa solo cuando vuelva.",
   "jobError.free_space":
-    "No hay espacio libre suficiente en el servidor para abrir un zip. El envío continúa solo cuando haya sitio. Si tarda mucho, avisa a quien administra el servidor.",
+    "No hay espacio libre suficiente en el servidor para abrir un zip. El envío continúa solo cuando haya espacio. Si tarda mucho, avisa a quien administra el servidor.",
   "jobError.task_timeout":
     "La revisión tardó demasiado y se detuvo. Inténtalo de nuevo; si vuelve a fallar, puede que el archivo esté dañado.",
   "jobError.task_failed":
@@ -374,14 +375,15 @@ const es: Record<keyof typeof en, string> = {
   "refusal.too_large": "Al abrirlo, el zip sería demasiado grande.",
   "refusal.ratio": "El zip está comprimido de forma sospechosa y no se abrió.",
   "refusal.free_space": "No había espacio suficiente para abrirlo.",
-  "refusal.extension": "Este tipo de archivo no se acepta: solo vídeo, subtítulos y zip.",
+  "refusal.extension": "Este tipo de archivo no se acepta: solo video, subtítulos y zip.",
   "refusal.no_video_stream":
-    "No se encontró vídeo dentro de este archivo. Puede estar dañado o tener otro nombre.",
+    "No se encontró video dentro de este archivo. Puede estar dañado o tener otro nombre.",
   "refusal.no_duration":
     "El archivo no tiene una duración legible. Puede estar dañado o incompleto.",
   "refusal.not_text": "Este archivo de subtítulos no es texto legible.",
   "refusal.unreadable": "No se pudo leer el archivo. Puede estar dañado.",
   "refusal.timeout": "La revisión de este archivo tardó demasiado.",
+  "refusal.outside_library": "El archivo está fuera de las carpetas que Fukku puede leer.",
   "refusal.unknown": "Se rechazó el archivo (código: {code}).",
 
   "skip.traversal": "su nombre apunta fuera de la carpeta",
@@ -399,16 +401,16 @@ const es: Record<keyof typeof en, string> = {
 
   "errors.unknown": "Algo salió mal.",
   "errors.signed_out": "Tu sesión terminó. Vuelve a iniciar sesión.",
-  "errors.network": "No se puede contactar con el servidor. Revisa tu conexión.",
+  "errors.network": "No se puede conectar con el servidor. Revisa tu conexión.",
   "errors.bad_response": "El servidor envió una respuesta que la página no puede leer.",
   "errors.forbidden": "No tienes permiso para hacer eso.",
-  "errors.origin_mismatch": "La petición vino de otro sitio y fue rechazada.",
-  "errors.not_found": "No encontrado.",
-  "errors.bad_request": "La petición no es válida.",
-  "errors.too_large": "La petición es demasiado grande.",
+  "errors.origin_mismatch": "La solicitud vino de otro sitio web y se rechazó.",
+  "errors.not_found": "No se encontró.",
+  "errors.bad_request": "La solicitud no es válida.",
+  "errors.too_large": "La solicitud es demasiado grande.",
   "errors.internal": "El servidor tuvo un problema. Inténtalo más tarde.",
   "errors.uploads_unfinished": "Algunas subidas todavía no han terminado.",
-  "errors.no_files": "Añade al menos un archivo primero.",
+  "errors.no_files": "Primero añade al menos un archivo.",
   "errors.wrong_state": "No es posible mientras el envío está en este estado.",
   "errors.job_active": "Este envío sigue en marcha.",
   "errors.bad_name": "El nombre del archivo no es válido.",
@@ -421,7 +423,7 @@ const es: Record<keyof typeof en, string> = {
   "errors.insufficient_space": "El servidor no tiene suficiente espacio libre.",
   "errors.storage_unavailable": "El almacenamiento no está disponible ahora. Inténtalo más tarde.",
   "errors.offset_mismatch":
-    "La subida se desfasó con el servidor. Continúa desde donde está el servidor.",
+    "Lo que la subida creía haber enviado no coincidía con lo que recibió el servidor. Continúa desde donde está el servidor.",
   "errors.upload_busy":
     "El servidor sigue trabajando en esta subida. Inténtalo de nuevo en un momento.",
 
@@ -434,7 +436,7 @@ const es: Record<keyof typeof en, string> = {
   "match.title": "Elegir la película o la serie",
   "match.intro":
     "Indica de qué título son estos archivos. Fukku lo añade a Radarr o a Sonarr si es nuevo; no se descarga nada.",
-  "match.back": "Volver a la subida",
+  "match.back": "Volver al envío",
   "match.manual": "Importarlo a mano",
   "match.kind.legend": "¿Qué es?",
   "match.kind.movie": "Una película",
@@ -474,14 +476,14 @@ const es: Record<keyof typeof en, string> = {
   "match.noApps.title": "Radarr y Sonarr no están configurados",
   "match.noApps.body":
     "Pide a quien administra Fukku que conecte alguno. Mientras tanto puedes importar los archivos a mano.",
-  "match.wrongState.title": "Esta subida no se puede asociar ahora",
+  "match.wrongState.title": "Ahora no se puede elegir el título de este envío",
   "match.wrongState.body": "Solo se puede elegir un título cuando los archivos están revisados.",
   "errors.already_in_library":
     "Esta película ya tiene un archivo. Elígela otra vez para añadir otro idioma.",
-  "errors.title_in_use": "Otra subida ya está trabajando con este título. Espera a que termine.",
+  "errors.title_in_use": "Otro envío ya está trabajando con este título. Espera a que termine.",
   "errors.title_busy": "Este título se está descargando ahora. Inténtalo de nuevo cuando termine.",
   "errors.arr_unavailable":
-    "No se puede contactar con Radarr o Sonarr ahora. Inténtalo de nuevo en un momento.",
+    "No se puede conectar con Radarr o Sonarr ahora. Inténtalo de nuevo en un momento.",
   "match.profile.none": "{app} no tiene perfiles de calidad. Añade uno allí y vuelve.",
   "match.unavailable.title": "Radarr y Sonarr no responden",
   "errors.app_not_configured": "Esa aplicación no está configurada en Fukku.",
@@ -491,7 +493,7 @@ const es: Record<keyof typeof en, string> = {
   "mapping.back": "Volver al envío",
   "mapping.target": "{title} ({year}) en {app}",
   "mapping.intro":
-    "Cada archivo tiene su fila, con lo que {app} entiende de él. Cambia lo que esté mal: {app} vuelve a revisar cada cambio.",
+    "Cada archivo tiene su fila, con lo que {app} reconoce en él. Cambia lo que esté mal: {app} vuelve a revisar cada cambio.",
   "mapping.fromNames":
     "La temporada y los episodios salen de los nombres de los archivos o de lo que {app} supone. Compáralos con lo que es cada archivo de verdad.",
   "mapping.pending.title": "{app} está revisando los archivos",
@@ -516,7 +518,7 @@ const es: Record<keyof typeof en, string> = {
   "mapping.col.episodes": "Episodios",
   "mapping.col.quality": "Calidad",
   "mapping.col.languages": "Idiomas",
-  "mapping.col.notes": "Revisión",
+  "mapping.col.notes": "Para revisar",
   "mapping.col.skip": "Omitir",
   "mapping.select.row": "Elegir {name}",
   "mapping.select.all": "Elegir todos los archivos mostrados",
@@ -580,7 +582,7 @@ const es: Record<keyof typeof en, string> = {
   "mapping.bulk.selected.other": "{count} archivos elegidos",
   "mapping.bulk.none": "Elige archivos para mover sus episodios o cambiar su temporada a la vez.",
   "mapping.bulk.clear": "Quitar la elección",
-  "mapping.bulk.shift": "Mover los episodios",
+  "mapping.bulk.shift": "Mover los episodios en",
   "mapping.bulk.shift.apply": "Mover episodios",
   "mapping.bulk.season": "Temporada",
   "mapping.bulk.season.apply": "Cambiar la temporada",
@@ -598,6 +600,10 @@ const es: Record<keyof typeof en, string> = {
     "La aplicación no pudo importar todos los archivos. La lista de abajo muestra cuáles llegaron. Revisa la aplicación y vuelve a intentarlo.",
   "jobError.arr_unavailable":
     "Esperando a {app}, que no responde. No tienes que hacer nada: la importación continúa sola cuando vuelva.",
+  "jobError.proposal_failed":
+    "La aplicación rechazó los archivos o no pudo volver a revisarlos. No se importó nada. Inténtalo de nuevo; si vuelve a fallar, avisa a quien administra el servidor.",
+  "jobError.title_busy":
+    "La aplicación está descargando este título ahora, así que no se pudieron importar los archivos. Inténtalo de nuevo cuando termine la descarga.",
   "errors.needs_override":
     "Algunos archivos tienen problemas que aún no has aceptado. Marca «Importar de todos modos» en cada uno, o déjalos fuera.",
   "errors.incomplete_rows":
@@ -607,14 +613,14 @@ const es: Record<keyof typeof en, string> = {
   "errors.nothing_to_import": "No hay nada que importar: todos los archivos están fuera.",
 
   "confirm.title": "Confirmar la importación",
-  "confirm.back": "Volver a la subida",
+  "confirm.back": "Volver al envío",
   "confirm.error.title": "No se pudo preparar la importación",
-  "confirm.wrongState.title": "Esta subida no se puede confirmar ahora",
+  "confirm.wrongState.title": "Este envío no se puede confirmar ahora",
   "confirm.wrongState.body": "Solo se puede confirmar después de elegir una película o serie.",
-  "confirm.wrongState.action": "Ir a la subida",
-  "confirm.pending": "{app} está mirando los archivos. Tarda un momento.",
+  "confirm.wrongState.action": "Ir al envío",
+  "confirm.pending": "{app} está revisando los archivos. Tarda un momento.",
   "confirm.intro":
-    "{app} ha mirado cada archivo. Revisa lo que encontró, corrige lo que esté mal y luego importa.",
+    "{app} ya revisó cada archivo. Revisa lo que encontró, corrige lo que esté mal y luego importa.",
   "confirm.target": "Entra en {app} como",
   "confirm.title.name": "{title} ({year})",
   "confirm.rows.title.one": "{count} archivo",
@@ -702,7 +708,7 @@ const es: Record<keyof typeof en, string> = {
   "import.row.skipped": "Fuera",
   "import.row.failed": "No importado",
   "import.steps": "Pasos después de la importación",
-  "import.post.running": "Los archivos ya están en la biblioteca. Estos pasos terminan el trabajo.",
+  "import.post.running": "Los archivos ya están en la biblioteca. Estos pasos lo dejan todo listo.",
   "import.step.mediaServerRefresh": "Avisar al servidor multimedia de los archivos nuevos",
   "import.step.mediaServerVersions":
     "Agrupar la segunda versión con la película en el servidor multimedia",
@@ -752,9 +758,9 @@ const es: Record<keyof typeof en, string> = {
   "flow2.notFlow2.body":
     "No hay nada que comparar. Revisa los archivos e impórtalos como una película nueva.",
   "flow2.pending": "Se está leyendo el archivo de Radarr. Tarda un momento.",
-  "flow2.noUpload.title": "No hay ningún vídeo para comparar",
+  "flow2.noUpload.title": "No hay ningún video para comparar",
   "flow2.noUpload.body":
-    "No se pudo leer ningún vídeo de este envío. Vuelve y revisa sus archivos.",
+    "No se pudo leer ningún video de este envío. Vuelve y revisa sus archivos.",
   "flow2.changed.action": "Elegir la película otra vez",
   "flow2.compare.title": "Tu envío y el archivo de la biblioteca",
   "flow2.side.library": "En la biblioteca",
@@ -766,17 +772,17 @@ const es: Record<keyof typeof en, string> = {
   "flow2.duration": "Duración",
   "flow2.audio": "Audio",
   "flow2.subtitles": "Subtítulos",
-  "flow2.unknown": "No se sabe",
+  "flow2.unknown": "Desconocido",
   "flow2.seconds": "{value}\u00a0s",
   "flow2.finding.match.title": "El mismo montaje",
   "flow2.finding.match.body":
     "Los dos archivos duran lo mismo, con una diferencia de {delta}. El audio de tu envío se puede añadir al archivo de la biblioteca.",
   "flow2.finding.pal.title": "Una aceleración PAL",
   "flow2.finding.pal.body":
-    "Los dos archivos se diferencian en {delta}, una proporción de {ratio}: la de una película acelerada de 23,976 a 25 fotogramas por segundo. Su audio se iría desfasando respecto a la imagen del archivo de la biblioteca, así que no se puede fusionar. Se puede conservar como segunda versión.",
+    "Los dos archivos difieren en {delta}, una proporción de {ratio}: la de una película acelerada de 23,976 a 25 fotogramas por segundo. Su audio se iría desincronizando de la imagen del archivo de la biblioteca, así que no se puede fusionar. Se puede conservar como segunda versión.",
   "flow2.finding.different.title": "Un montaje distinto",
   "flow2.finding.different.body":
-    "Los dos archivos se diferencian en {delta} (una proporción de {ratio}) y no del modo en que lo hace una aceleración. Puede ser un montaje más largo o más corto de la película. Su audio no se puede fusionar, pero se puede conservar junto al archivo de la biblioteca como segunda versión.",
+    "Los dos archivos difieren en {delta} (una proporción de {ratio}) y no como lo haría una aceleración. Puede ser un montaje más largo o más corto de la película. Su audio no se puede fusionar, pero se puede conservar junto al archivo de la biblioteca como segunda versión.",
   "flow2.options.title": "Qué puedes hacer",
   "flow2.offer.merge": "Fusionar el audio en el archivo de la biblioteca",
   "flow2.offer.merge.body":
@@ -813,29 +819,29 @@ const es: Record<keyof typeof en, string> = {
   "flow2.sync.offset.say.later": "El audio nuevo empieza {seconds} después.",
   "flow2.sync.offset.say.earlier": "El audio nuevo empieza {seconds} antes.",
   "flow2.sync.offset.invalid": "Escribe un número entero de −60000 a 60000.",
-  "flow2.sync.make": "Hacer los clips",
-  "flow2.sync.again": "Hacer los clips otra vez",
-  "flow2.sync.pending": "Haciendo los clips… Tarda un momento, y la página se actualiza sola.",
-  "flow2.sync.failed.title": "No se pudieron hacer los clips",
+  "flow2.sync.make": "Crear los clips",
+  "flow2.sync.again": "Crear los clips otra vez",
+  "flow2.sync.pending": "Creando los clips… Tarda un momento, y la página se actualiza sola.",
+  "flow2.sync.failed.title": "No se pudieron crear los clips",
   "flow2.sync.error.outside_library":
     "El archivo de la biblioteca está fuera de las carpetas que Fukku puede leer.",
   "flow2.sync.error.library_unreadable": "No se pudo leer el archivo de la biblioteca.",
   "flow2.sync.error.upload_unreadable": "No se pudo leer el archivo subido.",
-  "flow2.sync.error.render_failed": "No se pudieron hacer los clips con estos archivos.",
-  "flow2.sync.error.timeout": "Hacer un clip tardó demasiado.",
-  "flow2.sync.error.too_large": "Un clip salió demasiado grande.",
-  "flow2.sync.error.task_failed": "El proceso de trabajo no pudo hacer los clips.",
-  "flow2.sync.error.task_timeout": "El proceso de trabajo tardó demasiado en hacer los clips.",
-  "flow2.sync.error.unknown": "No se pudieron hacer los clips (código: {code}).",
-  "flow2.sync.ready": "Hechos con {track} y un desfase de {offset}\u00a0ms.",
+  "flow2.sync.error.render_failed": "No se pudieron crear los clips con estos archivos.",
+  "flow2.sync.error.timeout": "Crear un clip tardó demasiado.",
+  "flow2.sync.error.too_large": "Un clip resultó demasiado grande.",
+  "flow2.sync.error.task_failed": "El proceso de trabajo no pudo crear los clips.",
+  "flow2.sync.error.task_timeout": "El proceso de trabajo tardó demasiado en crear los clips.",
+  "flow2.sync.error.unknown": "No se pudieron crear los clips (código: {code}).",
+  "flow2.sync.ready": "Creados con {track} y un desfase de {offset}\u00a0ms.",
   "flow2.sync.clips": "Clips",
   "flow2.sync.clip": "Clip {n} de {total}, desde {at}",
   "flow2.sync.clip.fallback": "Tu navegador no puede reproducir este clip.",
   "flow2.sync.stale":
-    "La pista o el desfase cambiaron después de hacer estos clips. Hazlos otra vez para revisarlo.",
+    "La pista o el desfase cambiaron después de crear estos clips. Créalos otra vez para revisarlo.",
   "flow2.sync.match": "Coinciden, continuar",
   "flow2.sync.nomatch":
-    "Si el sonido va adelantado o atrasado lo mismo en todos los clips, cambia el desfase de arriba y haz los clips otra vez.",
+    "Si el sonido va adelantado o atrasado lo mismo en todos los clips, cambia el desfase de arriba y crea los clips otra vez.",
   "flow2.sync.drift":
     "Si coincide al principio y no al final, los dos archivos van a velocidades distintas. Un desfase no lo arregla: conserva el envío como segunda versión.",
   "flow2.sync.question": "¿El sonido y la imagen coinciden en todos los clips?",
@@ -844,7 +850,7 @@ const es: Record<keyof typeof en, string> = {
   "flow2.refusal.choice":
     "Usó {track} con un desfase de {offset}\u00a0ms. No se cambió nada en la biblioteca.",
   "flow2.refusal.hint":
-    "Elige otro desfase u otra pista de audio, haz los clips otra vez, revísalos y confirma la fusión de nuevo.",
+    "Elige otro desfase u otra pista de audio, crea los clips otra vez, revísalos y confirma la fusión de nuevo.",
   "flow2.merge.title": "Fusionar en el archivo de la biblioteca",
   "flow2.merge.intro":
     "Elige qué se añade. Todo lo que sigue es opcional: lo que dejes vacío usa los ajustes del servidor.",
@@ -926,7 +932,7 @@ const es: Record<keyof typeof en, string> = {
     "Este envío no se puede fusionar en el archivo de la biblioteca. La comparación explica por qué.",
   "errors.no_audio": "El envío no tiene ninguna pista de audio para añadir.",
   "errors.preview_required":
-    "Los clips de sincronización están desactualizados. Hazlos otra vez con el desfase que quieras, revísalos y luego fusiona.",
+    "Los clips de sincronización están desactualizados. Créalos otra vez con el desfase que quieras, revísalos y luego fusiona.",
   "errors.library_changed":
     "El archivo de la película en Radarr cambió desde que la elegiste. Elige la película otra vez para que Fukku compare el archivo nuevo.",
   "errors.version_label": "Esa etiqueta no se puede usar. Cámbiala e inténtalo de nuevo.",
@@ -939,14 +945,14 @@ const es: Record<keyof typeof en, string> = {
   "jobError.library_unreadable":
     "Fukku no pudo leer el archivo de la película en la biblioteca. Avisa a quien administra el servidor.",
   "jobError.merge_failed":
-    "No se pudo hacer la fusión. La biblioteca no se cambió. Puedes volver a intentarlo.",
+    "No se pudo completar la fusión. La biblioteca no se cambió. Puedes volver a intentarlo.",
   "jobError.merge_rejected":
     "Radarr no aceptó el archivo fusionado. La biblioteca no se cambió. Avisa a quien administra el servidor.",
   "jobError.version_failed":
     "No se pudo guardar la segunda versión. La biblioteca no se cambió. Avisa a quien administra el servidor.",
   "import.merge.title": "La fusión",
   "import.merge.steps": "Pasos de la fusión",
-  "import.merge.step.make": "Hacer el archivo fusionado",
+  "import.merge.step.make": "Crear el archivo fusionado",
   "import.merge.step.import": "Radarr reemplaza su archivo",
   "import.merge.pending": "La fusión espera su turno.",
   "import.merge.running":
@@ -960,8 +966,9 @@ const es: Record<keyof typeof en, string> = {
   "import.merge.refusal.mux_failed": "La herramienta que une las pistas informó de un problema.",
   "import.merge.refusal.library_changed": "El archivo de la biblioteca cambió mientras se leía.",
   "import.merge.refusal.verify_failed":
-    "El archivo fusionado no pasó las revisiones (la imagen, la duración o las pistas no eran las esperadas).",
-  "import.merge.refusal.busy": "Otra fusión estaba usando el mismo lugar. Inténtalo de nuevo.",
+    "El archivo fusionado no pasó las verificaciones (la imagen, la duración o las pistas no eran las esperadas).",
+  "import.merge.refusal.busy":
+    "Otra fusión estaba usando el mismo archivo de destino. Inténtalo de nuevo.",
   "import.merge.refusal.unknown": "Se rechazó la fusión (código: {code}).",
   "import.merge.fact.audio": "Pistas de audio",
   "import.merge.fact.subtitles": "Pistas de subtítulos",
@@ -976,7 +983,7 @@ const es: Record<keyof typeof en, string> = {
   "import.merge.done.body": "{app} reemplazó su archivo por {name}.",
   "import.merge.warning.search_can_replace.title": "Esta película no está monitoreada",
   "import.merge.warning.search_can_replace":
-    "Las mejoras automáticas y las búsquedas de Wanted no tocan el archivo fusionado. Pero el botón de búsqueda de la propia película en {app} aún puede reemplazarlo por una versión sin el audio nuevo, así que no lo uses si quieres conservar este.",
+    "Las mejoras automáticas y las búsquedas automáticas de archivos que faltan no tocan el archivo fusionado. Pero el botón de búsqueda de la propia película en {app} aún puede reemplazarlo por una versión sin el audio nuevo, así que no lo uses si quieres conservar este.",
   "import.merge.warning.upgrade_can_replace.title": "Esta película sigue monitoreada",
   "import.merge.warning.upgrade_can_replace":
     "Una versión mejor sin el audio nuevo puede reemplazar el archivo fusionado. Para evitarlo, deja de monitorear la película en {app}.",
@@ -991,7 +998,7 @@ const es: Record<keyof typeof en, string> = {
   "import.version.done.body": "Se conserva como {name}, con la etiqueta {label}.",
   "import.version.status.placing": "El archivo se está guardando.",
   "import.version.status.linked":
-    "El archivo está en su sitio. Ahora lo agrupa el servidor multimedia.",
+    "El archivo está en su lugar. Ahora lo agrupa el servidor multimedia.",
   "import.version.status.grouped": "El servidor multimedia la muestra con la película.",
   "import.version.status.waiting":
     "El servidor multimedia aún no la ha agrupado. Fukku lo intenta de nuevo solo.",
@@ -1049,11 +1056,11 @@ const es: Record<keyof typeof en, string> = {
     "{app} no tiene un idioma para las pistas añadidas, así que muestra el archivo fusionado solo con los idiomas que ya tenía. Las pistas están etiquetadas en el archivo, pero los formatos personalizados y las búsquedas por idioma de {app} no las ven.",
   "confirm.dub.version": "Conservar como segundas versiones",
   "confirm.dub.version.body":
-    "Cada uno de estos episodios conserva su propio archivo, y tu archivo se guarda junto a él como segunda versión. El servidor multimedia muestra ambos bajo el episodio. {app} no hace seguimiento de los segundos archivos.",
+    "Cada uno de estos episodios conserva su propio archivo, y tu archivo se guarda junto a él como segunda versión. El servidor multimedia muestra ambos bajo el episodio. {app} no controla los segundos archivos.",
   "flow2.version.problem.label_episode":
     "La etiqueta no puede contener un número de temporada o de episodio (como S02E05, 2x05 o E03): el servidor multimedia leería el archivo como otro episodio.",
   "flow2.version.notice.untracked_by_sonarr":
-    "Sonarr no hace seguimiento de los segundos archivos. Nunca los renombra ni los mejora, la mejora de un episodio reemplaza solo su propio archivo, y borrar la serie con sus archivos borra también las versiones.",
+    "Sonarr no controla los segundos archivos. Nunca los renombra ni los mejora, la mejora de un episodio reemplaza solo su propio archivo, y borrar la serie con sus archivos borra también las versiones.",
   "flow2.version.notice.adopted_without_episode_file":
     "Si se borra el archivo propio de un episodio, Sonarr toma el segundo archivo como el del episodio en su próximo escaneo.",
   "confirm.version.title": "Segundas versiones",
@@ -1086,14 +1093,14 @@ const es: Record<keyof typeof en, string> = {
     "No se importará nada nuevo. {count} episodios se conservan como segundas versiones.",
   "confirm.version.refused.title": "Estos archivos no se pueden conservar como segundas versiones",
   "confirm.version.refused.leaveOut.hint.one":
-    "Puedes dejar este archivo fuera. No tendrá segunda versión y su episodio conserva su propio archivo. Después pulsa Importar de nuevo para confirmar el resto.",
+    "Puedes dejar este archivo fuera. No tendrá segunda versión y su episodio conserva su propio archivo. Después elige Importar otra vez para confirmar el resto.",
   "confirm.version.refused.leaveOut.hint.other":
-    "Puedes dejar estos archivos fuera. No tendrán segunda versión y sus episodios conservan sus propios archivos. Después pulsa Importar de nuevo para confirmar el resto.",
+    "Puedes dejar estos archivos fuera. No tendrán segunda versión y sus episodios conservan sus propios archivos. Después elige Importar otra vez para confirmar el resto.",
   "confirm.version.leavingOut": "Dejando los archivos fuera…",
   "confirm.version.leftOut.done.one":
-    "{count} archivo dejado fuera. Pulsa Importar para confirmar de nuevo.",
+    "{count} archivo dejado fuera. Elige Importar para confirmar de nuevo.",
   "confirm.version.leftOut.done.other":
-    "{count} archivos dejados fuera. Pulsa Importar para confirmar de nuevo.",
+    "{count} archivos dejados fuera. Elige Importar para confirmar de nuevo.",
   "confirm.version.refused.leaveOut.one": "Dejar fuera {count} archivo",
   "confirm.version.refused.leaveOut.other": "Dejar fuera {count} archivos",
   "confirm.state.version": "Segunda versión",
@@ -1104,25 +1111,25 @@ const es: Record<keyof typeof en, string> = {
   "confirm.version.leftOut":
     "No se crea una segunda versión para este episodio. Su archivo se queda como está.",
   "confirm.version.refused.hint.fixed":
-    "Este servidor lo decide por sí mismo. Cambia la etiqueta, o vuelve atrás y cambia la correspondencia.",
+    "Este servidor lo decide por sí mismo. Cambia la etiqueta, o vuelve atrás y elige otro título.",
   "jobError.version_upgrade":
     "Sonarr tomaría todas las segundas versiones por los archivos propios de los episodios, así que no se guardó ninguna. La biblioteca no se cambió.",
   "jobError.version_unchecked":
-    "Sonarr no dio un veredicto sobre ninguna segunda versión, así que no se guardó ninguna. La biblioteca no se cambió.",
+    "Sonarr no dio una respuesta clara sobre ninguna segunda versión, así que no se guardó ninguna. La biblioteca no se cambió.",
   "jobError.version_exists":
     "Todas las segundas versiones ya existen con su nombre, así que no se guardó ninguna. La biblioteca no se cambió.",
-  "import.episodeVersion.partial.title": "{placed} de {total} segundas versiones están en su sitio",
+  "import.episodeVersion.partial.title": "{placed} de {total} segundas versiones están en su lugar",
   "import.episodeVersion.partial.body.one":
     "{count} no se pudo guardar. Mira cada versión más abajo.",
   "import.episodeVersion.partial.body.other":
     "{count} no se pudieron guardar. Mira cada versión más abajo.",
   "confirm.version.label.proposed": "Si esto queda vacío, el servidor usa «{label}».",
   "confirm.version.refused.hint":
-    "Elige otra opción arriba, cambia la etiqueta, o vuelve atrás y cambia la correspondencia.",
+    "Elige otra opción arriba, cambia la etiqueta, o vuelve atrás y elige otro título.",
   "confirm.version.refusal.version_upgrade":
     "Sonarr tomaría este archivo por una mejora del archivo propio del episodio en su próximo escaneo.",
   "confirm.version.refusal.version_unchecked":
-    "Sonarr no da un veredicto sobre este archivo: no lo ofrece, o lo lee como otro episodio.",
+    "Sonarr no da una respuesta clara sobre este archivo: no lo ofrece, o lo lee como otro episodio.",
   "confirm.version.refusal.version_unavailable": "Este archivo no puede ser una segunda versión.",
   "confirm.version.refusal.version_exists":
     "Ya existe un archivo o una versión anterior con este nombre.",
@@ -1134,21 +1141,21 @@ const es: Record<keyof typeof en, string> = {
   "import.episodeVersion.title": "Segundas versiones",
   "import.episodeVersion.label": "Etiqueta: {label}",
   "import.episodeVersion.item": "S{season}E{episode}",
-  "import.episodeVersion.done.title": "Las segundas versiones de {title} están en su sitio",
+  "import.episodeVersion.done.title": "Las segundas versiones de {title} están en su lugar",
   "import.episodeVersion.done.body.one":
     "Se conserva {count} archivo junto al archivo propio de su episodio.",
   "import.episodeVersion.done.body.other":
     "Se conservan {count} archivos junto a los archivos propios de sus episodios.",
   "import.episodeVersion.status.placing": "El archivo se está guardando.",
   "import.episodeVersion.status.linked":
-    "El archivo está en su sitio. Ahora lo agrupa el servidor multimedia.",
+    "El archivo está en su lugar. Ahora lo agrupa el servidor multimedia.",
   "import.episodeVersion.status.grouped": "El servidor multimedia la muestra con el episodio.",
   "import.episodeVersion.status.waiting":
     "El servidor multimedia aún no la ha agrupado. Fukku lo intenta de nuevo solo.",
   "import.episodeVersion.status.missing": "El archivo de la versión ya no está en el disco.",
   "import.episodeVersion.status.refused": "No se guardó.",
   "import.episodeVersion.status.adopted":
-    "Sonarr ahora hace seguimiento de este archivo como el propio del episodio, así que puede renombrarlo, mejorarlo o borrarlo.",
+    "Sonarr ahora controla este archivo como el propio del episodio, así que puede renombrarlo, mejorarlo o borrarlo.",
   "import.episodeVersion.status.adoptable":
     "Sonarr tomaría este archivo como el propio del episodio en su próximo escaneo.",
   "import.episodeVersion.status.episode_file_missing":
@@ -1161,7 +1168,7 @@ const es: Record<keyof typeof en, string> = {
   "import.episodeVersion.refusal.version_upgrade":
     "Sonarr tomaría este archivo como el propio del episodio, así que no se guardó.",
   "import.episodeVersion.refusal.version_unchecked":
-    "Sonarr no dio un veredicto sobre este archivo, así que no se guardó.",
+    "Sonarr no dio una respuesta clara sobre este archivo, así que no se guardó.",
   "import.episodeVersion.refusal.version_exists":
     "Ya existe un archivo con este nombre, así que no se reemplazó nada.",
   "import.episodeVersion.refusal.version_failed":
@@ -1170,7 +1177,7 @@ const es: Record<keyof typeof en, string> = {
   "errors.version_upgrade":
     "Sonarr tomaría algunos de estos archivos por los archivos propios de los episodios, así que no se pueden conservar como segundas versiones.",
   "errors.version_unchecked":
-    "Sonarr no da un veredicto sobre algunos de estos archivos, así que no se pueden conservar como segundas versiones.",
+    "Sonarr no da una respuesta clara sobre algunos de estos archivos, así que no se pueden conservar como segundas versiones.",
 };
 
 export default es;

@@ -212,7 +212,10 @@ of a household.
 - **Typography of text:** `…` for something in progress ("Checking the server…"), real
   apostrophes and quotes, numerals for every count, a non-breaking space between a number
   and its unit (the formatters do this).
-- **Spanish** is neutral Latin American Spanish with *tú*; it runs about 30% longer, so no
+- **Spanish** is neutral Spanish with *tú*, written to read naturally in Latin America and
+  in Spain: no *vosotros*, no *ordenador*/*computadora*, *video* without an accent,
+  *solicitud* (not *petición*), *en su lugar* (not *en su sitio*), *elige* (not *pulsa* or
+  *presiona*) for a press of a button. It runs about 30% longer, so no
   layout may depend on a string's length: labels wrap, buttons grow, the navigation
   scrolls sideways before it wraps. *Subida* is the transfer of a file; *envío* is the
   whole upload with its files and decisions.
@@ -228,6 +231,41 @@ of a household.
   | failed | failed: it stopped and needs you | *fallido*, *se detuvo* |
   | refused | refused, with the reason | *rechazado* |
   | discard, cancel | "Discard this upload" before it was sent on, "Cancel upload" after | *descartar*, *cancelar* |
+
+### Glossary
+
+The product's words, in both languages. A new string uses these and no synonym. The Spanish
+terms of the flow 2 design pass (#60) are kept: *revisar*, *monitorear*, *predeterminada*,
+*reemplazar*.
+
+| English | Spanish | Notes |
+| --- | --- | --- |
+| upload (a job: files and decisions) | *envío* | "Your uploads" is *Tus envíos*. |
+| upload, uploading (one file's transfer) | *subida*, *subiendo* | "Start upload" is *Empezar a subir*. |
+| import | *importar*, *importación* | The app's step; "Import anyway" is *Importar de todos modos*. |
+| merge | *fusionar*, *fusión* | Audio into the library file. Never *unir* or *combinar* in a title. |
+| version, second version | *versión*, *segunda versión* | |
+| dub | *doblaje* | |
+| offset | *desfase* | A shift in milliseconds; "earlier" is *antes*, "later" *después*. |
+| preview, sync clips | *clips* (of the sync check) | The word *clip* is the one players use; *vista previa* only for a generic preview. |
+| season, episode | *temporada*, *episodio* | `S01E07` stays as it is in file names, in both languages. |
+| subtitle, subtitle manager | *subtítulo*, *gestor de subtítulos* | |
+| forced, default, for the hard of hearing | *forzada*, *predeterminada*, *para personas con dificultades auditivas* | Flags of a track. |
+| check (the files), checked | *revisar*, *revisado* | For a health or a verification check of the server: *verificación*. |
+| match (choose the title) | *elegir el título* | A "match" noun is *título elegido*. |
+| library, media server | *biblioteca*, *servidor multimedia* | |
+| left out, skipped | *dejar fuera*, *omitir* | The first for the user's choice, the second for a row. |
+| worker | *proceso de trabajo* | Never *trabajo*: a job is *envío*. |
+| heartbeat | *señal de vida* | |
+| setting, default value | *ajuste*, *valor predeterminado* | Never *por defecto*. |
+| header | *encabezado* | |
+| request (HTTP) | *solicitud* | |
+
+Every code the server can send has its own sentence in both languages: the error answers
+(`errors.<code>`), the job errors (`jobError.<code>`), the refusals of a file, an archive and a
+merge, the skip reasons, the warnings and the notices. `internal/errorcodes` reads them from
+the Go source into `ui/src/api/error-codes.generated.json`, and `ui/src/i18n/codes.test.ts`
+fails for a code without text.
 
 ### Formatting
 

@@ -14,6 +14,8 @@ export const jobErrorCodes = [
   "task_failed",
   "no_usable_files",
   "import_failed",
+  "proposal_failed",
+  "title_busy",
   "arr_unavailable",
   // Flow 2 (#52, #55, #56).
   "library_unreadable",
@@ -67,6 +69,7 @@ export const fileRefusalCodes = [
   "not_text",
   "unreadable",
   "timeout",
+  "outside_library",
 ] as const;
 
 /** Reasons an archive entry was skipped (#3). */

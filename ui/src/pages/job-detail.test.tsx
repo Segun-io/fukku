@@ -100,7 +100,7 @@ describe("a probed job", () => {
     expect(screen.getByText("Odd.mkv: omitido (código: something_new)")).toBeVisible();
     expect(
       screen.getByText(
-        "No se encontró vídeo dentro de este archivo. Puede estar dañado o tener otro nombre.",
+        "No se encontró video dentro de este archivo. Puede estar dañado o tener otro nombre.",
       ),
     ).toBeVisible();
   });

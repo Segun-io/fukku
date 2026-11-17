@@ -173,10 +173,10 @@ describe("admin page", () => {
     setMockAdmin(true);
     window.localStorage.setItem("fukku.lang", "es");
     renderApp("/admin");
-    expect(await screen.findByRole("heading", { name: "Salud" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Estado de salud" })).toBeInTheDocument();
     expect(
       await screen.findByText("Funciona, pero una aplicación no responde"),
     ).toBeInTheDocument();
-    expect(screen.getAllByText("Por defecto").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Predeterminado").length).toBeGreaterThan(0);
   });
 });

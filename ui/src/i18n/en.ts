@@ -378,6 +378,7 @@ const en = {
   "refusal.not_text": "This subtitle file is not readable text.",
   "refusal.unreadable": "The file could not be read. It may be damaged.",
   "refusal.timeout": "Checking this file took too long.",
+  "refusal.outside_library": "The file is outside the folders Fukku may read.",
   "refusal.unknown": "The file was refused (code: {code}).",
 
   "skip.traversal": "its name points outside the folder",
@@ -587,6 +588,10 @@ const en = {
     "The app could not import every file. The list below shows which ones arrived. Check the app, then try again.",
   "jobError.arr_unavailable":
     "Waiting for {app}, which is not answering. There is nothing for you to do: the import continues by itself when it is back.",
+  "jobError.proposal_failed":
+    "The app refused the files or could not check them again. Nothing was imported. Try again; if it fails again, tell the person who runs the server.",
+  "jobError.title_busy":
+    "The app is downloading this title right now, so the files could not be imported. Try again when the download has finished.",
   "errors.needs_override":
     "Some files have problems you have not agreed to yet. Tick “Import anyway” for each, or leave them out.",
   "errors.incomplete_rows":
