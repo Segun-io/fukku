@@ -100,7 +100,7 @@ func (e *Engine) confirm(ctx context.Context, user, email string, admin bool, jo
 				return Confirmation{}, badRequest("A merge takes merge, not version.")
 			}
 			if !s.changes {
-				return Confirmation{}, adminRequired("Only an admin can merge into a film's library file: ask an admin to confirm this job.")
+				return Confirmation{}, adminRequired("Only an admin can merge into a film's library file: ask an admin to confirm this upload.")
 			}
 			return e.confirmMerge(ctx, user, email, s, rec, req) // #55
 		case OfferVersion:
@@ -108,7 +108,7 @@ func (e *Engine) confirm(ctx context.Context, user, email string, admin bool, jo
 				return Confirmation{}, badRequest("A second version takes version, not merge.")
 			}
 			if !s.changes {
-				return Confirmation{}, adminRequired("Only an admin can add a second version of a film: ask an admin to confirm this job.")
+				return Confirmation{}, adminRequired("Only an admin can add a second version of a film: ask an admin to confirm this upload.")
 			}
 			return e.confirmVersion(ctx, user, email, s, rec, req) // #56
 		}
@@ -193,7 +193,7 @@ func (e *Engine) confirm(ctx context.Context, user, email string, admin bool, jo
 				needs = append(needs, v.ID)
 				continue
 			}
-			if !s.changes {
+			if !s.changes && overrideChangesLibrary(v) {
 				admins = append(admins, v.ID)
 				continue
 			}
@@ -225,7 +225,7 @@ func (e *Engine) confirm(ctx context.Context, user, email string, admin bool, jo
 		err.Rows = sharing
 		return Confirmation{}, err
 	case len(admins) > 0:
-		err := adminRequired("Only an admin can import files despite their rejections or warnings: leave these files out, or ask an admin to confirm this job.")
+		err := adminRequired("Only an admin can import files that Radarr or Sonarr refused, or that would replace a library file: leave these files out, or ask an admin to confirm this upload.")
 		err.Rows = admins
 		return Confirmation{}, err
 	case len(needs) > 0:
@@ -339,6 +339,15 @@ func needsOverride(v RowView, replaced bool) bool {
 		}
 	}
 	return false
+}
+
+// overrideChangesLibrary reports whether overriding the row needs an admin while
+// auth.libraryChangesRequireAdmin is on (#116): it has a rejection of Radarr or Sonarr (such
+// as "not an upgrade", which replaces a file) or the warning existing_file. Fukku's own
+// warnings on a new file (runtime_mismatch, double_episode, duplicate_episode,
+// duplicate_film, language) change no library file, and every user may override them.
+func overrideChangesLibrary(v RowView) bool {
+	return len(v.Rejections) > 0 || slices.ContainsFunc(v.Warnings, func(n Notice) bool { return n.Code == WarnExistingFile })
 }
 
 // audit is the confirmation's audit entries: import.confirmed, rejection.overridden for

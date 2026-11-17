@@ -113,7 +113,16 @@ export function Flow2View({
   const missing = flow2.notOffered.filter(
     (n) => offers.length === 0 || n.reason !== "runtime_differs",
   );
-  const forAdmin = flow2.notOffered.some((n) => n.reason === "admin_required");
+  // What an admin would be offered (#116): the notice names only those options.
+  const forAdmin = flow2.notOffered
+    .filter((n) => n.reason === "admin_required")
+    .map((n) => n.offer);
+  const adminBody: TKey =
+    forAdmin.length > 1
+      ? "flow2.admin.body"
+      : forAdmin[0] === "merge"
+        ? "flow2.admin.body.merge"
+        : "flow2.admin.body.version";
   const notOffered = missing.length > 0 && (
     <section aria-labelledby={`${legend}-missing`} className="grid gap-1 text-sm text-ink-2">
       <h3 id={`${legend}-missing`} className="font-sans text-sm font-bold tracking-normal">
@@ -143,9 +152,9 @@ export function Flow2View({
             tone="caution"
             icon={TriangleAlert}
             titleAs="h2"
-            title={t(forAdmin ? "flow2.admin.title" : "flow2.nothing.title")}
+            title={t(forAdmin.length > 0 ? "flow2.admin.title" : "flow2.nothing.title")}
           >
-            {t(forAdmin ? "flow2.admin.body" : "flow2.nothing.body")}
+            {t(forAdmin.length > 0 ? adminBody : "flow2.nothing.body")}
           </Notice>
           {notOffered}
         </div>

@@ -105,9 +105,10 @@ func TestLibraryChangesOverride(t *testing.T) {
 	}
 }
 
-// The language warning (#39) is overridden like a rejection, so it is admin-only too.
+// The language warning (#39) is Fukku's own, on a new file: every user may override it.
 func TestLibraryChangesLanguageOverride(t *testing.T) {
 	for _, w := range everyone {
+		w.ok = true
 		t.Run(w.name, func(t *testing.T) {
 			x := newImportEnv(t)
 			x.cfg.Auth.LibraryChangesRequireAdmin = w.gate

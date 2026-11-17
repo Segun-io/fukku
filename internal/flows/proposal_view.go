@@ -26,9 +26,9 @@ type Proposal struct {
 	// when there are none.
 	SeasonDub *SeasonDub `json:"seasonDub,omitempty"`
 	// NotOffered lists what this user may not confirm, with the reason (#116): the offer
-	// override (importing a row despite its rejections or warnings) with admin_required,
-	// while auth.libraryChangesRequireAdmin is on and the user is not an admin. Empty
-	// otherwise.
+	// override (importing a row despite a rejection by Radarr or Sonarr, or an
+	// existing_file warning; Fukku's other warnings stay open) with admin_required, while
+	// auth.libraryChangesRequireAdmin is on and the user is not an admin. Empty otherwise.
 	NotOffered []NotOffered   `json:"notOffered"`
 	Episodes   *[]EpisodeView `json:"episodes,omitempty"`
 	Qualities  []Ref          `json:"qualities"`

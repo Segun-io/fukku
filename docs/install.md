@@ -115,7 +115,7 @@ setups): then no path mappings are needed. If an app sees it elsewhere, say so w
 | --- | --- |
 | `server.publicBaseUrl` | the address users type, with `https://`, exactly as the browser shows it: it is checked against the `Origin` of every change |
 | `auth.trustedProxies` | the address the reverse proxy connects from (below) |
-| `auth.adminGroup` or `auth.allUsersAreAdmins` | who may see the admin page, cancel stuck imports and, while `auth.libraryChangesRequireAdmin` is on (the default), replace or change files the library already has |
+| `auth.adminGroup` or `auth.allUsersAreAdmins` | who may see the admin page, cancel stuck imports and, while `auth.libraryChangesRequireAdmin` is on (the default), replace or change files the library already has. Set one of them: with the defaults nobody is an admin, so nobody can override a rejection, replace episodes, merge or keep a second version (`fukku check-config` and the web process's `config_warning` log line say so) |
 | `radarr.url`, `sonarr.url` | `http://<container name>:<port>` on the shared network |
 | `radarr.rootFolder`, `sonarr.rootFolder` | the root folder **as Radarr and Sonarr list it** |
 | `radarr.qualityProfile`, `sonarr.qualityProfile` | the exact name of a quality profile |

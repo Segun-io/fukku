@@ -592,10 +592,12 @@ const en = {
     "The app refused the files or could not check them again. Nothing was imported. Try again; if it fails again, tell the person who runs the server.",
   "jobError.title_busy":
     "The app is downloading this title right now, so the files could not be imported. Try again when the download has finished.",
+  "jobError.library_has_file":
+    "The title got a file in the library after the confirmation, and this import would replace it, so nothing was sent. Upload the files again to choose what to do with the file the library has now.",
   "errors.needs_override":
     "Some files have problems you have not agreed to yet. Tick “Import anyway” for each, or leave them out.",
   "errors.admin_required":
-    "Only an admin can make this change to the library on this server. Ask an admin to confirm this job, or leave out what changes the library.",
+    "Only an admin can make this change to the library on this server. Ask an admin to confirm this upload, or leave out what would change the library.",
   "errors.incomplete_rows":
     "Some files have no film or episode to go to. Choose one for each, or leave them out.",
   "errors.flow2":
@@ -643,9 +645,13 @@ const en = {
   "confirm.count.out.other": "{count} are left out",
   "confirm.override.missing": "Tick “Import anyway” for each file with a problem, or leave it out.",
   "confirm.override.adminOnly":
-    "Only an admin can import this file despite its problems, because that can change the library. Leave it out, or ask an admin to confirm this job.",
+    "{app} refused this file, or it would replace a file in the library, so only an admin can import it anyway. Leave it out, or ask an admin to confirm this upload.",
   "confirm.override.adminMissing":
-    "Only an admin can import files with problems. Leave them out to import the rest, or ask an admin to confirm this job.",
+    "Only an admin can import files that {app} refused or that would replace a file in the library. Leave them out to import the rest, or ask an admin to confirm this upload.",
+  "confirm.admin.leaveOut.hint.one":
+    "You can leave this file out and import the rest: leave it out here, then press Import again.",
+  "confirm.admin.leaveOut.hint.other":
+    "You can leave these files out and import the rest: leave them out here, then press Import again.",
   "confirm.override.stale":
     "The server found problems this page did not show. They are shown now: read them, then try again.",
   "confirm.skip": "Leave this file out",
@@ -794,10 +800,14 @@ const en = {
   "flow2.reason.runtime_differs": "merging needs the same cut, and this is not.",
   "flow2.reason.unknown": "not possible here (code: {code}).",
   "flow2.reason.admin_required":
-    "it changes a file the library already has, so only an admin can confirm it. An admin can open this job and confirm it.",
-  "flow2.admin.title": "An admin must confirm this job",
+    "it changes a file the library already has, so only an admin can confirm it. An admin can open this upload and confirm it.",
+  "flow2.admin.title": "An admin must confirm this upload",
   "flow2.admin.body":
     "Merging into the film’s file and keeping a second version both change the library, which only an admin can do on this server. Nothing was changed.",
+  "flow2.admin.body.merge":
+    "Merging into the film’s file changes the library, which only an admin can do on this server. Nothing was changed.",
+  "flow2.admin.body.version":
+    "Keeping a second version changes the library, which only an admin can do on this server. Nothing was changed.",
   "flow2.nothing.title": "Nothing can be done with this upload here",
   "flow2.nothing.body":
     "Ask whoever runs Fukku to change this, or import the files by hand. Nothing was changed.",

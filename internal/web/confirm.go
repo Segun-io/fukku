@@ -144,9 +144,11 @@ import (
 // default, #116, flows/library_changes.go). For a user who is not an admin (auth.adminGroup,
 // or auth.allUsersAreAdmins) the confirmation then refuses
 //
-//	403 admin_required     overrides that list rows with rejections or warnings ("rows" lists
-//	                       them; leave them out, or an admin confirms), seasonDub "replace"
-//	                       or "version", flow2 "merge" or "version"
+//	403 admin_required     overrides that list rows with a rejection by the app or an
+//	                       existing_file warning ("rows" lists them; leave them out, or an
+//	                       admin confirms), seasonDub "replace" or "version", flow2 "merge"
+//	                       or "version". Fukku's own warnings on new files (runtime,
+//	                       double or duplicate episode, duplicate film, language) stay open
 //
 // The proposal's notOffered (offer "override"), seasonDub.notOffered and JobDetail's
 // flow2.notOffered say so beforehand, with the reason admin_required. An admin can open and

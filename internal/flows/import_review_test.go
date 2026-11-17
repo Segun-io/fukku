@@ -27,8 +27,9 @@ func copyMode(x *ienv) {
 }
 
 // 1. With importMode copy, a file the app had before the submission (here: one it grabbed
-// by itself after the match) is not taken for the import's: the rows are submitted, and the
-// job is imported only once the app tracks the file the import brought.
+// by itself after the match) is not taken for the import's. Since #116 the import is not
+// even submitted: it would replace that file, which the confirmation did not choose, so the
+// job goes back to probed, to be matched again (the film is flow 2 then).
 func TestCopyModeAFileTheAppHadIsNotTheImports(t *testing.T) {
 	x := newImportEnv(t)
 	copyMode(x)
@@ -37,26 +38,20 @@ func TestCopyModeAFileTheAppHadIsNotTheImports(t *testing.T) {
 	x.movies.Library[0].File = &arr.MovieFile{ID: 77, Path: "/movies/Some Film (2001)/Some.Film.2001.mkv", Size: 1000}
 	x.movies.Library[0].HasFile = true
 
-	if j, _ = x.step(x.eng, j); j.State != store.Importing || len(x.movies.Imports) != 1 {
-		t.Fatalf("the film's own file was taken for the import: job %s, %d imports", j.State, len(x.movies.Imports))
-	}
-	if j, _ = x.step(x.eng, j); j.State != store.Importing {
-		t.Fatalf("while running: %s", j.State)
-	}
-	x.movies.Complete(x.movies.Imports[0].CommandID)
-	if j = x.drive(x.eng, j); j.State != store.Done || len(x.movies.Imports) != 1 {
-		t.Fatalf("job %s (%s), %d imports", j.State, j.ErrorText, len(x.movies.Imports))
+	if j, _ = x.step(x.eng, j); j.State != store.Probed || len(x.movies.Imports) != 0 {
+		t.Fatalf("the film's own file: job %s, %d imports", j.State, len(x.movies.Imports))
 	}
 }
 
-// The same when the import fails: the file the app had is still its file, and the job fails
-// rather than being taken as imported. A retry submits again.
+// The same when another file arrives while a failing import runs: the file the app has is
+// its own, and the job fails rather than being taken as imported. A retry does not submit
+// again, since it would replace that file (#116): it fails with library_has_file.
 func TestCopyModeAFileTheAppHadIsNotTheImportsWhenItFails(t *testing.T) {
 	x := newImportEnv(t)
 	copyMode(x)
 	j := x.confirm(x.filmJob())
-	x.movies.Library[0].File = &arr.MovieFile{ID: 77, Size: 1000}
 	j, _ = x.step(x.eng, j)
+	x.movies.Library[0].File = &arr.MovieFile{ID: 77, Size: 999} // another release, grabbed meanwhile
 	x.movies.Fail(x.movies.Imports[0].CommandID, "Not an upgrade")
 	if j, _ = x.step(x.eng, j); j.State != store.Failed || j.ErrorCode != CodeImportFailed {
 		t.Fatalf("job %s (%s)", j.State, j.ErrorText)
@@ -64,8 +59,8 @@ func TestCopyModeAFileTheAppHadIsNotTheImportsWhenItFails(t *testing.T) {
 	if _, err := x.st.Transition(x.ctx, j.ID, store.Failed, store.Importing, store.Change{Actor: "user1"}); err != nil {
 		t.Fatal(err)
 	}
-	if j, _ = x.step(x.eng, j); j.State != store.Importing || len(x.movies.Imports) != 2 {
-		t.Fatalf("the retry: job %s, %d imports", j.State, len(x.movies.Imports))
+	if j, _ = x.step(x.eng, j); j.State != store.Failed || j.ErrorCode != CodeLibraryHasFile || len(x.movies.Imports) != 1 {
+		t.Fatalf("the retry: job %s (%s), %d imports", j.State, j.ErrorCode, len(x.movies.Imports))
 	}
 }
 

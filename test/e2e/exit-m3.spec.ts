@@ -48,6 +48,11 @@ interface Manifest {
 
 let fx: Manifest;
 const api = new Api("user1");
+/**
+ * Merges and second versions change the library, which only an admin may confirm with the
+ * default auth.libraryChangesRequireAdmin (#116): user1 uploads and matches, admin1 (who can
+ * open any upload) reads the offers and confirms.
+ */
 const admin = new Api("admin1");
 /** The film's folder name in Radarr, versions.root and Jellyfin. */
 const folderName = () => `${fx.title} (${fx.year})`;
@@ -158,9 +163,9 @@ async function otherLanguage(file: string): Promise<Job> {
   return compared(id);
 }
 
-/** The job once the library file is probed and compared (flow 2 ready). */
+/** The job once the library file is probed and compared (flow 2 ready), as an admin sees it. */
 function compared(id: string): Promise<Job> {
-  return api.until(
+  return admin.until(
     id,
     "the comparison",
     (j) => j.state === "awaiting-confirmation" && j.flow2?.state === "ready",
@@ -395,6 +400,22 @@ test.describe("M3 exit criteria", { tag: "@online" }, () => {
     await test.step("choose the film on the match page: another language of it", () =>
       matchExistingThroughUI(page, id));
 
+    await test.step("user1 may not merge (#116): the page says an admin must confirm, the API answers 403", async () => {
+      await expect(
+        page.getByRole("heading", { name: "An admin must confirm this upload" }),
+      ).toBeVisible({
+        timeout: 180_000,
+      });
+      const mine = await api.job(id);
+      expect(mine.flow2?.offers).toEqual([]);
+      expect(mine.flow2?.notOffered).toContainEqual({ offer: "merge", reason: "admin_required" });
+      const refused = await api.confirmFlow2(id, { flow2: "merge", merge: {} });
+      expect(refused.status, JSON.stringify(refused.body)).toBe(403);
+      expect(refused.body.error?.code).toBe("admin_required");
+      await loginAs(page, "admin1");
+      await page.goto(`/jobs/${id}/flow2`);
+    });
+
     await test.step("the flow 2 page: the same cut, merge offered first", async () => {
       await expect(page.getByText("Same cut")).toBeVisible({ timeout: 180_000 });
       const job = await compared(id);
@@ -410,7 +431,7 @@ test.describe("M3 exit criteria", { tag: "@online" }, () => {
       await page.getByRole("button", { name: "They match, continue" }).click();
     });
 
-    const job = await api.job(id);
+    const job = await admin.job(id);
     const spanish = job.flow2?.upload?.audio[0];
     if (!spanish) throw new Error("the upload has no audio track");
     await test.step("confirm the merge; the page warns that the film's own Search can still replace it", async () => {
@@ -525,7 +546,7 @@ test.describe("M3 exit criteria", { tag: "@online" }, () => {
     expect(job.flow2?.finding).toBe("match");
     expect(job.flow2?.offers).toContain("merge");
 
-    await loginAs(page, "user1");
+    await loginAs(page, "admin1");
     await page.goto(`/jobs/${job.id}/flow2`);
     await expect(page.getByText("Same cut")).toBeVisible({ timeout: 60_000 });
     const late = await test.step("the clips at offset 0 are out of sync", () => clipsAt(page, 0));
@@ -561,7 +582,7 @@ test.describe("M3 exit criteria", { tag: "@online" }, () => {
     const up = upload(job);
     const src = await stat(path.join(jobDir(job.id), up.path), { bigint: true });
     const label = `${f2?.version?.label} ${runTag}`;
-    const c = await api.confirmFlow2(job.id, { flow2: "version", version: { label } });
+    const c = await admin.confirmFlow2(job.id, { flow2: "version", version: { label } });
     expect(c.status, JSON.stringify(c.body)).toBe(202);
     const done = await api.until(job.id, "the version", (j) => j.state === "done", {
       timeoutMs: 300_000,
@@ -614,7 +635,7 @@ test.describe("M3 exit criteria", { tag: "@online" }, () => {
     const parsed = await radarr.parse(`${folderName()} - Screener`);
     expect(parsed.quality, "Radarr reads a quality in the name").not.toBe("Unknown");
     for (const label of ["1080p", "Screener"]) {
-      const c = await api.confirmFlow2(job.id, { flow2: "version", version: { label } });
+      const c = await admin.confirmFlow2(job.id, { flow2: "version", version: { label } });
       console.log(`4: label ${label}: ${c.status} ${JSON.stringify(c.body)}`);
       expect(c.status, `label ${label}: ${JSON.stringify(c.body)}`).toBe(409);
       expect(c.body.error?.code).toBe("version_label");
@@ -679,7 +700,7 @@ test.describe("M3 exit criteria", { tag: "@online" }, () => {
     // Killed halfway: about half of the merged file written (the film and the dub are some
     // 6.5 MB each, the merged file about 7).
     const killer = killMux(3 << 20);
-    const c = await api.confirmFlow2(job.id, { flow2: "merge", merge: {} });
+    const c = await admin.confirmFlow2(job.id, { flow2: "merge", merge: {} });
     expect(c.status, JSON.stringify(c.body)).toBe(202);
     const killed = await killer;
     console.log(`5a: ${killed.stdout.trim()} ${killed.stderr.trim()}`);
@@ -708,7 +729,7 @@ test.describe("M3 exit criteria", { tag: "@online" }, () => {
     } finally {
       await fh.close();
     }
-    const c = await api.confirmFlow2(job.id, { flow2: "merge", merge: {} });
+    const c = await admin.confirmFlow2(job.id, { flow2: "merge", merge: {} });
     expect(c.status, JSON.stringify(c.body)).toBe(202);
     const back = await untouched(movie, before, job.id);
     expect(["mux_failed", "verify_failed"]).toContain(back.flow2?.mergeRefusal?.code);

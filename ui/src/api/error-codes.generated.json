@@ -84,6 +84,7 @@
       "arr_unavailable",
       "free_space",
       "import_failed",
+      "library_has_file",
       "library_unreadable",
       "merge_failed",
       "merge_rejected",

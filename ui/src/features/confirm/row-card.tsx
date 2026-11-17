@@ -30,8 +30,8 @@ type Props = {
   /** The user has agreed to import the row despite its rejections and warnings. */
   overridden: boolean;
   /**
-   * Only an admin may import a row despite its problems (#116): the row has no "Import
-   * anyway" tick, only the way to leave it out.
+   * Only an admin may import this row despite its problems (#116, `overrideNeedsAdmin`): the
+   * row has no "Import anyway" tick, only the way to leave it out.
    */
   adminOnly: boolean;
   /** Pressing "Import" found this row not agreed to yet. */
@@ -277,7 +277,9 @@ export function RowCard({
             ))}
           </ul>
           {adminOnly ? (
-            <p className="mt-3 max-w-[65ch] font-medium">{t("confirm.override.adminOnly")}</p>
+            <p className="mt-3 max-w-[65ch] font-medium">
+              {t("confirm.override.adminOnly", { app })}
+            </p>
           ) : (
             <label className="mt-3 flex min-h-11 cursor-pointer items-center gap-3 font-medium">
               <input

@@ -107,7 +107,7 @@ Bazarr and Jellyfin themselves (see §7).
 | A1 reads or changes another user's job | Every `/api/jobs/{id}…` handler loads the job through `ownJob`: malformed id, unknown id and someone else's job are all 404; admins see every job | `internal/web/jobs.go` (`ownJob`), `match.go`, `proposal.go`, `confirm.go`, `preview.go` |
 | A1 resumes, reads or deletes another user's upload | The upload row's owner must be the user, else 404; uploads into another user's job are refused at creation | `internal/uploads/uploads.go` (`lookup`), `create.go` |
 | A1 reaches admin pages | `adminOnly` on `/api/admin/*`; error details naming paths and services only for admins | `internal/web/admin.go`, `versions.go` |
-| A1 replaces or deletes library files of any title | **Not prevented by role yet**: any user may match any title, override rejections (including `existing_file`), choose the season-dub policy `replace`, or merge into a film's file. Every such step is audited. Decided in #116: admin-only by default, behind a new setting (not built yet) | `internal/flows/confirm.go` |
+| A1 replaces or changes library files of any title | `auth.libraryChangesRequireAdmin` (on by default, #116): only an admin (`auth.adminGroup`, or everyone with `auth.allUsersAreAdmins`) may confirm an override of a Radarr or Sonarr rejection or of `existing_file` (and a `shared_file` one), the season-dub policies `replace` and `version`, a flow 2 merge or a film's second version; others get 403 `admin_required`, and the proposal and the job list those options in `notOffered` with `admin_required`. Fukku's own warnings on a new file stay open, and so do new films and episodes. Each submission of an import, a retry, a resume after a stall or a crash included, checks again that it replaces no file the title got since the confirmation unless that confirmation chose `replace` for the row: before any submission the job goes back to `probed`, after one it fails with `library_has_file`. Every step is audited. With the default `auth.adminGroup` (empty) nobody is an admin: the web process logs `config_warning` and `fukku check-config` warns | `internal/flows/library_changes.go`, `confirm.go`, `seasondub.go`, `import.go` (`replacesUnchosen`), `internal/config/warnings.go` |
 
 ### 5.3 Uploads (tus) and limits
 
@@ -187,12 +187,23 @@ stops more:
   into Sonarr's own season folders. Its mount of the library must then be writable. The
   writes are hard links that never replace a file, but a bug in the path checks would be a
   write into the library with the web process's rights.
-- **Any signed-in user can add titles to Radarr and Sonarr and import into them.** The
-  destructive steps (an override of a rejection, the season-dub policy `replace`, a merge
-  into a film's file, second versions) are open to every user until #116 is built. The
-  maintainer decided #116: they become admin-only by default, behind a new setting, and a
-  deployment that turns that setting off accepts that its users can replace library
-  files. The audit log records who did it.
+- **Any signed-in user can add titles to Radarr and Sonarr and import new files into them.**
+  The steps that replace or change a library file (an override of a rejection or of
+  `existing_file`, the season-dub policies `replace` and `version`, a merge into a film's
+  file, second versions) are admin-only while `auth.libraryChangesRequireAdmin` is on (the
+  default, #116). A deployment that turns it off (a single household) accepts that every
+  user can replace library files; the audit log records who did it.
+- **A retry repeats an earlier confirmation.** The admin check is made when a job is
+  confirmed; a retry or a resume submits what was confirmed then, so the owner can retry an
+  admin's confirmation of their upload (a merge, `replace`), or one made before an upgrade
+  to #116 or while the setting was off. A retry cannot replace more than was confirmed:
+  each submission checks that it replaces no file the title got since, unless the
+  confirmation chose `replace` for that row (or the job is a merge, whose file is checked
+  against the match's).
+- **`subtitlesOnly` and the subtitle hand-over are open to every user.** They import no
+  video; Bazarr writes the job's subtitle file beside the episode's or film's file, and may
+  overwrite an earlier subtitle of the same language and flags (as its own upgrades do). A
+  subtitle is cheap to get again, and Bazarr's history records the upload.
 - **A compromised worker can choose what Radarr imports for its own job** (a merge it
   "verified", files it "extracted"), and read the whole library through its read-only
   mount. It cannot reach the network or the keys. Until #114 and #118 are done it can also
@@ -252,7 +263,7 @@ severity is open.
 | #113 | medium | worker-written paths with symlinked parts handed to Radarr, Sonarr and `linkat` | open |
 | #114 | medium | hard links and a shared uid let a compromised worker change placed files | open |
 | #115 | medium | huge track titles wedge a job in probing | open |
-| #116 | medium | any user can replace library files (decided: admin-only by default, behind a setting) | open |
+| #116 | medium | any user can replace library files (decided: admin-only by default, behind a setting) | fixed: `auth.libraryChangesRequireAdmin`, and a check before each submission |
 | #117 | medium | no memory limits | open |
 | #118 | medium | worker sees all of `/data` and every job; web has the library writable | open |
 | #138 | medium | worker should write only `intake/jobs` (follow-up of #137, part of #118) | open |

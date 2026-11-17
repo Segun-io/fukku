@@ -48,7 +48,7 @@ Fukku is a small web app that does exactly that, safely, for non-technical users
 **Roles**
 
 - *Uploader*: anyone allowed in. Uploads, follows their jobs, confirms imports of new films and episodes.
-- *Admin* (optional, by auth group or header value): sees all jobs, can retry or delete them, sees settings and health. While `auth.libraryChangesRequireAdmin` is on (the default, #116), only an admin confirms what replaces or changes a file the library has: an override of a rejection or warning, the season-dub policies `replace` and `version`, a merge and a film's second version.
+- *Admin* (optional, by auth group or header value): sees all jobs, can retry or delete them, sees settings and health. While `auth.libraryChangesRequireAdmin` is on (the default, #116), only an admin confirms what replaces or changes a file the library has: an override of a Radarr or Sonarr rejection or of `existing_file`, the season-dub policies `replace` and `version`, a merge and a film's second version.
 - A setting `auth.allUsersAreAdmins` covers small, trusted households where everyone already administers the *arr apps.
 
 **First adopter profile (generic description of the deployment that drives the defaults)**

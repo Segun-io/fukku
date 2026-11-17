@@ -17,7 +17,8 @@ import (
 // Errors: 409 wrong_state, 404 not_found, 400 bad_request, 502 arr_unavailable.
 //
 // The proposal is the user's: what only an admin may confirm (#116,
-// auth.libraryChangesRequireAdmin) is listed in notOffered (the offer "override") and in
+// auth.libraryChangesRequireAdmin) is listed in notOffered (the offer "override": of a
+// rejection by the app or of existing_file) and in
 // seasonDub.notOffered (replace, version) with the reason admin_required.
 
 func (s *Server) proposalRoutes(mux *http.ServeMux) {

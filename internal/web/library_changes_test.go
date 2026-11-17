@@ -3,6 +3,7 @@ package web
 import (
 	"encoding/json"
 	"net/http"
+	"os"
 	"slices"
 	"strings"
 	"testing"
@@ -144,6 +145,80 @@ func TestLibraryChangesMergeThroughTheAPI(t *testing.T) {
 			rec = e.callAs("user1", "POST", "/api/jobs/"+j.ID+"/confirm", `{"flow2":"merge","merge":{"audioTracks":[1]}}`, hdr)
 			wantGate(t, e.st, c, j, rec.Code, rec.Body.String())
 		})
+	}
+}
+
+// Season-dub version is admin-only too: a user is refused with 403 before anything else is
+// judged; for an admin, or with the setting off, the confirmation goes on to the usual
+// checks (here versions are off, so version is not offered: 400). The placement itself is
+// tested in internal/flows (TestLibraryChangesEpisodeVersions).
+func TestLibraryChangesSeasonDubVersionThroughTheAPI(t *testing.T) {
+	for _, c := range gateCases {
+		t.Run(c.name, func(t *testing.T) {
+			e := newConfirmEnvWith(t, func(cfg *config.Config) { gateOn(c.gate)(cfg); cfg.Subtitles.Provider = "bazarr" })
+			e.series.Eps[11][0].FileID = 900
+			j, _ := e.ready()
+			rec := e.send("user1", c.groups, "POST", "/api/jobs/"+j.ID+"/confirm", `{"seasonDub":"version","version":{"label":"Español"}}`, true)
+			if c.ok {
+				e.want(rec, http.StatusBadRequest, "bad_request")
+				return
+			}
+			wantGate(t, e.st, c, j, rec.Code, rec.Body.String())
+		})
+	}
+}
+
+// A retry through the API cannot replace a file the title got after the confirmation
+// (#116): user1 confirms new episodes, the import fails title_busy while Sonarr downloads
+// one of them, the download lands, user1 retries, and the job goes back to the match with
+// nothing sent to Sonarr.
+func TestRetryThroughTheAPIDoesNotReplaceANewFile(t *testing.T) {
+	intake := t.TempDir()
+	e := newConfirmEnvWith(t, func(cfg *config.Config) {
+		gateOn(true)(cfg)
+		cfg.Paths.IntakeRoot = intake
+		cfg.Paths.RequireSameFilesystem = "never"
+		cfg.Paths.Mappings.Sonarr = []config.PathMapping{{From: intake, To: "/data/intake"}}
+	})
+	j, rows := e.ready()
+	dir := intake + "/jobs/" + j.ID + "/files"
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"S01E01.mkv", "S01E02.mkv", "S01E03.mkv"} {
+		if err := os.WriteFile(dir+"/"+name, make([]byte, 10), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if rec := e.send("user1", "users", "PATCH", "/api/jobs/"+j.ID+"/proposal/rows/"+rows[2], `{"skip":true}`, true); rec.Code != http.StatusOK {
+		t.Fatalf("skip: %d %s", rec.Code, rec.Body)
+	}
+	if rec := e.send("user1", "users", "POST", "/api/jobs/"+j.ID+"/confirm", `{}`, true); rec.Code != http.StatusAccepted {
+		t.Fatalf("confirm: %d %s", rec.Code, rec.Body)
+	}
+	step := func() store.Job {
+		t.Helper()
+		cur, err := e.st.Job(t.Context(), j.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := e.eng.Importing(t.Context(), cur); err != nil {
+			t.Fatal(err)
+		}
+		cur, _ = e.st.Job(t.Context(), j.ID)
+		return cur
+	}
+	e.series.Queue = map[int]bool{11: true}
+	if cur := step(); cur.State != store.Failed || cur.ErrorCode != "title_busy" {
+		t.Fatalf("busy: %s %s (%s)", cur.State, cur.ErrorCode, cur.ErrorText)
+	}
+	e.series.Queue = nil
+	e.series.Eps[11][0].FileID = 900 // the download landed
+	if rec := e.send("user1", "users", "POST", "/api/jobs/"+j.ID+"/retry", "", true); rec.Code >= 300 {
+		t.Fatalf("retry: %d %s", rec.Code, rec.Body)
+	}
+	if cur := step(); cur.State != store.Probed || len(e.series.Imports) != 0 {
+		t.Fatalf("after the retry: job %s (%s), %d imports", cur.State, cur.ErrorText, len(e.series.Imports))
 	}
 }
 

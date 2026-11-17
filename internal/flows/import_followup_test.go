@@ -84,13 +84,16 @@ func TestCopyModeWithoutABaselineNothingArrives(t *testing.T) {
 		t.Errorf("results %v", got)
 	}
 
+	// The app's file goes (a retry over it would be refused, #116), and the retry submits
+	// again, with a baseline.
+	x.movies.Library[0].File, x.movies.Library[0].HasFile = nil, false
 	if _, err := x.st.Transition(x.ctx, j.ID, store.Failed, store.Importing, store.Change{Actor: "user1"}); err != nil {
 		t.Fatal(err)
 	}
 	if j, _ = x.step(x.eng, j); j.State != store.Importing || len(x.movies.Imports) != 2 {
 		t.Fatalf("the retry: job %s, %d imports", j.State, len(x.movies.Imports))
 	}
-	if b := baselineOf(x.importRecord(j)); !b.recorded || b.Movie == nil || b.Movie.ID != 77 {
+	if b := baselineOf(x.importRecord(j)); !b.recorded || b.Movie != nil {
 		t.Fatalf("the retry's baseline %+v", b)
 	}
 	x.movies.Complete(x.movies.Imports[1].CommandID)

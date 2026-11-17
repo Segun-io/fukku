@@ -3,7 +3,7 @@ import { Ban, CircleAlert, ListTree, LoaderCircle } from "lucide-react";
 import { useRef, useState } from "react";
 import { ApiError } from "@/api/client";
 import { useConfirm, useEditRow } from "@/api/confirm";
-import type { Proposal } from "@/api/proposal";
+import type { Proposal, ProposalRow } from "@/api/proposal";
 import type { JobDetail, SubtitleChoice } from "@/api/types";
 import { ErrorMessage } from "@/components/error-message";
 import { StatusLabel } from "@/components/patterns/status-label";
@@ -11,7 +11,7 @@ import { Notice } from "@/components/shell/notice";
 import { Button } from "@/components/ui/button";
 import { useT } from "@/i18n";
 import { EpisodeVersionsSection, isVersionRefusal, type VersionRefusal } from "./episode-versions";
-import { hasIssues, hintText, issueSignature } from "./notices";
+import { hasIssues, hintText, issueSignature, overrideNeedsAdmin } from "./notices";
 import { RowCard } from "./row-card";
 import { hasExistingFile, replacedRow, SeasonDubSection } from "./season-dub";
 import { choicesFor, isLanguage, SubtitlesSection, subtitleFiles } from "./subtitles-section";
@@ -82,16 +82,20 @@ export function ConfirmView({ job, proposal, subtitleManager, refreshing = false
   const isVersion = policy === "version";
   const versionRows = isVersion ? (dub?.version?.rows ?? []) : [];
   const nothingNew = subtitlesOnly || isVersion;
-  // Only an admin may import a row despite its problems (#116): such a row is left out, or an
-  // admin confirms the job.
-  const adminOnly = (proposal.notOffered ?? []).some(
+  // Only an admin may import a row despite a refusal of the app or a file the library has
+  // (#116): such a row is left out, or an admin confirms the upload.
+  const adminOverrides = (proposal.notOffered ?? []).some(
     (n) => n.offer === "override" && n.reason === "admin_required",
   );
+  const adminOnly = (row: ProposalRow) => adminOverrides && overrideNeedsAdmin(row);
   const overridable = (id: string) => {
     const row = rows.find((r) => r.id === id);
-    return !adminOnly && !!row && !row.skip && hasIssues(row) && agreed[id] === issueSignature(row);
+    return (
+      !!row && !adminOnly(row) && !row.skip && hasIssues(row) && agreed[id] === issueSignature(row)
+    );
   };
   const needTick = leftIn.filter((r) => hasIssues(r) && !overridable(r.id));
+  const needAdmin = needTick.some(adminOnly);
   const checkingId = edit.isPending ? edit.variables?.rowId : undefined;
 
   /** Leaves out the rows a refusal named, one edit each, so that the user confirms again (#102). */
@@ -136,7 +140,9 @@ export function ConfirmView({ job, proposal, subtitleManager, refreshing = false
       const first = needTick[0];
       form.current
         ?.querySelector<HTMLElement>(
-          adminOnly ? `[data-skip="${first?.id}"]` : `[data-override="${first?.id}"]`,
+          first && adminOnly(first)
+            ? `[data-skip="${first.id}"]`
+            : `[data-override="${first?.id}"]`,
         )
         ?.focus();
       return;
@@ -173,6 +179,12 @@ export function ConfirmView({ job, proposal, subtitleManager, refreshing = false
     (confirm.error.code === "version_label" ||
       (isVersionRefusal(confirm.error.code) && confirm.error.rows.length > 0));
   const stale = confirm.error instanceof ApiError && confirm.error.code === "needs_override";
+  // The rows only an admin may import as they are (403 admin_required, #116): they can be left
+  // out in one go, as the refusals of #102 can.
+  const adminRows =
+    confirm.error instanceof ApiError && confirm.error.code === "admin_required"
+      ? confirm.error.rows
+      : [];
 
   return (
     <form
@@ -273,7 +285,7 @@ export function ConfirmView({ job, proposal, subtitleManager, refreshing = false
               version={isVersion}
               checking={checkingId === row.id}
               overridden={overridable(row.id)}
-              adminOnly={adminOnly}
+              adminOnly={adminOnly(row)}
               missing={missing.includes(row.id)}
               onOverride={(value) => {
                 setAgreed((a) => {
@@ -340,7 +352,9 @@ export function ConfirmView({ job, proposal, subtitleManager, refreshing = false
         {missing.length > 0 && needTick.length > 0 && (
           <p role="alert" className="flex items-start gap-2 text-destructive">
             <CircleAlert aria-hidden="true" className="mt-0.5 size-5 shrink-0" />
-            {t(adminOnly ? "confirm.override.adminMissing" : "confirm.override.missing")}
+            {needAdmin
+              ? t("confirm.override.adminMissing", { app })
+              : t("confirm.override.missing")}
           </p>
         )}
         <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
@@ -370,6 +384,21 @@ export function ConfirmView({ job, proposal, subtitleManager, refreshing = false
           <div>
             <ErrorMessage error={confirm.error} />
             {stale && <p className="text-sm text-ink-2">{t("confirm.override.stale")}</p>}
+            {adminRows.length > 0 && (
+              <div className="mt-2 grid justify-items-start gap-2">
+                <p className="max-w-[65ch] text-sm">
+                  {t("confirm.admin.leaveOut.hint", { count: adminRows.length })}
+                </p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={leavingOut}
+                  onClick={() => void leaveOut(adminRows)}
+                >
+                  {t("confirm.version.refused.leaveOut", { count: adminRows.length })}
+                </Button>
+              </div>
+            )}
           </div>
         )}
       </div>

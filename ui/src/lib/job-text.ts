@@ -17,6 +17,8 @@ export const jobErrorCodes = [
   "proposal_failed",
   "title_busy",
   "arr_unavailable",
+  // The title got a file after the confirmation, which the import would replace (#116).
+  "library_has_file",
   // Flow 2 (#52, #55, #56).
   "library_unreadable",
   "merge_failed",

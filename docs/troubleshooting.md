@@ -54,7 +54,8 @@ Every refusal is logged as `auth_refused` with a `reason` and the `remote` addre
 
 If the Admin page is not there, you are not an admin: it answers 404 to others. A confirmation
 refused with `admin_required` (403) would replace or change a file the library already has (an
-override, `replace`, a merge or a second version): an admin confirms the job, or the setting
+override of a Radarr or Sonarr rejection, `replace`, a merge or a second version): an admin
+confirms the upload, or the setting
 `auth.libraryChangesRequireAdmin` is turned off. If you are signed
 out in the middle of an upload, the page waits and continues once you sign in.
 

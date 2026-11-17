@@ -283,7 +283,7 @@ func (s *session) chooseDub(req string) (string, existing, error) {
 	}
 	x := s.existing()
 	if adminOnly(req) && !s.changes { // #116
-		return "", existing{}, adminRequired("Only an admin can choose %s for episodes that already have a file: ask an admin to confirm this job, or choose another option.", req)
+		return "", existing{}, adminRequired("Only an admin can choose %s for episodes that already have a file: ask an admin to confirm this upload, or choose another option.", req)
 	}
 	switch {
 	case v.Decided != "":

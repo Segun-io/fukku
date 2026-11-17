@@ -83,15 +83,66 @@ describe("overrides only an admin may confirm", () => {
     expect(await screen.findByText("Read this before you import")).toBeVisible();
     expect(screen.queryByRole("checkbox", { name: "Import anyway" })).not.toBeInTheDocument();
     expect(
-      screen.getByText(/Only an admin can import this file despite its problems/),
+      screen.getByText(/^Radarr refused this file, or it would replace a file in the library/),
     ).toBeVisible();
 
     await user.click(screen.getByRole("button", { name: "Import" }));
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Only an admin can import files with problems. Leave them out to import the rest",
+      "Only an admin can import files that Radarr refused or that would replace a file in the library. Leave them out to import the rest",
     );
     expect(screen.getByRole("button", { name: "Leave this file out" })).toHaveFocus();
     expect(bodies).toHaveLength(0);
+  });
+
+  it("keeps the tick for Fukku's own warnings on a new file", async () => {
+    serve({
+      notOffered: adminOnly,
+      rows: [
+        {
+          ...rejected,
+          quality,
+          rejections: [],
+          warnings: [{ code: "language", customFormats: [], score: -10, minFormatScore: 0 }],
+        },
+      ],
+    });
+    const bodies = recordConfirm();
+    const user = userEvent.setup();
+    open();
+    await user.click(await screen.findByRole("checkbox", { name: "Import anyway" }));
+    expect(screen.queryByText(/so only an admin can import it anyway/)).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Import" }));
+    await waitFor(() => expect(bodies).toHaveLength(1));
+    expect(bodies[0]?.overrides).toEqual(["r1"]);
+  });
+
+  it("offers to leave out the rows of a 403 admin_required", async () => {
+    serve({ notOffered: [] });
+    let skipped = "";
+    server.use(
+      http.post("/api/jobs/:id/confirm", () =>
+        HttpResponse.json(
+          { error: { code: "admin_required", message: "m", rows: ["r1"] } },
+          { status: 403 },
+        ),
+      ),
+      http.patch("/api/jobs/:id/proposal/rows/:rowId", async ({ params, request }) => {
+        skipped = `${params.rowId} ${JSON.stringify(await request.json())}`;
+        return HttpResponse.json({ ...rejected, skip: true, skippedBy: "user" });
+      }),
+    );
+    const user = userEvent.setup();
+    open();
+    await user.click(await screen.findByRole("checkbox", { name: "Import anyway" }));
+    await user.click(screen.getByRole("button", { name: "Import" }));
+    expect(
+      await screen.findByText(/You can leave this file out and import the rest/),
+    ).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Leave out 1 file" }));
+    await waitFor(() => expect(skipped).toBe('r1 {"skip":true}'));
+    expect(
+      await screen.findByText("1 file left out. Press Import to confirm again."),
+    ).toBeVisible();
   });
 
   it("keeps the tick for an admin", async () => {
@@ -195,25 +246,28 @@ describe("season-dub policies only an admin may choose", () => {
 });
 
 describe("flow 2 options only an admin may confirm", () => {
-  it("says that an admin must confirm the job, and offers neither", async () => {
+  const show = (notOffered: { offer: "merge" | "version"; reason: string }[]) => {
     const base = flow2Jobs.find((j) => j.id === flow2JobId);
     const detail: JobDetail = {
       ...jobDetail(base as NonNullable<typeof base>),
       target: { ...flow2Target },
-      flow2: flow2Fixture("match", {
-        offers: [],
-        notOffered: [
-          { offer: "merge", reason: "admin_required" },
-          { offer: "version", reason: "admin_required" },
-        ],
-        version: null,
-      }),
+      flow2: flow2Fixture("match", { offers: [], notOffered, version: null }),
     };
     applyScenarios(["flow2"]);
     server.use(http.get("/api/jobs/:id", () => HttpResponse.json(detail)));
     renderApp(`/jobs/${flow2JobId}/flow2`);
+  };
+
+  it("says that an admin must confirm the upload, and offers neither", async () => {
+    show([
+      { offer: "merge", reason: "admin_required" },
+      { offer: "version", reason: "admin_required" },
+    ]);
     expect(
-      await screen.findByRole("heading", { name: "An admin must confirm this job" }),
+      await screen.findByRole("heading", { name: "An admin must confirm this upload" }),
+    ).toBeVisible();
+    expect(
+      screen.getByText(/^Merging into the film’s file and keeping a second version/),
     ).toBeVisible();
     expect(
       screen.getByText(
@@ -222,5 +276,18 @@ describe("flow 2 options only an admin may confirm", () => {
     ).toBeVisible();
     expect(screen.getByText(/^Keep it as a second version: it changes a file/)).toBeVisible();
     expect(screen.queryByRole("button", { name: /Merge|Make the clips/ })).not.toBeInTheDocument();
+  });
+
+  it("names only the option an admin would be offered", async () => {
+    show([
+      { offer: "merge", reason: "admin_required" },
+      { offer: "version", reason: "versions_disabled" },
+    ]);
+    expect(
+      await screen.findByText(
+        "Merging into the film’s file changes the library, which only an admin can do on this server. Nothing was changed.",
+      ),
+    ).toBeVisible();
+    expect(screen.queryByText(/keeping a second version/)).not.toBeInTheDocument();
   });
 });
