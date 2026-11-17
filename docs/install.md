@@ -36,7 +36,7 @@ Everything lives in one folder, for example `~/fukku`. As the user from the list
 one that owns your media), not root:
 
 ```sh
-git clone https://github.com/segun-io/fukku.git ~/fukku-src   # for the example files
+git clone --depth 1 --branch <the release tag> https://github.com/segun-io/fukku.git ~/fukku-src   # for the example files
 mkdir -p ~/fukku && cd ~/fukku
 cp ~/fukku-src/deploy/compose.example.yaml compose.yaml
 cp ~/fukku-src/deploy/fukku.example.yaml fukku.yaml
@@ -45,6 +45,10 @@ install -d -m 0700 secrets
 # The intake folders the worker mounts on their own (replace /path/to/data as in step 4):
 install -d /path/to/data/intake/jobs /path/to/data/intake/worker /path/to/data/intake/.incoming
 ```
+
+Without git, download the two example files from `deploy/` of the same tag instead (the
+`raw.githubusercontent.com/segun-io/fukku/<the release tag>/deploy/` address of each), and read
+the other documents at that tag too: the files must match the image you install.
 
 The intake folders must exist, belonging to that same user, before the first start: the
 compose file refuses to start a container on a missing one rather than let Docker create it as
@@ -60,11 +64,14 @@ share (SQLite; Fukku refuses to start on one).
 ## 2. Get the image
 
 The compose example names the image once, in its `x-image` line, with the version in the tag.
-Read it from your `compose.yaml`, so the version is written in one place:
+To install another image (a release candidate, pinned by digest as the comment above the line
+says, or one you built or loaded yourself), put its whole reference in that line now. Then read
+it from your `compose.yaml`, so the image is written in one place, and pull it unless the host
+has it already (`docker load` puts an image on a host that cannot reach the registry):
 
 ```sh
 image=$(sed -n 's/^x-image: &image //p' compose.yaml)
-docker pull "$image"
+docker image inspect "$image" >/dev/null 2>&1 || docker pull "$image"
 ```
 
 If the registry does not have that tag yet (the release is still being prepared), build the
@@ -132,6 +139,7 @@ setups): then no path mappings are needed. If an app sees it elsewhere, say so w
 | `radarr.qualityProfile`, `sonarr.qualityProfile` | the exact name of a quality profile |
 | `paths.libraryRoots` | the same root folders, as Fukku sees them |
 | `paths.sentinels` | a file that exists only while the share is mounted: `touch /path/to/data/.mounted` |
+| `upload.freeSpaceMargin` | only on a small disk: an upload is refused (`507 insufficient_space`) unless the intake filesystem has its size plus this much free, and the default is `100GiB`. With less than that free, add `upload:` and, under it, `freeSpaceMargin: 1GiB` (or a margin that suits the disk) |
 
 Every other setting, with its default, is in [settings.md](settings.md); only change what you
 need. Nothing in the file is a secret, and every setting can also be an environment variable
@@ -224,7 +232,10 @@ manual fallback is always Radarr's or Sonarr's own Manual Import page on the job
   `mediaServer.refreshMethod: libraryRefresh` a new title shows up in about a second. With
   `pathUpdate` Jellyfin waits its `LibraryMonitorDelay` (60 seconds by default): lower it in
   Jellyfin's settings, or raise `mediaServer.itemWait`. A library that has never held a file is
-  scanned once by `mediaServer.refreshFallback`; scanning it once yourself avoids the wait.
+  scanned once by `mediaServer.refreshFallback`, which makes the first import wait for
+  `mediaServer.itemWait` (two minutes). Scanning the library once yourself, **once it holds a
+  file**, avoids that wait; a scan of an empty library does not, because Jellyfin takes an
+  empty library folder for a disk that is not mounted.
 - **Bazarr** must be connected to Radarr and Sonarr as usual; Fukku only hands it the subtitle
   files that came with an upload, once Radarr or Sonarr has imported the video.
 

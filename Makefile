@@ -147,6 +147,14 @@ e2e: ## Playwright through the UI and API against the dev stack; make e2e ARGS='
 e2e-large: ## the large-upload test at 60GiB (by hand: needs about 65GiB free for test/env/.run/data)
 	$(MAKE) --no-print-directory e2e E2E_LARGE_SIZE=60GiB ARGS='exit-m1-large-upload.spec.ts $(ARGS)'
 
+## ---- clean-room install test (issue #67) ----------------------------------------------
+
+.PHONY: install-test
+install-test: $(DEV_DEP) ## clean-room install from README and docs/install.md on a Docker-in-Docker host; make install-test FUKKU_IMAGE=fukku:dev (by hand before a release; needs internet for Radarr and Sonarr metadata)
+	@if [ "$(FUKKU_DEV)" = 1 ]; then echo "install-test runs on the host (needs Docker)"; exit 1; fi
+	@test -n "$(FUKKU_IMAGE)" || { echo "set FUKKU_IMAGE, e.g. make install-test FUKKU_IMAGE=fukku:dev (make image builds it) or a registry reference by digest"; exit 2; }
+	DEV_IMAGE=$(DEV_IMAGE) FUKKU_IMAGE='$(FUKKU_IMAGE)' test/install/run.sh
+
 ## ---- build ------------------------------------------------------------------------
 
 .PHONY: ui

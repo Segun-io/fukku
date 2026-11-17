@@ -18,9 +18,13 @@ import (
 func main() {
 	out := flag.String("out", ".cache/fixtures", "output directory")
 	quick := flag.Bool("quick", false, "only what the stack tests upload (make e2e): a short film, one season zip, the hostile corpus, the M2 titles in m2/ and the M3 film and its dubs in m3/")
+	install := flag.Bool("install", false, "only the film and the season archive of the clean-room install test (test/install), with manifest.json, into -out")
 	flag.Parse()
 	run := run
-	if *quick {
+	switch {
+	case *install:
+		run = writeInstall
+	case *quick:
 		run = runQuick
 	}
 	if err := run(context.Background(), *out); err != nil {

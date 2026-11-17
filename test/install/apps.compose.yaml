@@ -1,0 +1,83 @@
+# TEST SCAFFOLDING of the clean-room install (test/install/run.sh), not an install step.
+#
+# Stands for what an operator already has before they read the install guide: a Radarr, a
+# Sonarr and a Jellyfin on one Docker network, with one filesystem (/data) that they share,
+# and a forward-authentication service for the reverse proxy. It runs inside the clean host,
+# in its own project (apps), apart from the operator's folder and compose project (fukku).
+# The image references, the API keys and the paths are given by run.sh.
+
+name: apps
+
+x-servarr: &servarr
+  restart: unless-stopped
+  environment: &servarr-env
+    PUID: "1000"
+    PGID: "1000"
+    TZ: Etc/UTC
+
+services:
+  radarr:
+    hostname: radarr
+    container_name: radarr
+    <<: *servarr
+    image: ${RADARR_IMAGE:?}
+    environment:
+      <<: *servarr-env
+      RADARR__AUTH__APIKEY: ${RADARR_API_KEY:?}
+      RADARR__AUTH__METHOD: External
+      RADARR__AUTH__REQUIRED: DisabledForLocalAddresses
+      RADARR__LOG__ANALYTICSENABLED: "False"
+    volumes:
+      - ./config/radarr:/config
+      - ${DATA_DIR:?}:/data
+    networks: [arr]
+
+  sonarr:
+    hostname: sonarr
+    container_name: sonarr
+    <<: *servarr
+    image: ${SONARR_IMAGE:?}
+    environment:
+      <<: *servarr-env
+      SONARR__AUTH__APIKEY: ${SONARR_API_KEY:?}
+      SONARR__AUTH__METHOD: External
+      SONARR__AUTH__REQUIRED: DisabledForLocalAddresses
+      SONARR__LOG__ANALYTICSENABLED: "False"
+    volumes:
+      - ./config/sonarr:/config
+      - ${DATA_DIR:?}:/data
+    networks: [arr]
+
+  jellyfin:
+    hostname: jellyfin
+    container_name: jellyfin
+    image: ${JELLYFIN_IMAGE:?}
+    restart: unless-stopped
+    user: "1000:1000"
+    volumes:
+      - ./config/jellyfin/config:/config
+      - ./config/jellyfin/cache:/cache
+      - ${DATA_DIR:?}:/data
+    networks: [arr]
+
+  # The forward-authentication stub (test/install/tools): sets Remote-User, Remote-Email and
+  # Remote-Groups for a user that signed in, as docs/reverse-proxy.md asks of the service.
+  auth:
+    hostname: auth
+    container_name: auth
+    image: ${TOOLS_IMAGE:?}
+    restart: unless-stopped
+    command: ["authstub", "-listen=:9091"]
+    healthcheck:
+      test: ["CMD", "/tools", "ping", "http://127.0.0.1:9091/healthz"]
+      interval: 5s
+      timeout: 5s
+    networks: [authnet]
+
+# The network the apps share: the one the operator names in compose.yaml (install step 4).
+# The auth network is "whatever network reaches your auth service" of docs/reverse-proxy.md.
+networks:
+  arr:
+    name: ${APPS_NETWORK:?}
+  authnet:
+    name: authnet
