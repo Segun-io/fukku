@@ -54,10 +54,11 @@ const (
 
 // Options configure Run.
 type Options struct {
-	Timeout   time.Duration // merge.previewTimeout, per clip
-	Nice      int           // worker.nice
-	Height    int           // merge.previewHeight; smaller videos are not scaled up
-	VideoKbps int           // merge.previewVideoBitrate
+	Timeout     time.Duration // merge.previewTimeout, per clip
+	Nice        int           // worker.nice
+	MemoryLimit int64         // worker.toolMemoryLimit
+	Height      int           // merge.previewHeight; smaller videos are not scaled up
+	VideoKbps   int           // merge.previewVideoBitrate
 	// LibraryFormats are the demuxers ffmpeg may use on the library file
 	// (worker.libraryFormats, as for the library probe); empty means the upload's
 	// (media.FormatWhitelist). The upload always gets the upload's.
@@ -70,6 +71,7 @@ func OptionsFrom(cfg config.Config) Options {
 	return Options{
 		Timeout:        cfg.Merge.PreviewTimeout.D(),
 		Nice:           cfg.Worker.Nice,
+		MemoryLimit:    int64(cfg.Worker.ToolMemoryLimit),
 		Height:         cfg.Merge.PreviewHeight,
 		VideoKbps:      cfg.Merge.PreviewVideoBitrate,
 		LibraryFormats: slices.Clone(cfg.Worker.LibraryFormats),
@@ -159,7 +161,7 @@ func Run(ctx context.Context, job *os.Root, roots []string, args Args, opt Optio
 }
 
 // command is the program to run and the arguments before ffmpeg's own: nice when
-// worker.nice is set.
+// worker.nice is set, prlimit when worker.toolMemoryLimit is.
 func command(opt Options) (string, []string, error) {
 	name := opt.FFmpeg
 	if name == "" {
@@ -169,14 +171,8 @@ func command(opt Options) (string, []string, error) {
 	if err != nil {
 		return "", nil, err
 	}
-	if opt.Nice <= 0 {
-		return bin, nil, nil
-	}
-	nice, err := exec.LookPath("nice")
-	if err != nil {
-		return "", nil, err
-	}
-	return nice, []string{"-n", strconv.Itoa(opt.Nice), bin}, nil
+	name, args, err := media.Wrap(opt.Nice, opt.MemoryLimit, bin, nil)
+	return name, args, err
 }
 
 // clean removes from Dir every file that is not of this request: the clips of earlier
@@ -261,6 +257,9 @@ func render(ctx context.Context, job *os.Root, lib, up *os.File, a Args, c Clip,
 		}
 		if ee == nil {
 			return 0, "", "", err // ffmpeg could not be started, or the clip not written
+		}
+		if media.MemoryExhausted(err, stderr.last()) {
+			return 0, RefusalRenderFailed, media.MemoryDetail("ffmpeg"), nil
 		}
 		return 0, RefusalRenderFailed, stderr.last(), nil
 	case sink.n == 0:

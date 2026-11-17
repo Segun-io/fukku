@@ -55,6 +55,13 @@ services:
       frontend:
         aliases: [fukku-web]
     expose: ["8080"]
+    # Limits (docs/settings.md, worker.toolMemoryLimit): the web process streams uploads and
+    # keeps a SQLite database, so 1g is ample; raise it only if the logs show it killed.
+    # memswap_limit equal to mem_limit means no swap: a runaway process is killed by the
+    # kernel inside its own container, not by the host's OOM killer picking Radarr or Jellyfin.
+    mem_limit: 1g
+    memswap_limit: 1g
+    pids_limit: 256
 
   worker:
     <<: *hardening
@@ -71,6 +78,12 @@ services:
       test: ["CMD", "fukku", "healthcheck", "--worker"]
       interval: 30s
       timeout: 5s
+    # Limits: 4g covers one ffmpeg or mkvmerge at a time (worker.concurrency 1) with room for
+    # the 64m /tmp; raise it with worker.concurrency. Each tool also runs under an address-space
+    # limit of worker.toolMemoryLimit (6GiB by default; it counts reserved address space, so it
+    # is above the real use). A tool past either limit fails its job with a clear refusal.
+    mem_limit: 4g
+    memswap_limit: 4g
     pids_limit: 256
     cpus: 2
 

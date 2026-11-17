@@ -41,6 +41,7 @@ type Options struct {
 	Probe               media.Options // ffprobe of the library file, the upload and the output
 	IdentifyTimeout     time.Duration // worker.probeTimeout, per mkvmerge identification
 	Nice                int           // worker.nice
+	MemoryLimit         int64         // worker.toolMemoryLimit
 	FreeSpaceMargin     int64         // upload.freeSpaceMargin
 	LanguageTag         string        // merge.languageTag
 	TrackName           string        // merge.trackName
@@ -60,6 +61,7 @@ func OptionsFrom(cfg config.Config) Options {
 		Probe:               media.OptionsFrom(cfg),
 		IdentifyTimeout:     cfg.Worker.ProbeTimeout.D(),
 		Nice:                cfg.Worker.Nice,
+		MemoryLimit:         int64(cfg.Worker.ToolMemoryLimit),
 		FreeSpaceMargin:     int64(cfg.Upload.FreeSpaceMargin),
 		LanguageTag:         cfg.Merge.LanguageTag,
 		TrackName:           cfg.Merge.TrackName,
@@ -369,6 +371,9 @@ func (m *merger) run(ctx context.Context) (Output, error) {
 		return Output{}, err
 	}
 	if exit != 0 {
+		if m.tool.memoryExhausted(exit, log.buf.String()) {
+			return refuse(RefusalMuxFailed, "%s", media.MemoryDetail("mkvmerge")), nil
+		}
 		return refuse(RefusalMuxFailed, "mkvmerge exited with %d: %s", exit, muxMessages(log.buf.String(), 5)), nil
 	}
 	if !sameFile(libRoot, rel, lib, libInfo) {

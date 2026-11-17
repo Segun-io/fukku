@@ -25,6 +25,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0 # gitleaks scans the history
+          persist-credentials: false # nothing here pushes; the token must not sit in .git/config
       - uses: ./.github/actions/dev-image
       - run: make check
 
@@ -39,6 +40,8 @@ jobs:
         arch: ${{ fromJSON(github.event_name == 'pull_request' && '["amd64"]' || '["amd64", "arm64"]') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false # nothing here pushes; the token must not sit in .git/config
       - uses: ./.github/actions/build-image
         with:
           tag: fukku:ci-${{ matrix.arch }}
@@ -53,6 +56,8 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false # nothing here pushes; the token must not sit in .git/config
       - uses: ./.github/actions/dev-image
       - run: make env-up
       # Pull requests run the probes that need no internet; pushes, the schedule and manual
@@ -83,6 +88,8 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false # nothing here pushes; the token must not sit in .git/config
       - uses: ./.github/actions/dev-image
       # The large-upload test writes 5 GiB under test/env/.run/data (and checks there is room):
       # drop toolchains this job does not use.
@@ -112,3 +119,17 @@ jobs:
           if-no-files-found: ignore
       - if: always()
         run: make dev-down env-down
+
+  # Known vulnerabilities in dependencies (#128). Needs the internet and moves with the advisory
+  # databases, so it is a job of its own, not part of `make check`. What fails and what warns is
+  # written at the top of tools/vulncheck.sh: a vulnerability in a Go function the code calls, or
+  # a high or critical advisory in a production npm package of the UI, fails; the rest warns.
+  vulncheck:
+    name: dependency vulnerabilities (govulncheck, npm audit)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/dev-image
+      - run: make vulncheck

@@ -49,6 +49,7 @@ const (
 type Options struct {
 	Timeout     time.Duration // worker.probeTimeout, per file
 	Nice        int           // worker.nice
+	MemoryLimit int64         // worker.toolMemoryLimit
 	VideoExt    []string      // upload.videoExtensions
 	SubtitleExt []string      // upload.subtitleExtensions
 	FFprobe     string        // binary; empty means "ffprobe" (tests pass a fake)
@@ -62,6 +63,7 @@ func OptionsFrom(cfg config.Config) Options {
 	return Options{
 		Timeout:        time.Duration(cfg.Worker.ProbeTimeout),
 		Nice:           cfg.Worker.Nice,
+		MemoryLimit:    int64(cfg.Worker.ToolMemoryLimit),
 		VideoExt:       cfg.Upload.VideoExtensions,
 		SubtitleExt:    cfg.Upload.SubtitleExtensions,
 		LibraryFormats: cfg.Worker.LibraryFormats,
@@ -229,12 +231,9 @@ func runFFprobe(ctx context.Context, f *os.File, opt Options, formats string, sh
 	defer func() { _, _ = f.Seek(0, io.SeekStart) }()
 	probeArgs := append([]string{"-v", "error", "-print_format", "json"}, show...)
 	probeArgs = append(probeArgs, "-format_whitelist", formats, "-protocol_whitelist", protocolWhitelist, "-fd", "3", "-i", "fd:")
-	name := bin
-	if opt.Nice > 0 {
-		probeArgs = append([]string{"-n", strconv.Itoa(opt.Nice), bin}, probeArgs...)
-		if name, err = lookBinary("", "nice"); err != nil {
-			return nil, "", err
-		}
+	name, probeArgs, err := Wrap(opt.Nice, opt.MemoryLimit, bin, probeArgs)
+	if err != nil {
+		return nil, "", err
 	}
 
 	fctx, cancel := context.WithTimeout(ctx, opt.Timeout)
@@ -261,7 +260,7 @@ func runFFprobe(ctx context.Context, f *os.File, opt Options, formats string, sh
 	if err != nil {
 		var ee *exec.ExitError
 		if errors.As(err, &ee) && (ee.ExitCode() == 126 || ee.ExitCode() == 127) {
-			// nice or the shell could not run ffprobe: not a verdict on the file
+			// nice or prlimit could not run ffprobe: not a verdict on the file
 			return nil, "", fmt.Errorf("ffprobe could not be run (exit %d)", ee.ExitCode())
 		}
 		if ee != nil || errors.Is(err, errOutputTooLarge) {

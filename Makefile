@@ -52,6 +52,10 @@ ci-lint: ## lint the GitHub Actions workflows (actionlint, pinned)
 	@if [ "$(FUKKU_DEV)" = 1 ]; then echo "ci-lint runs on the host (needs Docker)"; else \
 	  docker run --rm -v $(CURDIR):/repo -w /repo $(ACTIONLINT) -color=false && echo "actionlint: ok"; fi
 
+.PHONY: vulncheck
+vulncheck: ui-deps ## scan Go modules and npm packages for known vulnerabilities (needs internet; CI job vulncheck)
+	$(IN_DEV) tools/vulncheck.sh
+
 .PHONY: _check
 _check: fmt-check lint test ui-check e2e-check secrets
 	@echo "check: all passed"

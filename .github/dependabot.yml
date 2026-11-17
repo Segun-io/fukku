@@ -1,0 +1,23 @@
+# Version updates for everything that is pinned (the actions by commit SHA, the images by digest,
+# the Go modules and npm packages by exact version). Security advisories are scanned separately
+# (tools/vulncheck.sh, the vulncheck job of workflows/ci.yml). Pull requests only; nothing merges itself.
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directory: /
+    schedule: {interval: weekly}
+  - package-ecosystem: npm
+    directory: /ui
+    schedule: {interval: weekly}
+  - package-ecosystem: npm
+    directory: /test/e2e
+    schedule: {interval: weekly}
+  - package-ecosystem: github-actions
+    directories: [/, /.github/actions/build-image, /.github/actions/dev-image]
+    schedule: {interval: weekly}
+  - package-ecosystem: docker
+    directory: /
+    schedule: {interval: weekly}
+  - package-ecosystem: docker
+    directory: /tools/dev
+    schedule: {interval: weekly}

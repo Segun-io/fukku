@@ -22,11 +22,31 @@ fi
 
 docker run --rm "$image" version
 
+# No setuid or setgid file may be left (Dockerfile, runtime stage): without no-new-privileges
+# they would let the non-root user climb. -xdev keeps find out of /proc and /sys.
+left=$(docker run --rm --entrypoint find "$image" / -xdev -type f -perm /6000 2>/dev/null || true)
+if [ -n "$left" ]; then
+  echo "setuid or setgid files left in the image:" >&2
+  echo "$left" >&2
+  exit 1
+fi
+echo "no setuid or setgid files"
+
 docker run --rm --network none --read-only --cap-drop ALL --tmpfs /tmp --entrypoint sh "$image" -c '
   set -e
   ffprobe -version | head -n 1
   ffmpeg -version | head -n 1
   mkvmerge --version
+
+  # The worker starts every tool under prlimit (worker.toolMemoryLimit): it must exist, set
+  # the limit in the child, and make a tool past it fail instead of grow.
+  prlimit --as=4294967296 -- ffprobe -version | head -n 1
+  [ "$(prlimit --as=4294967296 -- sh -c "ulimit -v")" = 4194304 ] || { echo "prlimit did not set RLIMIT_AS" >&2; exit 1; }
+  if prlimit --as=33554432 -- ffmpeg -version >/dev/null 2>&1; then
+    echo "ffmpeg ran under a 32 MiB address-space limit" >&2
+    exit 1
+  fi
+  echo "prlimit ok"
 
   # What the worker accepts (internal/media/probe.go formatWhitelist, upload.videoExtensions):
   # every demuxer and decoder it can meet must be in this build. Names are as ffprobe lists them.
