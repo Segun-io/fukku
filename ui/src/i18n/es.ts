@@ -698,9 +698,13 @@ const es: Record<keyof typeof en, string> = {
   "import.steps": "Pasos después de la importación",
   "import.post.running": "Los archivos ya están en la biblioteca. Estos pasos terminan el trabajo.",
   "import.step.mediaServerRefresh": "Avisar al servidor multimedia de los archivos nuevos",
+  "import.step.mediaServerVersions":
+    "Agrupar la segunda versión con la película en el servidor multimedia",
   "import.step.subtitles": "Pasar los subtítulos al gestor de subtítulos",
   "import.step.mediaServerRefresh.failed":
     "El servidor multimedia no mostró el título a tiempo. Aparecerá tras su próximo escaneo de la biblioteca, o inicia uno allí a mano.",
+  "import.step.mediaServerVersions.failed":
+    "El servidor multimedia no agrupó la versión con la película. Fukku lo intenta de nuevo solo; mientras tanto aparecen como entradas separadas.",
   "import.step.subtitles.failed":
     "Los subtítulos no se escribieron. Añádelos a mano en el gestor de subtítulos. Los archivos siguen en esta subida hasta que caduque.",
   "import.step.failed":
@@ -807,6 +811,8 @@ const es: Record<keyof typeof en, string> = {
   "flow2.sync.error.render_failed": "No se pudieron hacer los clips con estos archivos.",
   "flow2.sync.error.timeout": "Hacer un clip tardó demasiado.",
   "flow2.sync.error.too_large": "Un clip salió demasiado grande.",
+  "flow2.sync.error.task_failed": "El proceso de trabajo no pudo hacer los clips.",
+  "flow2.sync.error.task_timeout": "El proceso de trabajo tardó demasiado en hacer los clips.",
   "flow2.sync.error.unknown": "No se pudieron hacer los clips (código: {code}).",
   "flow2.sync.ready": "Hechos con {track} y un desfase de {offset} ms.",
   "flow2.sync.clips": "Clips",
@@ -818,7 +824,6 @@ const es: Record<keyof typeof en, string> = {
   "flow2.sync.nomatch":
     "Si no coinciden, cambia el desfase y haz los clips otra vez. Un doblaje que se va desfasando no se arregla con un desfase fijo: consérvalo como segunda versión.",
   "flow2.sync.confirmed": "Comprobado con un desfase de {offset} ms.",
-  "flow2.sync.redo": "Comprobar otra vez",
   "flow2.merge.title": "Fusionar en el archivo de la biblioteca",
   "flow2.merge.intro":
     "Elige qué se añade. Todo lo que sigue es opcional: lo que dejes vacío usa los ajustes del servidor.",
@@ -827,6 +832,8 @@ const es: Record<keyof typeof en, string> = {
   "flow2.merge.subtitles.none": "El envío no trae subtítulos dentro.",
   "flow2.merge.tag": "Etiqueta de idioma",
   "flow2.merge.tag.hint": "Una etiqueta como es-419. Vacío: la del servidor.",
+  "flow2.merge.tag.invalid":
+    "Esa no es una etiqueta de idioma válida. Usa letras y guiones, como es-419 o en-US, con el idioma en minúsculas.",
   "flow2.merge.name": "Nombre de la pista",
   "flow2.merge.name.hint": "Cómo se llama la pista en los reproductores. Vacío: el del servidor.",
   "flow2.merge.keepDefault": "Mantener el audio original como pista por defecto",
@@ -935,7 +942,6 @@ const es: Record<keyof typeof en, string> = {
     "El archivo fusionado no pasó las comprobaciones (la imagen, la duración o las pistas no eran las esperadas).",
   "import.merge.refusal.busy": "Otra fusión estaba usando el mismo lugar. Inténtalo de nuevo.",
   "import.merge.refusal.unknown": "Se rechazó la fusión (código: {code}).",
-  "import.merge.facts": "Qué se añade",
   "import.merge.fact.audio": "Pistas de audio",
   "import.merge.fact.subtitles": "Pistas de subtítulos",
   "import.merge.fact.offset": "Desfase",
@@ -972,13 +978,15 @@ const es: Record<keyof typeof en, string> = {
     "Radarr ya no tiene esta película. La versión sigue en el disco.",
   "import.version.status.missing": "El archivo de la versión ya no está en el disco.",
   "import.version.status.unknown": "Estado de la versión: {status}.",
-  "import.seasonDub.replace":
-    "Tus archivos reemplazaron a los que ya estaban en la biblioteca en la temporada {seasons}.",
-  "import.seasonDub.version":
-    "Tus episodios se conservaron junto a los de la biblioteca como segundas versiones, en la temporada {seasons}.",
   "import.seasonDub.subtitlesOnly.title": "No se importó nada",
   "import.seasonDub.subtitlesOnly":
     "Elegiste añadir solo subtítulos para los episodios que ya tienen un archivo. Los subtítulos fueron al gestor de subtítulos, y los archivos siguen en este envío hasta que caduque.",
+  "import.seasonDub.subtitlesOnly.mixed":
+    "En los episodios que ya tenían un archivo elegiste añadir solo los subtítulos: esos archivos no se reemplazaron.",
+  "import.seasonDub.replace.one":
+    "Tus archivos reemplazaron a los que ya estaban en la biblioteca en la temporada {seasons}.",
+  "import.seasonDub.replace.other":
+    "Tus archivos reemplazaron a los que ya estaban en la biblioteca en las temporadas {seasons}.",
   "confirm.dub.title": "Episodios que ya tienen un archivo",
   "confirm.dub.intro":
     "Algunos episodios de este envío ya están en la biblioteca. Elige qué hacer con ellos. Los demás episodios se importan como siempre.",
@@ -993,9 +1001,6 @@ const es: Record<keyof typeof en, string> = {
   "confirm.dub.subtitlesOnly": "Añadir solo los subtítulos",
   "confirm.dub.subtitlesOnly.body":
     "No se importa nada. Los subtítulos de tu envío van al gestor de subtítulos para los episodios que ya tienen un archivo.",
-  "confirm.dub.version": "Conservar como segundas versiones",
-  "confirm.dub.version.body":
-    "Cada episodio tuyo se guarda junto al de la biblioteca como otra versión. Los archivos de la biblioteca no se tocan.",
   "confirm.dub.unknown": "Otra opción ({policy})",
   "confirm.dub.unknown.body": "El servidor la ofrece, pero esta página todavía no la conoce.",
   "confirm.dub.decided": "Este servidor lo decide por sí mismo: {option}.",

@@ -42,6 +42,8 @@ export const previewErrorCodes = [
   "render_failed",
   "timeout",
   "too_large",
+  "task_failed",
+  "task_timeout",
 ] as const;
 
 /** Refusal codes of a whole archive (#3). */

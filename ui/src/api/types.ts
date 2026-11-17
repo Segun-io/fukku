@@ -513,7 +513,7 @@ export type MergeRequest = {
 
 /** The confirmation of a flow 2 job (#55, #56): a merge or a second version. */
 export type Flow2ConfirmRequest =
-  | { flow2: "merge"; merge: MergeRequest }
+  | { flow2: "merge"; merge: MergeRequest; subtitles?: SubtitleChoice[] }
   | { flow2: "version"; version: { label?: string } };
 
 // ---- Sync check (#53) -------------------------------------------------------------------

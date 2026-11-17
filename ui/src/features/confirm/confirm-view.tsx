@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button";
 import { useT } from "@/i18n";
 import { hasIssues, hintText, issueSignature } from "./notices";
 import { RowCard } from "./row-card";
-import { hasExistingFile, replacedRow, SeasonDubSection } from "./season-dub";
+import { hasExistingFile, replacedRow, SeasonDubSection, usableDub } from "./season-dub";
 import { guessChoices, isLanguage, SubtitlesSection, subtitleFiles } from "./subtitles-section";
 
 const appName: Record<Proposal["app"], string> = {
@@ -42,7 +42,7 @@ export function ConfirmView({ job, proposal, subtitleManager }: Props) {
   const [missing, setMissing] = useState<string[]>([]);
   const [badLanguage, setBadLanguage] = useState(false);
   // The season-dub choice (#57): asked when the server's policy is `ask`; else it is the server's.
-  const dub = proposal.seasonDub;
+  const dub = proposal.seasonDub && usableDub(proposal.seasonDub);
   const [choice, setChoice] = useState("");
   const [dubMissing, setDubMissing] = useState(false);
   // Rows whose file holds episodes outside the upload (`shared_file`), and the ones agreed to.

@@ -101,17 +101,8 @@ export function Flow2Page() {
         <p>{t("flow2.intro")}</p>
       </FlowHeader>
     );
-    if (flow2.state === "pending") {
-      body = (
-        <>
-          {header}
-          <StatusLabel tone="waiting" role="status" className="text-base">
-            {t("flow2.pending")}
-          </StatusLabel>
-          <LoadingState rows={2} />
-        </>
-      );
-    } else if (!flow2.upload) {
+    if (!flow2.upload) {
+      // No accepted video: the library file is never compared, so `state` stays `pending`.
       body = (
         <>
           {header}
@@ -123,11 +114,22 @@ export function Flow2Page() {
           </EmptyState>
         </>
       );
+    } else if (flow2.state === "pending" || data.state === "matched") {
+      // The clips are asked for only once the job awaits confirmation.
+      body = (
+        <>
+          {header}
+          <StatusLabel tone="waiting" role="status" className="text-base">
+            {t("flow2.pending")}
+          </StatusLabel>
+          <LoadingState rows={2} />
+        </>
+      );
     } else {
       body = (
         <>
           {header}
-          <Flow2View jobId={id} flow2={flow2} upload={flow2.upload} />
+          <Flow2View jobId={id} flow2={flow2} upload={flow2.upload} files={data.files} />
         </>
       );
     }

@@ -124,7 +124,7 @@ describe("the progress of a merge", () => {
       ),
     ).toBeVisible();
     const list = within(steps()).getAllByRole("listitem");
-    expect(within(list[0] as HTMLElement).getByText("Imported")).toBeVisible();
+    expect(within(list[0] as HTMLElement).getByText("Done")).toBeVisible();
     expect(within(list[1] as HTMLElement).getByText("Waiting")).toBeVisible();
   });
 
@@ -142,6 +142,32 @@ describe("the progress of a merge", () => {
       await screen.findByText("The merge did not finish. The library file was not changed.")
     ).closest("div") as HTMLElement;
     expect(notice).toHaveTextContent(text);
+  });
+
+  it("shows the failure on the import step when Radarr did not take the merged file", async () => {
+    serve("failed", {
+      error: { code: "merge_rejected", message: "x" },
+      import: {
+        status: "failed",
+        rows: [],
+        merge: merge({ state: "merged", name: "Sintel (2010) WEBDL-1080p.mkv", size: 1 }),
+      },
+    });
+    await screen.findByRole("list", { name: "Steps of the merge" });
+    const list = within(steps()).getAllByRole("listitem");
+    expect(within(list[0] as HTMLElement).getByText("Done")).toBeVisible();
+    expect(within(list[1] as HTMLElement).getByText("Failed")).toBeVisible();
+  });
+
+  it("shows the make step as failed, and the import as not used", async () => {
+    serve("failed", {
+      error: { code: "merge_failed", message: "x" },
+      import: { ...importOf(merge({ state: "failed", refusal: "mux_failed" })), status: "failed" },
+    });
+    await screen.findByRole("list", { name: "Steps of the merge" });
+    const list = within(steps()).getAllByRole("listitem");
+    expect(within(list[0] as HTMLElement).getByText("Failed")).toBeVisible();
+    expect(within(list[1] as HTMLElement).getByText("Not used")).toBeVisible();
   });
 
   it("names the failed job's error", async () => {
@@ -259,12 +285,16 @@ describe("the result of a second version", () => {
 });
 
 describe("the result of a season dub", () => {
-  const dub = (seasonDub: ImportResult["seasonDub"], over: Partial<ImportResult> = {}) =>
+  const dub = (
+    seasonDub: ImportResult["seasonDub"],
+    rows: ImportInfo["rows"],
+    over: Partial<ImportResult> = {},
+  ) =>
     serve("done", {
       flow2: null,
-      import: { status: "done", rows: [{ id: "r1", name: "S01E07.mkv", result: "imported" }] },
+      import: { status: "done", rows },
       result: {
-        titleLink: null,
+        titleLink: "https://media.example.com/web/index.html#!/details?id=0a1b2c",
         monitored: true,
         unmonitorReason: "",
         postProcessing: [],
@@ -272,22 +302,58 @@ describe("the result of a season dub", () => {
         ...over,
       },
     });
+  const imported = [{ id: "r1", name: "S01E08.mkv", result: "imported" }];
 
   it("says plainly that the season is unmonitored and that a search can still replace it", async () => {
-    dub({ policy: "replace", seasons: [1, 2] }, { monitored: false, unmonitorReason: "dub_only" });
+    dub({ policy: "replace", seasons: [1] }, imported, {
+      monitored: false,
+      unmonitorReason: "dub_only",
+    });
     expect(
-      await screen.findByText(
-        "Your files replaced the ones already in the library for season 1, 2.",
-      ),
+      await screen.findByText("Your files replaced the ones already in the library for season 1."),
     ).toBeVisible();
     expect(screen.getByText("This title is not monitored")).toBeVisible();
     expect(screen.getByText(/title's own Search button in Radarr still can/)).toBeVisible();
   });
 
+  it("names every season that was replaced", async () => {
+    dub({ policy: "replace", seasons: [1, 2] }, imported);
+    expect(
+      await screen.findByText(
+        "Your files replaced the ones already in the library for seasons 1, 2.",
+      ),
+    ).toBeVisible();
+  });
+
   it("says nothing was imported when only the subtitles were added", async () => {
-    dub({ policy: "subtitlesOnly", seasons: [] });
+    dub({ policy: "subtitlesOnly", seasons: [1] }, [], { titleLink: null });
     expect(await screen.findByText("Nothing was imported")).toBeVisible();
     expect(screen.getByText(/The subtitles went to the subtitle manager/)).toBeVisible();
     expect(screen.queryByText(/is in the library/)).not.toBeInTheDocument();
+  });
+
+  it("does not say nothing was imported when new episodes were", async () => {
+    dub({ policy: "subtitlesOnly", seasons: [1] }, imported);
+    expect(await screen.findByText("Sintel is in the library")).toBeVisible();
+    expect(screen.queryByText("Nothing was imported")).not.toBeInTheDocument();
+    expect(screen.getByText(/those files were not replaced/)).toBeVisible();
+    expect(screen.getByRole("link", { name: /Open the title in the media server/ })).toBeVisible();
+  });
+});
+
+describe("the steps after the import", () => {
+  it("names the step that groups a second version", async () => {
+    serve("post-processing", {
+      import: { status: "done", rows: [] },
+      result: {
+        titleLink: null,
+        monitored: null,
+        unmonitorReason: "",
+        postProcessing: [{ step: "mediaServerVersions", status: "pending", detail: "" }],
+      },
+    });
+    expect(
+      await screen.findByText("Group the second version with the film in the media server"),
+    ).toBeVisible();
   });
 });

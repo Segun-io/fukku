@@ -5,8 +5,25 @@ import { Notice } from "@/components/shell/notice";
 import { type TKey, useT } from "@/i18n";
 import { cn } from "@/lib/utils";
 
-/** The policies this page has text for, in the order the server lists them (`confirm.dub.<policy>`). */
-const knownPolicies = ["replace", "subtitlesOnly", "version"];
+/** The policies this page has text for (`confirm.dub.<policy>`). */
+const knownPolicies = ["replace", "subtitlesOnly"];
+
+/**
+ * The policies the page does not offer yet: the server may list them, the page treats them as
+ * unknown and leaves them out. `version` (#58, #94) is built in #97.
+ */
+const notOffered = ["version"];
+
+/** What the page offers of the server's question: its `offers` without the ones it cannot do yet. */
+export function usableDub(dub: SeasonDub): SeasonDub {
+  const offers = dub.offers.filter((p) => !notOffered.includes(p));
+  return {
+    ...dub,
+    offers,
+    ask: dub.ask && offers.length > 0,
+    decided: dub.decided && notOffered.includes(dub.decided) ? undefined : dub.decided,
+  };
+}
 
 /** The refusals of the app that choosing `replace` answers (the same prefixes as the server's). */
 const upgradeRefusals = [

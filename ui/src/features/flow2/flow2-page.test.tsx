@@ -157,11 +157,27 @@ describe("the comparison", () => {
 
 describe("the states of the page", () => {
   it("waits while Radarr's file is being read", async () => {
-    serve(flow2Fixture("match", { state: "pending", finding: null, upload: null, offers: [] }));
+    serve(flow2Fixture("match", { state: "pending", finding: null, offers: [] }));
     open();
     expect(
       await screen.findByText("Radarr’s file is being read. This takes a moment."),
     ).toBeVisible();
+  });
+
+  it("does not wait forever for a job without an accepted video", async () => {
+    serve(flow2Fixture("match", { state: "pending", finding: null, upload: null, offers: [] }));
+    open();
+    expect(
+      await screen.findByRole("heading", { name: "There is no video to compare" }),
+    ).toBeVisible();
+    expect(screen.queryByText(/being read/)).not.toBeInTheDocument();
+  });
+
+  it("offers no clips while the job is only matched", async () => {
+    serve(flow2Fixture("match"), { state: "matched" });
+    open();
+    expect(await screen.findByText(/being read/)).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Make the clips" })).not.toBeInTheDocument();
   });
 
   it("says so when there is no video to compare", async () => {
@@ -275,10 +291,27 @@ describe("the sync check", () => {
       ),
     );
     open();
-    const alert = await screen.findByRole("alert");
-    expect(alert).toHaveTextContent("The clips could not be made");
-    expect(alert).toHaveTextContent("Making a clip took too long.");
+    const alert = await screen.findByText("The clips could not be made");
+    expect(alert.closest('[role="status"]')).toHaveTextContent("Making a clip took too long.");
     expect(screen.getByRole("button", { name: "Make the clips again" })).toBeVisible();
+  });
+
+  it.each([
+    ["task_failed", /worker could not make the clips/],
+    ["task_timeout", /worker took too long/],
+  ])("explains the preview error %s", async (code, text) => {
+    server.use(
+      http.get("/api/jobs/:id/preview", () =>
+        HttpResponse.json({
+          ...readyPreview(flow2JobId, { offsetMs: 0, audioTrack: 1 }, "2026-01-03T09:00:00Z"),
+          state: "failed",
+          clips: [],
+          error: { code, message: "x" },
+        } satisfies Preview),
+      ),
+    );
+    open();
+    expect(await screen.findByText(text)).toBeVisible();
   });
 
   it("shows the server's refusal of the request", async () => {
@@ -368,9 +401,107 @@ describe("the merge", () => {
     await user.click(within(form).getByRole("checkbox"));
     await user.click(within(form).getByRole("button", { name: "Merge into the library file" }));
     await waitFor(() => expect(confirms).toHaveLength(1));
+    // What the form shows is what is sent, the default of the original audio included.
     expect(confirms[0]).toEqual({
       flow2: "merge",
-      merge: { audioTracks: [1], subtitleTracks: [], offsetMs: 0 },
+      merge: { audioTracks: [1], subtitleTracks: [], offsetMs: 0, keepOriginalDefault: true },
+    });
+  });
+
+  it("withdraws the merge when the offset changes after the clips were checked", async () => {
+    const { confirms } = record();
+    const user = userEvent.setup();
+    open();
+    await toMerge(user);
+    expect(
+      screen.getByRole("form", { name: "Merge the audio into the library file?" }),
+    ).toBeVisible();
+    const offset = screen.getByRole("textbox", { name: "Offset in milliseconds" });
+    await user.clear(offset);
+    await user.type(offset, "-900");
+    expect(screen.queryByRole("form", { name: /Merge the audio/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Merge into the library file" })).toBeNull();
+    expect(screen.getByText(/changed after these clips were made/)).toBeVisible();
+    // Back to what the clips show: the confirmation comes back.
+    await user.clear(offset);
+    await user.type(offset, "0");
+    expect(
+      screen.getByRole("form", { name: "Merge the audio into the library file?" }),
+    ).toBeVisible();
+    expect(confirms).toEqual([]);
+  });
+
+  it("withdraws the merge when the track changes after the clips were checked", async () => {
+    const user = userEvent.setup();
+    open();
+    await toMerge(user);
+    await user.selectOptions(screen.getByRole("combobox", { name: "Audio track to add" }), "2");
+    expect(screen.queryByRole("form", { name: /Merge the audio/ })).not.toBeInTheDocument();
+  });
+
+  it("moves the focus to the merge when the user says the clips match", async () => {
+    const user = userEvent.setup();
+    open();
+    const heading = await toMerge(user);
+    expect(heading).toHaveFocus();
+  });
+
+  it("lets an offset with a minus sign be typed on a phone keyboard", async () => {
+    open();
+    const offset = await screen.findByRole("textbox", { name: "Offset in milliseconds" });
+    expect(offset).toHaveAttribute("inputmode", "text");
+    expect(offset).toHaveAttribute("pattern");
+  });
+
+  it("refuses a language tag that is not canonical, and says so by the field", async () => {
+    const { confirms } = record();
+    const user = userEvent.setup();
+    open();
+    await toMerge(user);
+    const tag = screen.getByRole("textbox", { name: "Language tag" });
+    await user.type(tag, "es_419");
+    const form = screen.getByRole("form", { name: "Merge the audio into the library file?" });
+    await user.click(within(form).getByRole("checkbox"));
+    await user.click(within(form).getByRole("button", { name: "Merge into the library file" }));
+    expect(await screen.findByText(/not a valid language tag/)).toBeVisible();
+    expect(tag).toHaveAttribute("aria-invalid", "true");
+    expect(tag).toHaveFocus();
+    expect(confirms).toEqual([]);
+    await user.clear(tag);
+    await user.type(tag, "es-419");
+    await user.click(within(form).getByRole("button", { name: "Merge into the library file" }));
+    await waitFor(() => expect(confirms).toHaveLength(1));
+  });
+
+  it("hands the job's subtitle files over with the merge, as an import does", async () => {
+    const { confirms } = record();
+    const user = userEvent.setup();
+    serve(flow2Fixture("match"), {
+      files: [
+        {
+          id: 401,
+          path: "files/Sintel.2010.es.srt",
+          name: "Sintel.2010.es.srt",
+          kind: "subtitle",
+          size: 1700,
+          status: "ok",
+          reason: null,
+          from: null,
+          probe: null,
+          extraction: null,
+        },
+      ],
+    });
+    open();
+    await toMerge(user);
+    expect(await screen.findByRole("heading", { name: "Subtitle files" })).toBeVisible();
+    const form = screen.getByRole("form", { name: "Merge the audio into the library file?" });
+    await user.click(within(form).getByRole("checkbox"));
+    await user.click(within(form).getByRole("button", { name: "Merge into the library file" }));
+    await waitFor(() => expect(confirms).toHaveLength(1));
+    expect(confirms[0]).toMatchObject({
+      flow2: "merge",
+      subtitles: [{ fileId: 401, language: "es" }],
     });
   });
 

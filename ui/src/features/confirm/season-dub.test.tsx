@@ -225,21 +225,25 @@ describe("the season-dub choice", () => {
     expect(screen.queryByRole("radio")).not.toBeInTheDocument();
   });
 
-  // #58 builds the `version` policy; this is the spot for its text and request, built against
-  // the offers array and the same `seasonDub` field as the others.
-  it("offers the version policy when the server lists it", async () => {
-    const bodies = recordConfirm();
-    const user = userEvent.setup();
+  // `version` (#58, #94) is built in #97: until then the page does not offer it.
+  it("does not offer the version policy even when the server lists it", async () => {
     serve([existing, fresh], { ...asking, offers: ["replace", "subtitlesOnly", "version"] });
     open();
-    const version = await screen.findByRole("radio", { name: /Keep as second versions/ });
-    expect(version.closest("label")).toHaveTextContent(
-      "kept next to the one in the library as another version",
-    );
-    await user.click(version);
+    expect(await screen.findByRole("radio", { name: /Replace the files/ })).toBeVisible();
+    expect(screen.queryByRole("radio", { name: /second versions/ })).not.toBeInTheDocument();
+    expect(screen.getAllByRole("radio")).toHaveLength(2);
+  });
+
+  it("asks for no choice when the only option is one it cannot offer", async () => {
+    const bodies = recordConfirm();
+    const user = userEvent.setup();
+    serve([existing, fresh], { ...asking, offers: ["version"] });
+    open();
+    expect(await screen.findByText(/Nothing is offered for these episodes/)).toBeVisible();
+    expect(screen.queryByRole("radio")).not.toBeInTheDocument();
     await user.click(await importButton());
     await waitFor(() => expect(bodies).toHaveLength(1));
-    expect(bodies[0]).toMatchObject({ seasonDub: "version" });
+    expect(bodies[0]).not.toHaveProperty("seasonDub");
   });
 
   it("names an option it does not know instead of hiding it", async () => {

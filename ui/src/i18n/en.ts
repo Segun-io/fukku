@@ -684,9 +684,12 @@ const en = {
   "import.steps": "Steps after the import",
   "import.post.running": "The files are in the library. These steps finish the job.",
   "import.step.mediaServerRefresh": "Tell the media server about the new files",
+  "import.step.mediaServerVersions": "Group the second version with the film in the media server",
   "import.step.subtitles": "Hand the subtitles to the subtitle manager",
   "import.step.mediaServerRefresh.failed":
     "The media server did not show the title in time. It will show up after its next library scan, or start a scan there by hand.",
+  "import.step.mediaServerVersions.failed":
+    "The media server did not group the version with the film. Fukku tries again by itself; until then the two show as separate entries.",
   "import.step.subtitles.failed":
     "The subtitles were not written. Add them in the subtitle manager by hand. The files stay in this upload until it expires.",
   "import.step.failed":
@@ -795,6 +798,8 @@ const en = {
   "flow2.sync.error.render_failed": "The clips could not be made from these files.",
   "flow2.sync.error.timeout": "Making a clip took too long.",
   "flow2.sync.error.too_large": "A clip came out too large.",
+  "flow2.sync.error.task_failed": "The worker could not make the clips.",
+  "flow2.sync.error.task_timeout": "The worker took too long to make the clips.",
   "flow2.sync.error.unknown": "The clips could not be made (code: {code}).",
   "flow2.sync.ready": "Made with {track} at an offset of {offset} ms.",
   "flow2.sync.clips": "Clips",
@@ -806,7 +811,6 @@ const en = {
   "flow2.sync.nomatch":
     "If they do not match, change the offset and make the clips again. A dub that drifts cannot be fixed by an offset: keep it as a second version instead.",
   "flow2.sync.confirmed": "Checked at an offset of {offset} ms.",
-  "flow2.sync.redo": "Check again",
   "flow2.merge.title": "Merge into the library file",
   "flow2.merge.intro":
     "Choose what is added. Everything below is optional: what you leave empty uses the server’s settings.",
@@ -815,6 +819,8 @@ const en = {
   "flow2.merge.subtitles.none": "The upload has no subtitles inside it.",
   "flow2.merge.tag": "Language tag",
   "flow2.merge.tag.hint": "A tag such as es-419. Empty: the server’s default.",
+  "flow2.merge.tag.invalid":
+    "That is not a valid language tag. Use letters and hyphens, such as es-419 or en-US, in lower case for the language.",
   "flow2.merge.name": "Track name",
   "flow2.merge.name.hint": "How the track is named in players. Empty: the server’s default.",
   "flow2.merge.keepDefault": "Keep the original audio as the default track",
@@ -922,7 +928,6 @@ const en = {
     "The merged file did not pass the checks (the picture, the length or the tracks were not as expected).",
   "import.merge.refusal.busy": "Another merge was using the same place. Try again.",
   "import.merge.refusal.unknown": "The merge was refused (code: {code}).",
-  "import.merge.facts": "What is added",
   "import.merge.fact.audio": "Audio tracks",
   "import.merge.fact.subtitles": "Subtitle tracks",
   "import.merge.fact.offset": "Offset",
@@ -958,13 +963,15 @@ const en = {
     "Radarr no longer has this film. The version stays on disk.",
   "import.version.status.missing": "The version file is no longer on disk.",
   "import.version.status.unknown": "State of the version: {status}.",
-  "import.seasonDub.replace":
-    "Your files replaced the ones already in the library for season {seasons}.",
-  "import.seasonDub.version":
-    "Your episodes were kept next to the ones in the library as second versions, for season {seasons}.",
   "import.seasonDub.subtitlesOnly.title": "Nothing was imported",
   "import.seasonDub.subtitlesOnly":
     "You chose to only add subtitles for the episodes that already have a file. The subtitles went to the subtitle manager, and the files stay in this upload until it expires.",
+  "import.seasonDub.subtitlesOnly.mixed":
+    "For the episodes that already had a file, you chose to only add subtitles: those files were not replaced.",
+  "import.seasonDub.replace.one":
+    "Your files replaced the ones already in the library for season {seasons}.",
+  "import.seasonDub.replace.other":
+    "Your files replaced the ones already in the library for seasons {seasons}.",
   "confirm.dub.title": "Episodes that already have a file",
   "confirm.dub.intro":
     "Some episodes of this upload are already in the library. Choose what to do with those. The other episodes are imported as usual.",
@@ -979,11 +986,6 @@ const en = {
   "confirm.dub.subtitlesOnly": "Only add subtitles",
   "confirm.dub.subtitlesOnly.body":
     "Nothing is imported. The subtitles of your upload go to the subtitle manager for the episodes that already have a file.",
-  // #58 builds the `version` policy: its text is here so the choice can show it; check it against
-  // what #58 ships.
-  "confirm.dub.version": "Keep as second versions",
-  "confirm.dub.version.body":
-    "Each of your episodes is kept next to the one in the library as another version. The files in the library are not touched.",
   "confirm.dub.unknown": "Another option ({policy})",
   "confirm.dub.unknown.body": "The server offers this, but this page does not know it yet.",
   "confirm.dub.decided": "This server settles it by itself: {option}.",

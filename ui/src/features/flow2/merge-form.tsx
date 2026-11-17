@@ -1,11 +1,19 @@
 import { Link, useNavigate } from "@tanstack/react-router";
-import { useId, useState } from "react";
+import { CircleAlert } from "lucide-react";
+import { useEffect, useId, useRef, useState } from "react";
 import { ApiError } from "@/api/client";
 import { useConfirmFlow2 } from "@/api/flow2";
-import type { Flow2File, Preview } from "@/api/types";
+import { useSession } from "@/api/session";
+import type { Flow2File, JobFile, Preview, SubtitleChoice } from "@/api/types";
 import { ErrorMessage } from "@/components/error-message";
 import { ConfirmStep } from "@/components/patterns/confirm-step";
 import { inputClass } from "@/components/patterns/field";
+import {
+  guessChoices,
+  isLanguage,
+  SubtitlesSection,
+  subtitleFiles,
+} from "@/features/confirm/subtitles-section";
 import { useT } from "@/i18n";
 import { audioLines, subtitleLines } from "@/lib/job-text";
 import { trackLabel } from "./labels";
@@ -15,7 +23,18 @@ type Props = {
   upload: Flow2File;
   /** The ready preview the user said matches: its offset and track are the merge's. */
   preview: Preview;
+  /** The job's files: its subtitle files go with the merge, as with an import. */
+  files: JobFile[];
 };
+
+/** The server takes a canonical BCP 47 tag (it refuses `es_419` and rewrites `iw`). */
+export function isCanonicalTag(tag: string): boolean {
+  try {
+    return Intl.getCanonicalLocales(tag)[0] === tag;
+  } catch {
+    return false;
+  }
+}
 
 /**
  * The merge confirmation of flow 2a: which tracks are added, the language tag and track name,
@@ -23,7 +42,7 @@ type Props = {
  * the user leaves empty is left to the server's settings, which is why the fields start
  * empty and a field that was not touched is not sent.
  */
-export function MergeForm({ jobId, upload, preview }: Props) {
+export function MergeForm({ jobId, upload, preview, files }: Props) {
   const { t, lang } = useT();
   const id = useId();
   const navigate = useNavigate();
@@ -32,8 +51,18 @@ export function MergeForm({ jobId, upload, preview }: Props) {
   const [subtitleTracks, setSubtitleTracks] = useState<number[]>([]);
   const [tag, setTag] = useState("");
   const [name, setName] = useState("");
-  // Not sent until the user touches the box: what the server's setting says stays in force.
-  const [keepDefault, setKeepDefault] = useState<boolean | null>(null);
+  // Shown as the plan's default and always sent as shown, so the page never says one thing and does another.
+  const [keepDefault, setKeepDefault] = useState(true);
+  const [tagInvalid, setTagInvalid] = useState(false);
+  const session = useSession();
+  // The subtitle files of the upload are handed to the subtitle manager, for the merged file.
+  const subtitleManager = session.data?.subtitleManager === true;
+  const subFiles = subtitleManager ? subtitleFiles(files) : [];
+  const [choices, setChoices] = useState<SubtitleChoice[]>(() => guessChoices(subFiles));
+  const [badLanguage, setBadLanguage] = useState(false);
+  const heading = useRef<HTMLHeadingElement>(null);
+  // "They match" opened this form: the focus goes to it, where the next step is.
+  useEffect(() => heading.current?.focus(), []);
 
   const subs = subtitleLines(upload.subtitles, lang);
   const audio = audioLines(upload.audio, lang).find((a) => a.key === `a${preview.audioTrack}`);
@@ -42,6 +71,15 @@ export function MergeForm({ jobId, upload, preview }: Props) {
   const fallback = t("flow2.merge.fact.default");
 
   function submit() {
+    if (tag.trim() !== "" && !isCanonicalTag(tag.trim())) {
+      setTagInvalid(true);
+      document.getElementById(`${id}-tag`)?.focus();
+      return;
+    }
+    if (subtitleManager && choices.some((c) => !isLanguage(c.language))) {
+      setBadLanguage(true);
+      return;
+    }
     confirm.mutate(
       {
         flow2: "merge",
@@ -51,8 +89,9 @@ export function MergeForm({ jobId, upload, preview }: Props) {
           offsetMs: offset,
           ...(tag.trim() !== "" ? { languageTag: tag.trim() } : {}),
           ...(name.trim() !== "" ? { trackName: name.trim() } : {}),
-          ...(keepDefault !== null ? { keepOriginalDefault: keepDefault } : {}),
+          keepOriginalDefault: keepDefault,
         },
+        ...(subtitleManager && subFiles.length > 0 ? { subtitles: choices } : {}),
       },
       { onSuccess: () => void navigate({ to: "/jobs/$id", params: { id: jobId } }) },
     );
@@ -64,7 +103,9 @@ export function MergeForm({ jobId, upload, preview }: Props) {
   return (
     <section aria-labelledby={`${id}-title`} className="grid gap-6">
       <div className="grid gap-2">
-        <h3 id={`${id}-title`}>{t("flow2.merge.title")}</h3>
+        <h3 id={`${id}-title`} ref={heading} tabIndex={-1}>
+          {t("flow2.merge.title")}
+        </h3>
         <p className="max-w-[65ch] text-ink-2">{t("flow2.merge.intro")}</p>
       </div>
 
@@ -116,9 +157,19 @@ export function MergeForm({ jobId, upload, preview }: Props) {
             spellCheck={false}
             className={inputClass}
             value={tag}
+            aria-invalid={tagInvalid ? true : undefined}
             aria-describedby={`${id}-tag-hint`}
-            onChange={(e) => setTag(e.target.value)}
+            onChange={(e) => {
+              setTag(e.target.value);
+              setTagInvalid(false);
+            }}
           />
+          {tagInvalid && (
+            <p role="alert" className="flex items-start gap-2 text-sm text-destructive">
+              <CircleAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
+              {t("flow2.merge.tag.invalid")}
+            </p>
+          )}
           <p id={`${id}-tag-hint`} className="text-sm text-muted-foreground">
             {t("flow2.merge.tag.hint")}
           </p>
@@ -148,12 +199,22 @@ export function MergeForm({ jobId, upload, preview }: Props) {
             type="checkbox"
             name="keepOriginalDefault"
             className="size-5 shrink-0 accent-primary"
-            checked={keepDefault ?? true}
+            checked={keepDefault}
             onChange={(e) => setKeepDefault(e.target.checked)}
           />
           {t("flow2.merge.keepDefault")}
         </label>
       </div>
+
+      {subFiles.length > 0 && (
+        <SubtitlesSection files={subFiles} choices={choices} onChange={setChoices} />
+      )}
+      {badLanguage && choices.some((c) => !isLanguage(c.language)) && (
+        <p role="alert" className="flex items-start gap-2 text-destructive">
+          <CircleAlert aria-hidden="true" className="mt-0.5 size-5 shrink-0" />
+          {t("confirm.subtitles.invalid")}
+        </p>
+      )}
 
       <ConfirmStep
         title={t("flow2.merge.confirm.title")}

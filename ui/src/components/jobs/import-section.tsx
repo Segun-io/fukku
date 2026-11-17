@@ -3,16 +3,16 @@ import type { JobDetail, MergeInfo, PostStepInfo, VersionResult } from "@/api/ty
 import { StatusLabel, type StatusTone } from "@/components/patterns/status-label";
 import { Notice } from "@/components/shell/notice";
 import { Button } from "@/components/ui/button";
-import { versionNoticeText } from "@/features/flow2/version-form";
 import type { TKey } from "@/i18n";
 import { useT } from "@/i18n";
+import { versionNoticeText } from "@/lib/flow2-text";
 import { mergeRefusalText } from "@/lib/job-text";
 import { cn } from "@/lib/utils";
 
 const appName = { radarr: "Radarr", sonarr: "Sonarr" } as const;
 
 /** The post-processing steps the UI names (`import.step.<name>`); others show their own name. */
-const knownSteps = ["mediaServerRefresh", "subtitles"] as const;
+const knownSteps = ["mediaServerRefresh", "mediaServerVersions", "subtitles"] as const;
 const knownResults = ["imported", "skipped", "failed"] as const;
 
 /** The meaning of each result of a file and of each status of a step (docs/design.md, §3). */
@@ -37,6 +37,8 @@ function MergeProgress({ merge, job }: { merge: MergeInfo; job: JobDetail }) {
   const failed = merge.state === "failed";
   const made = merge.state === "merged";
   const imported = job.import?.rows.some((r) => r.result === "imported") ?? false;
+  // The file was made and the job still failed: Radarr did not take it (`merge_rejected`).
+  const rejected = made && !imported && job.state === "failed";
   const refusal = mergeRefusalText(merge.refusal);
   const none = t("import.merge.fact.no");
   return (
@@ -48,9 +50,9 @@ function MergeProgress({ merge, job }: { merge: MergeInfo; job: JobDetail }) {
           <StatusLabel tone={failed ? "error" : made ? "done" : "waiting"} className={stateColumn}>
             {t(
               failed
-                ? "import.row.failed"
+                ? "import.status.failed"
                 : made
-                  ? "import.row.imported"
+                  ? "import.status.ok"
                   : merge.state === "running"
                     ? "import.status.pending"
                     : "import.row.waiting",
@@ -59,8 +61,20 @@ function MergeProgress({ merge, job }: { merge: MergeInfo; job: JobDetail }) {
         </li>
         <li className="flex flex-col gap-x-4 gap-y-1 py-3 sm:flex-row sm:items-baseline sm:justify-between">
           <span className="font-medium">{t("import.merge.step.import")}</span>
-          <StatusLabel tone={imported ? "done" : "waiting"} className={stateColumn}>
-            {t(imported ? "import.row.imported" : "import.row.waiting")}
+          <StatusLabel
+            tone={imported ? "done" : rejected ? "error" : "waiting"}
+            icon={failed ? Ban : undefined}
+            className={stateColumn}
+          >
+            {t(
+              imported
+                ? "import.status.ok"
+                : rejected
+                  ? "import.status.failed"
+                  : failed
+                    ? "import.status.skipped"
+                    : "import.row.waiting",
+            )}
           </StatusLabel>
         </li>
       </ol>
@@ -178,8 +192,12 @@ export function ImportSection({ job, className }: { job: JobDetail; className?: 
   const finished = job.state === "done";
   // A second version is placed by Fukku itself and has no rows of its own in the app.
   const isVersion = result?.version != null || (job.flow2 != null && !imp?.merge);
+  // `subtitlesOnly` leaves the episodes that have a file alone; the new ones of the same upload
+  // still import, so what the result says depends on what was imported.
   const subtitlesOnly = result?.seasonDub?.policy === "subtitlesOnly";
-  const seasons = (result?.seasonDub?.seasons ?? []).join(", ");
+  const anyImported = imp?.rows.some((r) => r.result === "imported") ?? false;
+  const nothingImported = subtitlesOnly && !anyImported;
+  const seasonList = result?.seasonDub?.seasons ?? [];
   const failedSteps = steps.filter((s) => s.status === "failed");
   const imported = imp?.rows.filter((r) => r.result === "imported").length ?? 0;
   const total = imp?.rows.length ?? 0;
@@ -207,10 +225,10 @@ export function ImportSection({ job, className }: { job: JobDetail; className?: 
         <div className="grid gap-3">
           <Notice
             tone="done"
-            icon={subtitlesOnly ? Info : Check}
+            icon={nothingImported ? Info : Check}
             role="status"
             title={
-              subtitlesOnly
+              nothingImported
                 ? t("import.seasonDub.subtitlesOnly.title")
                 : result?.version
                   ? t("import.version.done.title", { title: job.target?.title ?? "" })
@@ -230,7 +248,7 @@ export function ImportSection({ job, className }: { job: JobDetail; className?: 
             }
           >
             <p>
-              {subtitlesOnly
+              {nothingImported
                 ? t("import.seasonDub.subtitlesOnly")
                 : result?.version
                   ? t("import.version.done.body", {
@@ -245,18 +263,18 @@ export function ImportSection({ job, className }: { job: JobDetail; className?: 
                     : t("import.done.body", { app: app || t("import.app") })}
               {failedSteps.length > 0 && <> {t("import.done.failedSteps")}</>}
             </p>
-            {result?.seasonDub &&
-              (result.seasonDub.policy === "replace" || result.seasonDub.policy === "version") && (
-                <p className="mt-1">
-                  {t(
-                    result.seasonDub.policy === "replace"
-                      ? "import.seasonDub.replace"
-                      : "import.seasonDub.version",
-                    { seasons },
-                  )}
-                </p>
-              )}
-            {!result?.titleLink && !subtitlesOnly && (
+            {result?.seasonDub?.policy === "replace" && (
+              <p className="mt-1">
+                {t("import.seasonDub.replace", {
+                  count: seasonList.length,
+                  seasons: seasonList.join(", "),
+                })}
+              </p>
+            )}
+            {subtitlesOnly && anyImported && (
+              <p className="mt-1">{t("import.seasonDub.subtitlesOnly.mixed")}</p>
+            )}
+            {!result?.titleLink && !nothingImported && (
               <p className="mt-1">{t("import.link.none")}</p>
             )}
           </Notice>

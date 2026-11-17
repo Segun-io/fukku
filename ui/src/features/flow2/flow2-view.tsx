@@ -1,24 +1,37 @@
 import { TriangleAlert } from "lucide-react";
 import { useId, useState } from "react";
 import { usePreview } from "@/api/flow2";
-import type { Flow2, Flow2File, Flow2Offer } from "@/api/types";
+import type { Flow2, Flow2File, Flow2Offer, JobFile } from "@/api/types";
 import { Notice } from "@/components/shell/notice";
 import { type TKey, useT } from "@/i18n";
 import { cn } from "@/lib/utils";
 import { Comparison } from "./comparison";
 import { MergeForm } from "./merge-form";
-import { SyncCheck } from "./sync-check";
+import { checkState, SyncCheck } from "./sync-check";
 import { VersionForm } from "./version-form";
 
 const offerOrder: readonly Flow2Offer[] = ["merge", "version"];
 
 /** The merge path: the sync check first, and the merge confirmation once the user says they match. */
-function MergePanel({ jobId, upload }: { jobId: string; upload: Flow2File }) {
+function MergePanel({
+  jobId,
+  upload,
+  files,
+}: {
+  jobId: string;
+  upload: Flow2File;
+  files: JobFile[];
+}) {
   const preview = usePreview(jobId, true);
   const [synced, setSynced] = useState<string | null>(null);
+  const [track, setTrack] = useState<number | null>(null);
+  const [offsetText, setOffsetText] = useState<string | null>(null);
   const data = preview.data;
   const ready = data?.state === "ready";
-  const isSynced = ready && synced !== null && synced === data.requestedAt;
+  // The merge is confirmed with the clips' track and offset: when the fields say something
+  // else, the clips no longer show what would be merged, and the confirmation is withdrawn.
+  const { stale } = checkState(upload, data, track, offsetText);
+  const isSynced = ready && !stale && synced !== null && synced === data.requestedAt;
   return (
     <div className="grid gap-8">
       <SyncCheck
@@ -27,8 +40,12 @@ function MergePanel({ jobId, upload }: { jobId: string; upload: Flow2File }) {
         preview={data}
         synced={synced}
         onSynced={setSynced}
+        track={track}
+        offsetText={offsetText}
+        onTrack={setTrack}
+        onOffset={setOffsetText}
       />
-      {isSynced && data && <MergeForm jobId={jobId} upload={upload} preview={data} />}
+      {isSynced && data && <MergeForm jobId={jobId} upload={upload} preview={data} files={files} />}
     </div>
   );
 }
@@ -41,10 +58,12 @@ export function Flow2View({
   jobId,
   flow2,
   upload,
+  files,
 }: {
   jobId: string;
   flow2: Flow2;
   upload: Flow2File;
+  files: JobFile[];
 }) {
   const { t } = useT();
   const legend = useId();
@@ -141,7 +160,7 @@ export function Flow2View({
             (upload.audio.length === 0 ? (
               <Notice role="alert" tone="error" icon={TriangleAlert} title={t("errors.no_audio")} />
             ) : (
-              <MergePanel jobId={jobId} upload={upload} />
+              <MergePanel jobId={jobId} upload={upload} files={files} />
             ))}
           {choice === "version" && flow2.version && (
             <VersionForm jobId={jobId} offer={flow2.version} />
