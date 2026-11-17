@@ -17,7 +17,7 @@ func Warnings(cfg Config) []Warning {
 		out = append(out, Warning{
 			Key: "auth.libraryChangesRequireAdmin",
 			Message: "only admins may replace or change library files, and no user can be an admin: " +
-				"set auth.adminGroup (or auth.allUsersAreAdmins), or turn auth.libraryChangesRequireAdmin off",
+				"set auth.groupsHeader and auth.adminGroup (the proxy must set and strip that header), or auth.allUsersAreAdmins, or turn auth.libraryChangesRequireAdmin off",
 		})
 	}
 	// #133: without server.publicBaseUrl the Origin check compares the Origin's host with
