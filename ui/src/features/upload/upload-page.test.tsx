@@ -146,11 +146,17 @@ describe("the upload page", () => {
     expect(screen.queryByText("Waiting its turn")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^Resume/ })).not.toBeInTheDocument();
 
+    // The page listens for the user coming back from an effect that React runs a moment after
+    // the notice is painted, so a single event sent right away can arrive before the listener
+    // exists and be lost. Come back again until the page has noticed, as a user would.
     signedOut = false;
-    document.dispatchEvent(new Event("visibilitychange"));
-    await waitFor(() => expect(router.state.location.pathname).toMatch(/^\/jobs\//), {
-      timeout: 8000,
-    });
+    await waitFor(
+      () => {
+        document.dispatchEvent(new Event("visibilitychange"));
+        expect(router.state.location.pathname).toMatch(/^\/jobs\//);
+      },
+      { timeout: 8000 },
+    );
   });
 
   it("a lost connection waits and retries by itself", async () => {
