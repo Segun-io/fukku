@@ -18,7 +18,7 @@ elif ! printf '%s' "$digest" | grep -Eq '^sha256:[0-9a-f]{64}$'; then
   exit 1
 fi
 # The signer's identity: this workflow, run for exactly this version's tag.
-identity="https://github.com/Segun-io/fukku/.github/workflows/release.yml@refs/tags/v${version}"
+identity="https://github.com/${GITHUB_REPOSITORY:-Segun-io/fukku}/.github/workflows/release.yml@refs/tags/v${version}"
 
 cat "$notes"
 cat <<EOF
@@ -39,7 +39,7 @@ cosign verify \\
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \\
   --certificate-identity '${identity}' \\
   ${image}@${digest}
-gh attestation verify oci://${image}@${digest} --repo Segun-io/fukku
+gh attestation verify oci://${image}@${digest} --repo ${GITHUB_REPOSITORY:-Segun-io/fukku}
 \`\`\`
 
 The SBOMs are attached to this release as \`fukku-amd64.spdx.json\` and

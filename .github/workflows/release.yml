@@ -170,7 +170,7 @@ jobs:
         with:
           name: image-${{ matrix.arch }}
           path: images
-          retention-days: 1
+          retention-days: 7 # the publish job may wait a while for approval
 
   # Reads the environment's settings before anything that publishes. GitHub creates an
   # environment that does not exist when a job first names it, with no required reviewer, so
@@ -371,6 +371,20 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      # A published version tag is never moved: "re-run all jobs" after a successful run must not
+      # push again. Only a clear "not found" lets the run go on.
+      - name: refuse when the version tag already exists
+        run: |
+          set -uo pipefail
+          if out=$(docker buildx imagetools inspect "${IMAGE_NAME}:${VERSION}" 2>&1); then
+            echo "::error::${IMAGE_NAME}:${VERSION} already exists: a published version is never replaced; use the next version"
+            exit 1
+          fi
+          if ! grep -Eqi 'not found|manifest unknown|name unknown|404' <<<"$out"; then
+            echo "::error::could not tell whether ${IMAGE_NAME}:${VERSION} exists: ${out%%$'\n'*}"
+            exit 1
+          fi
+          echo "${IMAGE_NAME}:${VERSION} does not exist yet"
       # No rebuild: the images the build jobs tested (and the SBOMs describe) are loaded, checked
       # against the id they had then, and pushed. The pushes use a neutral staging tag only because
       # a push needs a name; they are referred to by digest from here on, and the version tag
@@ -416,6 +430,9 @@ jobs:
           for pair in "amd64 $AMD64" "arm64 $ARM64"; do
             read -r arch digest <<<"$pair"
             docker pull --platform "linux/$arch" "${IMAGE_NAME}@${digest}"
+            # What the registry gave back is the image that was tested.
+            got=$(docker image inspect -f '{{.Id}}' "${IMAGE_NAME}@${digest}")
+            [ "$got" = "$(cat "images/image-$arch.id")" ] || { echo "::error::the pushed $arch image ($got) is not the tested one"; exit 1; }
             tools/image-smoke.sh "${IMAGE_NAME}@${digest}" "$arch"
             docker image rm "${IMAGE_NAME}@${digest}" >/dev/null
           done
@@ -487,7 +504,7 @@ jobs:
             echo "${IMAGE_NAME}:${VERSION}@${DIGEST}"
             echo '```'
             echo
-            echo "Signatures and attestations verified before the tag was created. The staging tags \`${STAGING}\` and \`${STAGING}-amd64\`, \`${STAGING}-arm64\` name the same digests and can be deleted from the package. Next: make install-test with the reference, then the draft release (docs/release.md)."
+            echo "Signatures and attestations verified before the tag was created. The staging tags \`${STAGING}\`, \`${STAGING}-amd64\` and \`${STAGING}-arm64\` are aliases of the released digests: leave them, and never delete one (deleting a tag on GHCR deletes the digest it points to). Next: make install-test with the reference, then the draft release (docs/release.md)."
           } >> "$GITHUB_STEP_SUMMARY"
 
   release:

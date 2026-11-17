@@ -163,7 +163,7 @@ jobs:
   probe-report:
     name: probe report (issue on a changed verdict or a failed gate)
     # Also when `check` failed and the probes never ran: the scheduled run is then reported, not silent.
-    if: ${{ always() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && needs.probes.result != 'cancelled' }}
+    if: ${{ always() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && needs.probes.result != 'cancelled' && needs.check.result != 'cancelled' }}
     needs: [check, probes]
     runs-on: ubuntu-24.04
     timeout-minutes: 10

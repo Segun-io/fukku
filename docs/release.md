@@ -124,7 +124,9 @@ version differs from that line.
   `staging-<run id>` tag, assemble the multi-arch index, smoke-test each pushed digest, sign the
   index and each image with cosign, attach build provenance and the two SBOMs as attestations,
   verify all of them, and **only then create the tag `ghcr.io/segun-io/fukku:0.1.0`**. The
-  `staging-*` tags name the same digests and can be deleted from the package afterwards. The
+  `staging-*` tags are permanent, harmless aliases of the released digests: **never delete one
+  after a successful run** (on GHCR, deleting a tag deletes the package version, that is the
+  digest, and `staging-<run id>` is the very version `:0.1.0` points to). The
   `release` job then creates a **draft** GitHub release (notes, the digest-pinned reference, the
   SBOMs and `compatibility.md`).
 
@@ -168,7 +170,8 @@ attestation matches, list them with `gh attestation download` or try `https://sp
 
   While the package is private the clean host cannot use your login, so give the test a token
   that can read the package (a personal access token with `read:packages`) in a file, mode 0600;
-  the host logs in with it over stdin and the token is never printed:
+  the host logs in with it over stdin, the token is never printed, and the host logs out after
+  the pull (a host kept with `FUKKU_INSTALL_KEEP=1` holds no token):
 
   ```sh
   make install-test FUKKU_IMAGE="ghcr.io/segun-io/fukku:0.1.0@$DIGEST" \
@@ -221,5 +224,9 @@ version and the digest from the release's `cosign_checksums.txt` together).
   re-run the failed jobs.
 - **`publish` fails after the push:** the images exist on GHCR under their digests and
   `staging-*` tags, but the version tag was not created and nothing is released. Do not publish a
-  release for them. Fix forward with the next patch version; the maintainer can delete the
-  staging tags from the package.
+  release for them. Fix forward with the next patch version. Leave the images alone unless you
+  are sure no version tag points to a digest: before deleting a package version, run
+  `docker buildx imagetools inspect ghcr.io/segun-io/fukku:<version>` (and for any other tag
+  that might alias it) and compare its digest with the version you are about to delete; delete
+  only a digest that no version tag points to. A re-run of a successful run is refused by the
+  `publish` job when `:<version>` already exists.

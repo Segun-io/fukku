@@ -186,7 +186,7 @@ media are generated at test time. Seeding the apps is scaffolding, kept apart fr
 or an image of this machine such as `fukku:dev`, which is copied in with `docker save | docker
 load`. While the package is private, the clean host cannot use the outer machine's login: give
 it a token that can read the package with `GHCR_TOKEN_FILE=<file>` (or `GHCR_TOKEN`, and
-`GHCR_USER`); it logs in with it over stdin and the token is never printed. It needs the internet for the apps' metadata services only (they add the free titles the
+`GHCR_USER`); it logs in with it over stdin and the token is never printed, and it logs out again after the pull, so a host kept with `FUKKU_INSTALL_KEEP=1` holds no token. It needs the internet for the apps' metadata services only (they add the free titles the
 probes use) and for image pulls that are not cached, and takes about two minutes once the image
 exists. **Run it by hand before a release**; it is not scheduled, because it needs a privileged
 container host and a full image build ([docs/prerelease.md](docs/prerelease.md)). A step that the

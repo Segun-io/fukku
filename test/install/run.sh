@@ -65,8 +65,19 @@ phase() { printf '\n######## %s (%ss)\n' "$*" "$((SECONDS - started))"; }
 hx() { docker exec -i "$HOST" "$@"; }                                   # root in the clean host
 as_media() { docker exec -u media -e HOME=/home/media -w /home/media "$@"; }
 
+logged_in=""   # the registry the clean host was logged in to, if any
+
+# The token must not outlive the pull: the clean host is kept with FUKKU_INSTALL_KEEP=1.
+logout() {
+  if [ -n "$logged_in" ]; then
+    as_media "$HOST" docker logout "$logged_in" >/dev/null 2>&1 || true
+    logged_in=""
+  fi
+}
+
 cleanup() {
   local rc=$?
+  logout
   if [ "$rc" -ne 0 ] && docker inspect "$HOST" >/dev/null 2>&1; then
     echo "---- the install failed; state of the clean host:" >&2
     hx docker ps -a --format '{{.Names}}\t{{.Status}}' >&2 || true
@@ -134,6 +145,7 @@ if [ "$preload" = false ] && { [ -n "${GHCR_TOKEN_FILE:-}" ] || [ -n "${GHCR_TOK
   # The token goes through stdin only: not in an argument list, a log or a trace.
   token_in | docker exec -i -u media -e HOME=/home/media "$HOST" docker login "$registry" -u "${GHCR_USER:-token}" --password-stdin >/dev/null
   echo "the clean host is logged in to $registry (token from the environment, not shown)"
+  logged_in=$registry
 fi
 # The pinned images were saved by digest (the id of a single-platform image is its digest):
 # give each its repository and tag, so that the reference repo:tag@sha256:digest, which is what
@@ -163,6 +175,7 @@ as_media -e "FUKKU_IMAGE=$FUKKU_IMAGE" -e "DATA_DIR=$DATA_DIR" -e "APPS_NETWORK=
   -e "CADDY_IMAGE=$CADDY_IMAGE" -e "RADARR_API_KEY=$RADARR_API_KEY" -e "SONARR_API_KEY=$SONARR_API_KEY" \
   -e JELLYFIN_KEY_FILE=/srv/scaffold/jellyfin_api_key -e SRC=/home/media/fukku-src \
   "$HOST" sh /srv/scaffold/operator.sh
+logout   # the image is pulled; the token is not needed again
 
 # ---- 4. THE CHECKS ---------------------------------------------------------------------------
 phase "the checks"
