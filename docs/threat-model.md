@@ -26,8 +26,11 @@ direct write into the library, a new subprocess or a new input from the network 
 ```
 
 - **web** (`fukku web`): the HTTP API, the embedded UI and the tus upload endpoint. It holds
-  every API key, decides every state change of a job, talks to the apps, and never opens a
-  media file except to pass an accepted subtitle file to the subtitle manager unparsed.
+  every API key, decides every state change of a job, and talks to the apps. It never
+  parses a media file. It opens files the worker produced in two places: it streams the
+  preview clips the worker rendered to the job's owner (`internal/web/preview.go`), and it
+  passes an accepted subtitle file to the subtitle manager unparsed. It also writes the
+  unfinished tus uploads in `.incoming/`.
 - **worker** (`fukku worker`): extracts archives, runs ffprobe, renders preview clips with
   ffmpeg, merges with mkvmerge. No network, no secrets; refuses to start if its
   configuration holds an API key (`internal/config/validate.go`).
@@ -104,7 +107,7 @@ Bazarr and Jellyfin themselves (see §7).
 | A1 reads or changes another user's job | Every `/api/jobs/{id}…` handler loads the job through `ownJob`: malformed id, unknown id and someone else's job are all 404; admins see every job | `internal/web/jobs.go` (`ownJob`), `match.go`, `proposal.go`, `confirm.go`, `preview.go` |
 | A1 resumes, reads or deletes another user's upload | The upload row's owner must be the user, else 404; uploads into another user's job are refused at creation | `internal/uploads/uploads.go` (`lookup`), `create.go` |
 | A1 reaches admin pages | `adminOnly` on `/api/admin/*`; error details naming paths and services only for admins | `internal/web/admin.go`, `versions.go` |
-| A1 replaces or deletes library files of any title | **Not prevented by role**: any user may match any title, override rejections (including `existing_file`), choose the season-dub policy `replace`, or merge into a film's file. Every such step is audited. Decision in #116 | `internal/flows/confirm.go` |
+| A1 replaces or deletes library files of any title | **Not prevented by role yet**: any user may match any title, override rejections (including `existing_file`), choose the season-dub policy `replace`, or merge into a film's file. Every such step is audited. Decided in #116: admin-only by default, behind a new setting (not built yet) | `internal/flows/confirm.go` |
 
 ### 5.3 Uploads (tus) and limits
 
@@ -114,6 +117,7 @@ Bazarr and Jellyfin themselves (see §7).
 | Disk exhaustion | `upload.maxFileSize` per file, `upload.maxInFlight` over all unfinished uploads, `upload.maxParallelPerUser`, free space minus what unfinished uploads still need must exceed size + `upload.freeSpaceMargin`; deferred length and concatenation refused; a PATCH carries at most `upload.chunkSize` | `create.go`, `uploads.go` |
 | Slow or stuck clients | `upload.requestIdleTimeout`; idle uploads expire after `upload.idleUploadExpiry`; idle jobs expire | `internal/retention` |
 | An upload id used as a path | Ids are 32 random hex characters, checked by `jobdir.ValidID` before anything touches the disk | `internal/uploads/uploads.go`, `internal/jobdir` |
+| Upload metadata under the intake root steers the endpoint's reads and writes (the worker can write the intake root, A4) | Fukku's own tus data store (`incomingStore`), not tusd's filestore: every path is computed from the upload id, never taken from an `.info` file; an `.info` that names any other place than `.incoming/<id>` and `.incoming/<id>.info`, or another id, is refused; every open goes through an `os.Root` of `.incoming/`, which must be a real directory of the intake root (a symbolic link there is refused, also when swapped in while running); upload files must be regular files and not links, checked before and after each open; upload data that is not a regular file is never moved into a job. Fixed in #137; #138 takes `.incoming/` out of the worker's writable mount | `internal/uploads/incoming.go`, `finish.go` |
 | Many jobs | Idle jobs expire; no per-user cap yet (#134) | `internal/web/jobs.go` |
 
 ### 5.4 Hostile files (worker, A1 → A4)
@@ -141,7 +145,8 @@ stops more:
 | Read API keys | Not in its environment or configuration (it refuses to start with one); not in the spool | `internal/config/validate.go` |
 | Write outside the intake root | The library is mounted read-only; only the intake root is writable. It can still change a placed version or an import made with hard links through the job's own name for the same inode (#114), and it can read all of `/data` and every user's jobs (#118) | compose |
 | Forge results (another job, huge files, odd kinds) | Spool access through an `os.Root`, writes to a random `O_EXCL` name then fsync and rename, reads non-blocking, regular files only, at most 16 MiB; ids by regex and equal to the file name; the web process matches each result to what it asked (probe results by stored path, extracted paths under the destination, merge output, tracks and library echo, preview request echo and clip count, library-probe path) | `internal/spool/dir.go`, `internal/runner/steps.go`, `internal/flows` |
-| Plant symbolic links or swap files under the job directory that the web process later opens, links or hands to an app | Every job directory is opened with `jobdir.Open`, from an `os.Root` of the intake root, so a link at `jobs/` or `jobs/<id>` cannot lead out (#112); the one file the web process reads, an accepted subtitle, is opened through that root with `O_NOFOLLOW` and checked on the open file (#111). Paths handed to Radarr, Sonarr or `linkat` are still checked with `Lstat` of the last element only (#113) | `internal/jobdir`, `internal/subtitles/step.go`, `internal/flows` |
+| Plant symbolic links or swap files under the job directory that the web process later opens, links or hands to an app | Every job directory is opened with `jobdir.Open`, from an `os.Root` of the intake root, so a link at `jobs/` or `jobs/<id>` cannot lead out (#112); job directories and uploads are removed through an `os.Root` of the intake root (`jobdir.Remove`, `RemoveUpload`), so a link at `jobs/` or `.incoming/` that leads out of it is refused and a link at `jobs/<id>` is removed itself, never followed (#137); a test fails if code outside `internal/jobdir` hands `jobdir.Dir(...)` to a package `os` function again. An accepted subtitle is opened through the job's root, which refuses a link out of the job directory; because `os.Root` still follows a link that stays inside it (`O_NOFOLLOW` has no effect there), the name is also checked with `Lstat` to be a regular file and not a link, and the open file must be that same file (#111). Preview clips are opened through the job's root and must be regular files of the size the worker reported (a link inside the job directory to another file of that size is not refused). Paths handed to Radarr, Sonarr or `linkat`, and the staging of episode versions, are still checked by path, with `Lstat` of the last element only (#113) | `internal/jobdir`, `internal/subtitles/step.go`, `internal/web/preview.go`, `internal/flows` |
+| Write upload metadata that the web process acts on | See §5.3: nothing in `.incoming/` is taken as a path, and anything there the web process did not create is refused (#137) | `internal/uploads/incoming.go` |
 | Produce a bad merge that replaces a film | The worker verifies its own merge, so a compromised worker can make Radarr import a file of its choosing for the job's film: accepted, §6 | `internal/merge` |
 
 ### 5.6 Library writes (B7)
@@ -182,11 +187,12 @@ stops more:
   into Sonarr's own season folders. Its mount of the library must then be writable. The
   writes are hard links that never replace a file, but a bug in the path checks would be a
   write into the library with the web process's rights.
-- **Any signed-in user can change the library through Radarr and Sonarr**: import over an
-  existing file after an override, merge a dub into a film's file, replace a season's
-  episodes, add titles and unmonitor them. The audit log records who did it. A deployment
-  that cannot trust its users with that should not give them an account; #116 asks whether
-  to make these admin-only.
+- **Any signed-in user can add titles to Radarr and Sonarr and import into them.** The
+  destructive steps (an override of a rejection, the season-dub policy `replace`, a merge
+  into a film's file, second versions) are open to every user until #116 is built. The
+  maintainer decided #116: they become admin-only by default, behind a new setting, and a
+  deployment that turns that setting off accepts that its users can replace library
+  files. The audit log records who did it.
 - **A compromised worker can choose what Radarr imports for its own job** (a merge it
   "verified", files it "extracted"), and read the whole library through its read-only
   mount. It cannot reach the network or the keys. Until #114 and #118 are done it can also
@@ -233,19 +239,23 @@ negative `Upload-Length`, a deferred length, a fourth parallel upload, a `PATCH`
 upload's size and one at a wrong offset were refused.
 
 The weak spots are where the web process trusts what the worker leaves in the intake root,
-which matters only after a parser exploit, and a few limits and defaults. One finding was
-high and is fixed here; nothing of high severity is open.
+which matters only after a parser exploit, and a few limits and defaults. An independent
+review of the fixes found a second high-severity finding of that kind, in the tus upload
+store (#137). Both high findings are fixed in the same pull request; nothing of high
+severity is open.
 
 | Issue | Severity | Area | Status |
 | --- | --- | --- | --- |
 | #111 | high | subtitle hand-over reads any file the web process can read (compromised worker) | fixed in the #63 pull request |
-| #112 | medium | a symlink at `jobs/<id>` redirects the web process's job-directory operations | fixed in the #63 pull request |
+| #137 | high | worker-controlled upload metadata could steer the web process's writes | fixed in the #63 pull request |
+| #112 | medium | a symlink at `jobs/<id>` redirects the web process's job-directory operations (the staging of episode versions is left to #113) | fixed in the #63 pull request |
 | #113 | medium | worker-written paths with symlinked parts handed to Radarr, Sonarr and `linkat` | open |
 | #114 | medium | hard links and a shared uid let a compromised worker change placed files | open |
 | #115 | medium | huge track titles wedge a job in probing | open |
-| #116 | medium | any user can replace library files (decision) | open |
+| #116 | medium | any user can replace library files (decided: admin-only by default, behind a setting) | open |
 | #117 | medium | no memory limits | open |
 | #118 | medium | worker sees all of `/data` and every job; web has the library writable | open |
+| #138 | medium | worker should write only `intake/jobs` (follow-up of #137, part of #118) | open |
 | #119 | medium | API keys follow redirects to other hosts | open |
 | #120 | low | Sonarr's season folder cleaned instead of refused | open |
 | #121 | low | fullwidth characters pass the label checks | open |
