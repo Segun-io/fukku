@@ -4,7 +4,8 @@
 // moved into the job directory and becomes one of the job's files (pending until the worker
 // has checked it).
 //
-// The web process is the only writer of .incoming/. Every unfinished upload is a
+// The web process is meant to be the only writer of .incoming/; it never takes a path from a
+// file there (incomingStore). Every unfinished upload is a
 // store.Upload row, so the limits (per user, in flight, free space) are decided from the
 // database, and a restart finds every upload again.
 package uploads
@@ -19,7 +20,6 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/http"
-	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -27,7 +27,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/tus/tusd/v2/pkg/filestore"
 	tusd "github.com/tus/tusd/v2/pkg/handler"
 	"github.com/tus/tusd/v2/pkg/memorylocker"
 
@@ -150,11 +149,8 @@ func New(opts Options) (*Handler, error) {
 		return nil, errors.New("uploads: no store")
 	}
 
-	fstore := filestore.New(h.incoming)
-	fstore.DirModePerm = dirMode
-	fstore.FileModePerm = fileMode
 	composer := tusd.NewStoreComposer()
-	composer.UseCore(fstore)
+	composer.UseCore(incomingStore{intakeRoot: h.root, fileMode: fileMode})
 	h.locker.UseIn(composer)
 
 	tus, err := tusd.NewUnroutedHandler(tusd.Config{
@@ -205,6 +201,12 @@ func (h *Handler) prepare(ctx context.Context) error {
 			return err
 		}
 	}
+	// A symlinked .incoming is refused here, at once, and by every open (incomingStore).
+	r, err := openIncoming(h.root)
+	if err != nil {
+		return err
+	}
+	_ = r.Close()
 	if err := h.reconcile(ctx); err != nil {
 		return err
 	}
@@ -403,9 +405,13 @@ func (h *Handler) notFoundByTus(w http.ResponseWriter, r *http.Request, iw *inte
 
 // dataGone reports whether neither the data nor the .info file of an upload exists.
 func (h *Handler) dataGone(id string) bool {
-	base := filepath.Join(h.incoming, id)
-	for _, p := range []string{base, base + ".info"} {
-		if _, err := os.Lstat(p); !errors.Is(err, fs.ErrNotExist) { //nolint:gosec // id is a checked upload id
+	r, err := openIncoming(h.root)
+	if err != nil {
+		return false // cannot tell: keep the upload
+	}
+	defer func() { _ = r.Close() }()
+	for _, p := range []string{id, id + ".info"} {
+		if _, err := r.Lstat(p); !errors.Is(err, fs.ErrNotExist) {
 			return false
 		}
 	}

@@ -67,6 +67,59 @@ func TestRemove(t *testing.T) {
 	}
 }
 
+// Remove and RemoveUpload work through an os.Root of the intake root: with jobs/ or
+// .incoming/ replaced by a symbolic link out of it (the worker can write the intake root,
+// #137), nothing outside is deleted, and a symlinked job directory is removed itself.
+func TestRemoveStaysInsideTheIntakeRoot(t *testing.T) {
+	root, outside, outsideUploads := t.TempDir(), t.TempDir(), t.TempDir()
+	keep := []string{
+		filepath.Join(outside, id, Files, "e1.mkv"),
+		filepath.Join(outsideUploads, id),
+		filepath.Join(outsideUploads, id+".info"),
+	}
+	if err := os.MkdirAll(filepath.Dir(keep[0]), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range keep {
+		if err := os.WriteFile(p, []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Symlink(outside, filepath.Join(root, Jobs)); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outsideUploads, filepath.Join(root, Incoming)); err != nil {
+		t.Fatal(err)
+	}
+	_ = Remove(root, id)
+	_ = RemoveUpload(root, id)
+	for _, p := range keep {
+		if _, err := os.Lstat(p); err != nil {
+			t.Fatalf("%s outside the intake root was deleted: %v", p, err)
+		}
+	}
+
+	// A real jobs/ whose job directory is a link: the link goes, its target stays.
+	if err := os.Remove(filepath.Join(root, Jobs)); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, Jobs), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(outside, id), Dir(root, id)); err != nil {
+		t.Fatal(err)
+	}
+	if err := Remove(root, id); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(Dir(root, id)); !os.IsNotExist(err) {
+		t.Fatalf("the link is still there: %v", err)
+	}
+	if _, err := os.Stat(keep[0]); err != nil {
+		t.Fatalf("the link's target was deleted: %v", err)
+	}
+}
+
 func TestRemoveUpload(t *testing.T) {
 	root := t.TempDir()
 	inc := filepath.Join(root, Incoming)

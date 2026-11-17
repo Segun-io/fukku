@@ -2,6 +2,8 @@
 package jobdir
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -61,18 +63,41 @@ func Open(intakeRoot, id string) (*os.Root, error) {
 	return intake.OpenRoot(filepath.Join(Jobs, id))
 }
 
-// Remove deletes a job's directory and everything in it.
-func Remove(intakeRoot, id string) error { return os.RemoveAll(Dir(intakeRoot, id)) }
+// Remove deletes a job's directory and everything in it, through an os.Root of the intake
+// root: a symbolic link at jobs/ that leads out of the intake root is refused, and one at
+// jobs/<id> is removed itself, never followed. A missing intake root or job directory is
+// not an error.
+func Remove(intakeRoot, id string) error {
+	if !ValidID(id) {
+		panic("jobdir: malformed job id")
+	}
+	r, err := os.OpenRoot(intakeRoot)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+	defer func() { _ = r.Close() }()
+	return r.RemoveAll(filepath.Join(Jobs, id))
+}
 
-// RemoveUpload deletes an unfinished upload's data and info files. Upload ids have the
-// same form as job ids.
+// RemoveUpload deletes an unfinished upload's data and info files, through an os.Root of
+// the intake root (a symbolic link at .incoming/ leading out of it is refused). Upload ids
+// have the same form as job ids.
 func RemoveUpload(intakeRoot, uploadID string) error {
 	if !ValidID(uploadID) {
 		panic("jobdir: malformed upload id")
 	}
-	base := filepath.Join(intakeRoot, Incoming, uploadID)
+	r, err := os.OpenRoot(intakeRoot)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+	defer func() { _ = r.Close() }()
+	base := filepath.Join(Incoming, uploadID)
 	for _, p := range []string{base, base + ".info"} {
-		if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
+		if err := r.Remove(p); err != nil && !errors.Is(err, fs.ErrNotExist) {
 			return err
 		}
 	}

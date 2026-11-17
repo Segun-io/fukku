@@ -214,10 +214,12 @@ func (s *Step) sleep(ctx context.Context, d time.Duration) error {
 // parses them.
 //
 // The worker writes the job directory and is assumed compromised (docs/threat-model.md,
-// B4), so the file is opened through an os.Root of the job directory taken from the intake
-// root (jobdir.Open: no symlinked directory leads out of it), without following a symlink as the last element, and the
-// checks are made on the open file, never on the path, so swapping the file after a check
-// cannot make the web process read something else.
+// B4). The file is opened through an os.Root of the job directory taken from the intake
+// root (jobdir.Open), so no link, in a directory on the way or as the file itself, leads
+// out of the job directory. os.Root still follows a link that stays inside it, so the file
+// is also checked with Lstat to be a regular file and not a link, and the open file must be
+// that same file: a link inside the job directory is refused too, and swapping the file
+// after the check cannot make the web process read something else.
 func (s *Step) read(jobID string, f store.File) (data []byte, err error) {
 	if f.Kind != store.KindSubtitle || f.Status != store.FileOK {
 		return nil, errors.New("not an accepted subtitle file")
@@ -231,15 +233,23 @@ func (s *Step) read(jobID string, f store.File) (data []byte, err error) {
 		return nil, errors.New("the job directory cannot be opened")
 	}
 	defer func() { _ = root.Close() }()
-	// O_NONBLOCK: a FIFO put there must not hang the step.
-	fh, err := root.OpenFile(filepath.FromSlash(rel), os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+	name := filepath.FromSlash(rel)
+	li, err := root.Lstat(name)
 	if err != nil {
-		return nil, errors.New("the file is gone or not a regular file inside the job directory")
+		return nil, errors.New("the file is gone")
+	}
+	if !li.Mode().IsRegular() {
+		return nil, errors.New("not a regular file")
+	}
+	// O_NONBLOCK: a FIFO swapped in must not hang the step.
+	fh, err := root.OpenFile(name, os.O_RDONLY|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		return nil, errors.New("the file cannot be read")
 	}
 	defer func() { _ = fh.Close() }()
 	info, err := fh.Stat()
-	if err != nil {
-		return nil, errors.New("the file cannot be read")
+	if err != nil || !os.SameFile(li, info) {
+		return nil, errors.New("the file changed while it was opened")
 	}
 	limit := int64(s.Config.MaxFileSize)
 	if !info.Mode().IsRegular() || info.Size() > limit {

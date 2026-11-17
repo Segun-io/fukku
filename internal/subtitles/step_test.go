@@ -383,6 +383,36 @@ func TestASymlinkedDirectoryIsNotFollowed(t *testing.T) {
 	}
 }
 
+// os.Root follows a link that stays inside the job directory; the hand-over refuses it
+// anyway, since only a regular file the worker accepted may be read (#63).
+func TestALinkInsideTheJobDirectoryIsNotFollowed(t *testing.T) {
+	h := newHarness(t)
+	h.add("Film.mkv", store.KindVideo, "v")
+	h.add("Film.es.srt", store.KindSubtitle, "1\n00:00:01,000 --> 00:00:02,000\nhola\n")
+	job := filepath.Join(h.root, "jobs", jobID)
+	if err := os.MkdirAll(filepath.Join(job, "work"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(job, "work", "x"), []byte("not the subtitle"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	srt := filepath.Join(job, "files", "Film.es.srt")
+	if err := os.Remove(srt); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("../work/x", srt); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := h.run(); err == nil {
+		t.Fatal("a link inside the job directory was followed")
+	}
+	for _, s := range h.fake.Sent() {
+		if strings.Contains(s.Data, "not the subtitle") {
+			t.Fatal("sent the link's target")
+		}
+	}
+}
+
 func TestContextCancelStopsTheStep(t *testing.T) {
 	h := newHarness(t)
 	h.add("Film.mkv", store.KindVideo, "v")
