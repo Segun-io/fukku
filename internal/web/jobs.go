@@ -582,7 +582,7 @@ func (s *Server) getJob(w http.ResponseWriter, r *http.Request) {
 	}
 	if t, err := s.deps.Store.Target(r.Context(), j.ID); err == nil {
 		d.Target = targetView(t)
-		d.Flow2 = flows.ViewFlow2(s.cfg, t, files)
+		d.Flow2 = flows.ViewFlow2(s.cfg, t, files).ForUser(flows.LibraryChangesAllowed(s.cfg, u.Admin)) // #116
 	} else if !errors.Is(err, store.ErrNotFound) {
 		s.internalError(w, r, err)
 		return

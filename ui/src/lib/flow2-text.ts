@@ -50,6 +50,7 @@ export const offerReasonCodes = [
   "media_server_unknown",
   "series_folder_unusable",
   "season_folder_unavailable",
+  "admin_required",
 ] as const;
 
 export function offerReasonText(reason: string): { key: TKey; params?: { code: string } } {

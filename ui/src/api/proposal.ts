@@ -75,7 +75,10 @@ export type SeasonDub = {
   decided?: string;
   offers: string[];
   seasons: SeasonDubSeason[];
-  /** Why a policy of the server's order is not among the offers (#58): `version`, with a reason. */
+  /**
+   * Why a policy of the server's order is not among the offers: `version` with a reason (#58),
+   * or `replace` / `version` with `admin_required` (#116).
+   */
   notOffered?: SeasonDubNotOffered[];
   /** What keeping the rows as second versions would be (#58); present while `version` is offered. */
   version?: EpisodeVersionsView;
@@ -115,6 +118,11 @@ export type Proposal = {
   rows: ProposalRow[];
   hints: Notice[];
   seasonDub?: SeasonDub;
+  /**
+   * What this user may not confirm (#116): `{offer: "override", reason: "admin_required"}`
+   * when only an admin may import a row despite its rejections or warnings.
+   */
+  notOffered?: SeasonDubNotOffered[];
   /** Absent for a film. */
   episodes?: SeriesEpisode[];
   qualities: Ref[];

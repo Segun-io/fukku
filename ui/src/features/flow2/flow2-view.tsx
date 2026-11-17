@@ -87,7 +87,9 @@ function MergePanel({
 
 /**
  * The flow 2 page's body: the comparison, then what can be done with it. With one offer the
- * path is shown straight away; with both the user chooses. With none the reasons are listed.
+ * path is shown straight away; with both the user chooses. With none the reasons are listed;
+ * when an admin would be offered something (`admin_required`, #116), the page says that an
+ * admin must confirm the job.
  */
 export function Flow2View({
   jobId,
@@ -111,6 +113,7 @@ export function Flow2View({
   const missing = flow2.notOffered.filter(
     (n) => offers.length === 0 || n.reason !== "runtime_differs",
   );
+  const forAdmin = flow2.notOffered.some((n) => n.reason === "admin_required");
   const notOffered = missing.length > 0 && (
     <section aria-labelledby={`${legend}-missing`} className="grid gap-1 text-sm text-ink-2">
       <h3 id={`${legend}-missing`} className="font-sans text-sm font-bold tracking-normal">
@@ -140,9 +143,9 @@ export function Flow2View({
             tone="caution"
             icon={TriangleAlert}
             titleAs="h2"
-            title={t("flow2.nothing.title")}
+            title={t(forAdmin ? "flow2.admin.title" : "flow2.nothing.title")}
           >
-            {t("flow2.nothing.body")}
+            {t(forAdmin ? "flow2.admin.body" : "flow2.nothing.body")}
           </Notice>
           {notOffered}
         </div>

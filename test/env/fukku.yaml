@@ -12,6 +12,10 @@ auth:
   # FUKKU_DEV_SUBNET is set).
   trustedProxies: [172.30.77.10]
   adminGroup: media-admins
+  # The M2 and M3 exit tests (test/e2e) override rejections, merge and keep second versions
+  # as user1, who is not an admin, so library changes are open to every user here. The
+  # default (on, #116) is covered by the unit tests of internal/flows and internal/web.
+  libraryChangesRequireAdmin: false
 
 radarr:
   url: http://radarr:7878

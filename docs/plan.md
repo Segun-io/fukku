@@ -47,8 +47,8 @@ Fukku is a small web app that does exactly that, safely, for non-technical users
 
 **Roles**
 
-- *Uploader*: anyone allowed in. Uploads, follows their jobs, confirms imports.
-- *Admin* (optional, by auth group or header value): sees all jobs, can retry or delete them, sees settings and health.
+- *Uploader*: anyone allowed in. Uploads, follows their jobs, confirms imports of new films and episodes.
+- *Admin* (optional, by auth group or header value): sees all jobs, can retry or delete them, sees settings and health. While `auth.libraryChangesRequireAdmin` is on (the default, #116), only an admin confirms what replaces or changes a file the library has: an override of a rejection or warning, the season-dub policies `replace` and `version`, a merge and a film's second version.
 - A setting `auth.allUsersAreAdmins` covers small, trusted households where everyone already administers the *arr apps.
 
 **First adopter profile (generic description of the deployment that drives the defaults)**
@@ -223,6 +223,7 @@ Configuration comes from a YAML file plus environment overrides (`FUKKU_…`, wi
   - In `proxyHeaders` mode, requests are accepted only from `trustedProxies` and only with a user header; everything else gets 403.
   - State-changing requests check `Origin`, and no endpoint uses GET to change state.
   - No file browsing and no arbitrary paths in the API: jobs are addressed by id.
+  - Changes to files the library already has are admin-only by default (`auth.libraryChangesRequireAdmin`, #116): the confirmation refuses them with 403 `admin_required` for other users.
   - Secrets only from the environment or files, never logged.
   - Container runs as non-root with a read-only root filesystem.
   - Least privilege on the library: the worker sees it read-only; the web process writes into it only for second versions (`versions.enabled`, off by default): films' into `versions.root`, outside Radarr's root folders, and episodes' into Sonarr's season folders inside `paths.libraryRoots` (each by a hard link that never replaces a file, opened through an `os.Root` of the library root). With versions off it needs no write access to the library at all; with them on, its mount of the library must be writable.

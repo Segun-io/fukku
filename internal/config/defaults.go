@@ -37,6 +37,8 @@ func Defaults() Config {
 			GroupsHeader:    "Remote-Groups",
 			GroupsSeparator: ",",
 			OriginCheck:     true,
+			// Safe by default (#116): a household turns it off when everyone may change the library.
+			LibraryChangesRequireAdmin: true,
 		},
 		Radarr: arr(true),
 		// New shows are added with nothing monitored (plan §8, flow 3).

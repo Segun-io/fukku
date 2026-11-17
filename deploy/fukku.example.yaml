@@ -23,6 +23,9 @@ auth:
   groupsHeader: Remote-Groups
   allUsersAreAdmins: false
   adminGroup: media-admins
+  # Only admins may override a rejection, replace episodes, merge into a film or keep a
+  # second version; everyone can import new films and episodes. Off: every user may.
+  libraryChangesRequireAdmin: true
 
 radarr:
   url: http://radarr:7878

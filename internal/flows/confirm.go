@@ -59,7 +59,8 @@ type Overridden struct {
 }
 
 // Confirm moves a job from awaiting-confirmation to importing, as user (email for the
-// audit log). Every row that is not
+// audit log; admin: the user is an admin, for auth.libraryChangesRequireAdmin, #116). Every
+// row that is not
 // skipped must be importable, or have only rejections and warnings and be listed in
 // req.Overrides. The rows are judged as the proposal shows them now (View), so the warnings
 // are those the user saw; for a show the app is asked for its episodes. The job's lock is
@@ -71,12 +72,14 @@ type Overridden struct {
 //
 // Refusals: wrong_state, flow2 (the film already has a file, at the match or since: flow 2, #52), bad_request (an
 // override names no row of the job, or flow2 for a job that is not flow 2),
-// storage_unavailable (the filesystem checks fail), incomplete_rows (rows without a title
+// admin_required (an override, a merge, a second version or the season-dub policy replace
+// or version by a user who is not an admin while auth.libraryChangesRequireAdmin is on;
+// Rows lists the overridden rows), storage_unavailable (the filesystem checks fail), incomplete_rows (rows without a title
 // or episodes: edit or skip them), needs_override (Rows lists them), nothing_to_import;
 // arr_unavailable when the app does not answer.
-func (e *Engine) Confirm(ctx context.Context, user, email string, job store.Job, req ConfirmRequest) (Confirmation, error) {
+func (e *Engine) Confirm(ctx context.Context, user, email string, admin bool, job store.Job, req ConfirmRequest) (Confirmation, error) {
 	for range editAttempts {
-		c, err := e.confirm(ctx, user, email, job.ID, req)
+		c, err := e.confirm(ctx, user, email, admin, job.ID, req)
 		if !errors.Is(err, errRetry) {
 			return c, err
 		}
@@ -84,21 +87,28 @@ func (e *Engine) Confirm(ctx context.Context, user, email string, job store.Job,
 	return Confirmation{}, rowsChanged()
 }
 
-func (e *Engine) confirm(ctx context.Context, user, email, jobID string, req ConfirmRequest) (Confirmation, error) {
+func (e *Engine) confirm(ctx context.Context, user, email string, admin bool, jobID string, req ConfirmRequest) (Confirmation, error) {
 	s, err := e.p.edit(ctx, jobID)
 	if err != nil {
 		return Confirmation{}, err
 	}
+	s.changes = LibraryChangesAllowed(e.p.cfg, admin) // #116
 	if rec, ok := Flow2Of(s.t); ok {
 		switch req.Flow2 {
 		case OfferMerge:
 			if req.Version != nil {
 				return Confirmation{}, badRequest("A merge takes merge, not version.")
 			}
+			if !s.changes {
+				return Confirmation{}, adminRequired("Only an admin can merge into a film's library file: ask an admin to confirm this job.")
+			}
 			return e.confirmMerge(ctx, user, email, s, rec, req) // #55
 		case OfferVersion:
 			if req.Merge != nil {
 				return Confirmation{}, badRequest("A second version takes version, not merge.")
+			}
+			if !s.changes {
+				return Confirmation{}, adminRequired("Only an admin can add a second version of a film: ask an admin to confirm this job.")
 			}
 			return e.confirmVersion(ctx, user, email, s, rec, req) // #56
 		}
@@ -157,6 +167,7 @@ func (e *Engine) confirm(ctx context.Context, user, email, jobID string, req Con
 		incomplete []string
 		needs      []string
 		sharing    []string
+		admins     []string // overrides only an admin may confirm (#116)
 	)
 	override := map[string]bool{}
 	for i, v := range views {
@@ -180,6 +191,10 @@ func (e *Engine) confirm(ctx context.Context, user, email, jobID string, req Con
 		if needsOverride(v, replaced) {
 			if !slices.Contains(req.Overrides, v.ID) {
 				needs = append(needs, v.ID)
+				continue
+			}
+			if !s.changes {
+				admins = append(admins, v.ID)
 				continue
 			}
 		}
@@ -208,6 +223,10 @@ func (e *Engine) confirm(ctx context.Context, user, email, jobID string, req Con
 	case len(sharing) > 0:
 		err := refuse(CodeSharedFile, "Replacing these files would remove the library file of other episodes too (a file that holds several): add those episodes to the job, skip the rows, or confirm them as overrides.")
 		err.Rows = sharing
+		return Confirmation{}, err
+	case len(admins) > 0:
+		err := adminRequired("Only an admin can import files despite their rejections or warnings: leave these files out, or ask an admin to confirm this job.")
+		err.Rows = admins
 		return Confirmation{}, err
 	case len(needs) > 0:
 		err := refuse(CodeNeedsOverride, "Some rows have rejections or warnings: confirm them as overrides, or skip them.")

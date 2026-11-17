@@ -170,7 +170,7 @@ func (e *env) ready(j store.Job) Proposal {
 
 func (e *env) view(j store.Job) Proposal {
 	e.t.Helper()
-	p, err := e.p.View(e.ctx, j)
+	p, err := e.p.View(e.ctx, j, true)
 	if err != nil {
 		e.t.Fatalf("view: %v", err)
 	}

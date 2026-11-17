@@ -226,7 +226,7 @@ func TestConfirmIsOneWrite(t *testing.T) {
 	before, _ := x.st.Target(x.ctx, j.ID)
 	f := &fuse{left: 0}
 	dying := x.engineOn(fusedOnlyConfirm{x.st, f}, x.movies, x.series)
-	if _, err := dying.Confirm(x.ctx, "user1", "", j, ConfirmRequest{Subtitles: []SubtitleChoice{{FileID: sub.ID, Language: "es"}}}); err == nil {
+	if _, err := dying.Confirm(x.ctx, "user1", "", true, j, ConfirmRequest{Subtitles: []SubtitleChoice{{FileID: sub.ID, Language: "es"}}}); err == nil {
 		t.Fatal("the write did not fail")
 	}
 	after, _ := x.st.Target(x.ctx, j.ID)

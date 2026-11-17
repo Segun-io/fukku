@@ -82,9 +82,14 @@ export function ConfirmView({ job, proposal, subtitleManager, refreshing = false
   const isVersion = policy === "version";
   const versionRows = isVersion ? (dub?.version?.rows ?? []) : [];
   const nothingNew = subtitlesOnly || isVersion;
+  // Only an admin may import a row despite its problems (#116): such a row is left out, or an
+  // admin confirms the job.
+  const adminOnly = (proposal.notOffered ?? []).some(
+    (n) => n.offer === "override" && n.reason === "admin_required",
+  );
   const overridable = (id: string) => {
     const row = rows.find((r) => r.id === id);
-    return !!row && !row.skip && hasIssues(row) && agreed[id] === issueSignature(row);
+    return !adminOnly && !!row && !row.skip && hasIssues(row) && agreed[id] === issueSignature(row);
   };
   const needTick = leftIn.filter((r) => hasIssues(r) && !overridable(r.id));
   const checkingId = edit.isPending ? edit.variables?.rowId : undefined;
@@ -129,7 +134,11 @@ export function ConfirmView({ job, proposal, subtitleManager, refreshing = false
     if (needTick.length > 0) {
       setMissing(needTick.map((r) => r.id));
       const first = needTick[0];
-      form.current?.querySelector<HTMLInputElement>(`[data-override="${first?.id}"]`)?.focus();
+      form.current
+        ?.querySelector<HTMLElement>(
+          adminOnly ? `[data-skip="${first?.id}"]` : `[data-override="${first?.id}"]`,
+        )
+        ?.focus();
       return;
     }
     confirm.mutate(
@@ -264,6 +273,7 @@ export function ConfirmView({ job, proposal, subtitleManager, refreshing = false
               version={isVersion}
               checking={checkingId === row.id}
               overridden={overridable(row.id)}
+              adminOnly={adminOnly}
               missing={missing.includes(row.id)}
               onOverride={(value) => {
                 setAgreed((a) => {
@@ -330,7 +340,7 @@ export function ConfirmView({ job, proposal, subtitleManager, refreshing = false
         {missing.length > 0 && needTick.length > 0 && (
           <p role="alert" className="flex items-start gap-2 text-destructive">
             <CircleAlert aria-hidden="true" className="mt-0.5 size-5 shrink-0" />
-            {t("confirm.override.missing")}
+            {t(adminOnly ? "confirm.override.adminMissing" : "confirm.override.missing")}
           </p>
         )}
         <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">

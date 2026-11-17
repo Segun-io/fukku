@@ -171,7 +171,7 @@ func mergeReq(m *MergeRequest) ConfirmRequest { return ConfirmRequest{Flow2: Off
 
 func (x *mergeEnv) confirmMerge(j store.Job, m *MergeRequest) store.Job {
 	x.t.Helper()
-	c, err := x.eng.Confirm(x.ctx, "user1", "user1@example.com", x.jobNow(j), mergeReq(m))
+	c, err := x.eng.Confirm(x.ctx, "user1", "user1@example.com", true, x.jobNow(j), mergeReq(m))
 	if err != nil {
 		x.t.Fatalf("confirm: %v", err)
 	}

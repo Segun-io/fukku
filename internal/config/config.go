@@ -62,6 +62,10 @@ type Auth struct {
 	AdminGroup        string   `yaml:"adminGroup"`
 	AllUsersAreAdmins bool     `yaml:"allUsersAreAdmins"`
 	OriginCheck       bool     `yaml:"originCheck"`
+	// LibraryChangesRequireAdmin: only admins may replace or change a file the library
+	// already has (an override, a season-dub replace or version, a flow 2 merge or second
+	// version, #116). Others can still import new films and episodes.
+	LibraryChangesRequireAdmin bool `yaml:"libraryChangesRequireAdmin"`
 }
 
 // Arr configures one Radarr or Sonarr instance. It is enabled when URL is set.

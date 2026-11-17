@@ -139,6 +139,19 @@ import (
 //	502 arr_unavailable    the app did not answer (a show's episodes are read to judge the rows)
 //
 // The import and its result then show in GET /api/jobs/{id} ("import", "result").
+//
+// Changes to the library are admin-only while auth.libraryChangesRequireAdmin is on (the
+// default, #116, flows/library_changes.go). For a user who is not an admin (auth.adminGroup,
+// or auth.allUsersAreAdmins) the confirmation then refuses
+//
+//	403 admin_required     overrides that list rows with rejections or warnings ("rows" lists
+//	                       them; leave them out, or an admin confirms), seasonDub "replace"
+//	                       or "version", flow2 "merge" or "version"
+//
+// The proposal's notOffered (offer "override"), seasonDub.notOffered and JobDetail's
+// flow2.notOffered say so beforehand, with the reason admin_required. An admin can open and
+// confirm any user's job. New films and episodes, and seasonDub "subtitlesOnly", stay open
+// to every user.
 
 func (s *Server) confirmRoutes(mux *http.ServeMux) {
 	if s.deps.Store == nil || s.deps.Imports == nil {
@@ -180,7 +193,7 @@ func (s *Server) confirmJob(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	c, err := s.deps.Imports.Confirm(r.Context(), u.Name, u.Email, j, req)
+	c, err := s.deps.Imports.Confirm(r.Context(), u.Name, u.Email, u.Admin, j, req)
 	if err != nil {
 		s.confirmError(w, r, err)
 		return
@@ -218,6 +231,12 @@ func (s *Server) confirmError(w http.ResponseWriter, r *http.Request, err error)
 		writeError(w, http.StatusConflict, e.Code, e.Message)
 	case flows.CodeStorageUnavailable:
 		writeError(w, http.StatusServiceUnavailable, e.Code, e.Message)
+	case flows.CodeAdminRequired:
+		if len(e.Rows) > 0 { // overrides: the rows only an admin may import as they are
+			writeJSON(w, http.StatusForbidden, rowsErrorBody{rowsError{Code: e.Code, Message: e.Message, Rows: e.Rows}})
+			return
+		}
+		writeError(w, http.StatusForbidden, e.Code, e.Message)
 	default:
 		s.matchError(w, r, err)
 	}

@@ -29,6 +29,11 @@ type Props = {
   checking: boolean;
   /** The user has agreed to import the row despite its rejections and warnings. */
   overridden: boolean;
+  /**
+   * Only an admin may import a row despite its problems (#116): the row has no "Import
+   * anyway" tick, only the way to leave it out.
+   */
+  adminOnly: boolean;
   /** Pressing "Import" found this row not agreed to yet. */
   missing: boolean;
   onOverride: (value: boolean) => void;
@@ -51,6 +56,7 @@ export function RowCard({
   version,
   checking,
   overridden,
+  adminOnly,
   missing,
   onOverride,
   onEdit,
@@ -270,18 +276,22 @@ export function RowCard({
               </li>
             ))}
           </ul>
-          <label className="mt-3 flex min-h-11 cursor-pointer items-center gap-3 font-medium">
-            <input
-              type="checkbox"
-              name={`override-${row.id}`}
-              data-override={row.id}
-              checked={overridden}
-              aria-invalid={missing && !overridden ? true : undefined}
-              onChange={(e) => onOverride(e.target.checked)}
-              className="size-5 shrink-0 cursor-pointer accent-primary"
-            />
-            {t("confirm.override")}
-          </label>
+          {adminOnly ? (
+            <p className="mt-3 max-w-[65ch] font-medium">{t("confirm.override.adminOnly")}</p>
+          ) : (
+            <label className="mt-3 flex min-h-11 cursor-pointer items-center gap-3 font-medium">
+              <input
+                type="checkbox"
+                name={`override-${row.id}`}
+                data-override={row.id}
+                checked={overridden}
+                aria-invalid={missing && !overridden ? true : undefined}
+                onChange={(e) => onOverride(e.target.checked)}
+                className="size-5 shrink-0 cursor-pointer accent-primary"
+              />
+              {t("confirm.override")}
+            </label>
+          )}
         </div>
       )}
 
@@ -306,6 +316,7 @@ export function RowCard({
           <Button
             type="button"
             variant="outline"
+            data-skip={row.id}
             disabled={checking}
             onClick={() => onEdit({ skip: keptAsVersion || !row.skip })}
           >

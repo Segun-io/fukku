@@ -122,7 +122,7 @@ func (x *epvEnv) confirmEpv(j store.Job, label string) (Confirmation, error) {
 	if label != "" {
 		req.Version = &VersionRequest{Label: label}
 	}
-	return x.eng.Confirm(x.ctx, "user1", "user1@example.com", j, req)
+	return x.eng.Confirm(x.ctx, "user1", "user1@example.com", true, j, req)
 }
 
 func (x *epvEnv) libraryNames() []string {
@@ -673,10 +673,10 @@ func TestEpisodeVersionLabelsAndRows(t *testing.T) {
 	t.Run("version without the policy", func(t *testing.T) {
 		x := newEpvEnv(t, nil)
 		j := x.epvJob()
-		_, err := x.eng.Confirm(x.ctx, "user1", "", j, ConfirmRequest{SeasonDub: PolicyReplace, Version: &VersionRequest{Label: "Español"}})
+		_, err := x.eng.Confirm(x.ctx, "user1", "", true, j, ConfirmRequest{SeasonDub: PolicyReplace, Version: &VersionRequest{Label: "Español"}})
 		_ = wantRefusal(t, err, CodeBadRequest)
 		// A show's job takes a version label, never a merge (#55's field is not ignored).
-		_, err = x.eng.Confirm(x.ctx, "user1", "", j, ConfirmRequest{SeasonDub: PolicyVersion, Merge: &MergeRequest{}})
+		_, err = x.eng.Confirm(x.ctx, "user1", "", true, j, ConfirmRequest{SeasonDub: PolicyVersion, Merge: &MergeRequest{}})
 		_ = wantRefusal(t, err, CodeBadRequest)
 	})
 }
@@ -900,7 +900,7 @@ func TestEpisodeVersionsLeaveOutEveryRowWithAFile(t *testing.T) {
 	if v := x.view(j); v.SeasonDub != nil {
 		t.Fatalf("season dub %+v", v.SeasonDub)
 	}
-	if _, err := x.eng.Confirm(x.ctx, "user1", "user1@example.com", x.jobNow(j), ConfirmRequest{}); err != nil {
+	if _, err := x.eng.Confirm(x.ctx, "user1", "user1@example.com", true, x.jobNow(j), ConfirmRequest{}); err != nil {
 		t.Fatal(err)
 	}
 	if j = x.drive(x.eng, j); j.State != store.Done || len(x.series.Imports) != 1 {

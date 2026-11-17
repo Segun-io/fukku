@@ -24,6 +24,7 @@
       "too_many_entries"
     ],
     "errors": [
+      "admin_required",
       "app_not_configured",
       "arr_unavailable",
       "bad_name",
@@ -123,6 +124,7 @@
       "upgrade_can_replace"
     ],
     "offerReasons": [
+      "admin_required",
       "media_server_too_old",
       "media_server_unknown",
       "merge_disabled",

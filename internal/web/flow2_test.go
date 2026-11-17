@@ -45,6 +45,8 @@ func newFlow2Env(t *testing.T, tweak func(*config.Config)) *flow2Env {
 	cfg.Paths.LibraryRoots = []string{"/data/media/movies"}
 	cfg.Paths.Mappings.Radarr = []config.PathMapping{{From: "/data/media/movies", To: "/movies"}}
 	cfg.Radarr.URL = "http://radarr.example.com:7878"
+	// user1 is no admin; the admin gate (#116) is tested in library_changes_test.go.
+	cfg.Auth.LibraryChangesRequireAdmin = false
 	sentinel := filepath.Join(t.TempDir(), ".sentinel")
 	if err := os.WriteFile(sentinel, nil, 0o600); err != nil {
 		t.Fatal(err)

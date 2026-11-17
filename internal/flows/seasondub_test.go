@@ -55,7 +55,7 @@ func (x *ienv) dubJob() store.Job {
 
 func (x *ienv) confirmDub(j store.Job, choice string, overrides ...string) (Confirmation, error) {
 	x.t.Helper()
-	return x.eng.Confirm(x.ctx, "user1", "", j, ConfirmRequest{Overrides: overrides, SeasonDub: choice})
+	return x.eng.Confirm(x.ctx, "user1", "", true, j, ConfirmRequest{Overrides: overrides, SeasonDub: choice})
 }
 
 func wantRefusal(t *testing.T, err error, code string) *Error {

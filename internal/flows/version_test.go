@@ -108,7 +108,7 @@ func (x *venv) confirmVersion(j store.Job, label string) (Confirmation, error) {
 	if label != "" {
 		req.Version = &VersionRequest{Label: label}
 	}
-	return x.eng.Confirm(x.ctx, "user1", "user1@example.com", j, req)
+	return x.eng.Confirm(x.ctx, "user1", "user1@example.com", true, j, req)
 }
 
 func (x *venv) dest(name string) string { return filepath.Join(x.versions, "Some Film (2001)", name) }
@@ -461,7 +461,7 @@ func TestVersionUnavailable(t *testing.T) {
 	t.Run("a flow 1 job", func(t *testing.T) {
 		x := newVersionEnv(t)
 		j := x.filmJob()
-		_, err := x.eng.Confirm(x.ctx, "user1", "", j, ConfirmRequest{Flow2: OfferVersion})
+		_, err := x.eng.Confirm(x.ctx, "user1", "", true, j, ConfirmRequest{Flow2: OfferVersion})
 		if Code(err) != CodeBadRequest {
 			t.Errorf("got %v, want bad_request", err)
 		}
@@ -469,7 +469,7 @@ func TestVersionUnavailable(t *testing.T) {
 	t.Run("an import of a flow 2 job", func(t *testing.T) {
 		x := newVersionEnv(t)
 		j := x.versionJob(palMs, "spa")
-		_, err := x.eng.Confirm(x.ctx, "user1", "", j, ConfirmRequest{})
+		_, err := x.eng.Confirm(x.ctx, "user1", "", true, j, ConfirmRequest{})
 		x.refused(j, err, CodeFlow2)
 	})
 }

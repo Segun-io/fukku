@@ -46,6 +46,8 @@ export const confirmErrorCodes = [
   "incomplete_rows",
   "nothing_to_import",
   "flow2",
+  /** A change to the library by a user who is not an admin (#116). */
+  "admin_required",
 ] as const;
 
 /**
@@ -394,7 +396,10 @@ export type Flow2File = {
 
 export type NotOffered = {
   offer: Flow2Offer;
-  /** `merge_disabled`, `versions_disabled`, `versions_unsupported`, `runtime_differs`. */
+  /**
+   * `merge_disabled`, `versions_disabled`, `versions_unsupported`, `runtime_differs`, or
+   * `admin_required`: an admin would be offered it (`auth.libraryChangesRequireAdmin`, #116).
+   */
   reason: string;
 };
 

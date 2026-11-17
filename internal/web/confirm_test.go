@@ -71,6 +71,9 @@ func newConfirmEnvWith(t *testing.T, mutate func(*config.Config)) *confirmEnv {
 	cfg.Paths.IntakeRoot = "/data/intake"
 	cfg.Paths.Sentinels = []string{sentinel}
 	cfg.Sonarr.URL = "http://sonarr.example.com:8989"
+	// The tests here confirm as user1, who is no admin; the admin gate (#116) has its own
+	// tests (library_changes_test.go), which turn it back on.
+	cfg.Auth.LibraryChangesRequireAdmin = false
 	if mutate != nil {
 		mutate(&cfg)
 	}
