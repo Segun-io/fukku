@@ -157,6 +157,7 @@ func Defaults() Config {
 			MaxProbeResultBytes:   8 << 20,
 			RequireSeparateMounts: true,
 			SweepMaxEntries:       100_000,
+			SweepMaxDuration:      Duration(30 * time.Second),
 		},
 	}
 }

@@ -71,7 +71,7 @@ func Open(intakeRoot, id string) (*os.Root, error) {
 		return nil, err
 	}
 	defer func() { _ = intake.Close() }()
-	return intake.OpenRoot(filepath.Join(Jobs, id))
+	return openNoLink(intake, Jobs, id)
 }
 
 // OpenWorker opens the worker's directory of a job, worker/<id>, as an os.Root, from an
@@ -88,7 +88,7 @@ func OpenWorker(intakeRoot, id string) (*os.Root, error) {
 		return nil, err
 	}
 	defer func() { _ = intake.Close() }()
-	return intake.OpenRoot(filepath.Join(Worker, id))
+	return openNoLink(intake, Worker, id)
 }
 
 // MakeWorker is OpenWorker for the worker: it creates worker/<id> first when it is missing.
@@ -105,17 +105,17 @@ func MakeWorker(intakeRoot, id string) (*os.Root, error) {
 	if err := intake.MkdirAll(filepath.Join(Worker, id), 0o755); err != nil {
 		return nil, err
 	}
-	return intake.OpenRoot(filepath.Join(Worker, id))
+	return openNoLink(intake, Worker, id)
 }
 
 // Prepare creates the folders of the intake root that the two containers mount separately
-// (.incoming/, jobs/ and worker/) when they are missing, as the web process's user. A
+// (.incoming/, jobs/, worker/ and worker/.spill) when they are missing, as the web process's user. A
 // container runtime creates a missing bind-mount source as root, and neither process could
 // write it then (#138): the web process calls this at start-up, and docs/install.md has the
 // folders made before the first start. The caller checks the sentinels first, so nothing is
 // created under a missing mount.
 func Prepare(intakeRoot string) error {
-	for _, d := range []string{Incoming, Jobs, Worker} {
+	for _, d := range []string{Incoming, Jobs, Worker, filepath.Join(Worker, Spill)} {
 		if err := os.MkdirAll(filepath.Join(intakeRoot, d), 0o755); err != nil { //nolint:gosec // paths.intakeRoot, from the configuration
 			return err
 		}

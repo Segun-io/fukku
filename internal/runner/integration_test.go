@@ -327,7 +327,7 @@ func TestIntegrationHostileCorpus(t *testing.T) {
 	for _, j := range jobs {
 		ids = append(ids, j.ID)
 	}
-	outside := tree(t, s.cfg.Paths.IntakeRoot, ids...)
+	outside := tree(t, s.cfg.Paths.IntakeRoot, append(ids, jobdir.Spill)...)
 	s.runner()
 
 	expect := hostileExpect()
@@ -395,7 +395,7 @@ func TestIntegrationHostileCorpus(t *testing.T) {
 			}
 		})
 	}
-	if after := tree(t, s.cfg.Paths.IntakeRoot, ids...); !slices.Equal(after, outside) {
+	if after := tree(t, s.cfg.Paths.IntakeRoot, append(ids, jobdir.Spill)...); !slices.Equal(after, outside) {
 		t.Errorf("outside the job directories:\n got %v\nwant %v", after, outside)
 	}
 	if after := tree(t, s.sandbox, append(ids, "spool")...); slices.ContainsFunc(after, func(e string) bool {

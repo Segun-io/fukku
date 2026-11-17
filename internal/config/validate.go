@@ -339,9 +339,15 @@ func validateShared(p *problems, cfg Config) {
 	if w.HeartbeatMaxAge <= w.HeartbeatInterval {
 		p.add("worker.heartbeatMaxAge", "must be longer than worker.heartbeatInterval")
 	}
-	if w.SweepMaxEntries < 10_000 || w.SweepMaxEntries > 10_000_000 {
+	switch {
+	case w.SweepMaxEntries < 10_000 || w.SweepMaxEntries > 10_000_000:
 		p.add("worker.sweepMaxEntries", "must be between 10000 and 10000000")
+	case w.SweepMaxEntries < 4*cfg.Extract.MaxEntries+200:
+		// A job folder with more than half of it is set aside as a whole; a running job holds
+		// an extraction's scratch and the previous one's output, each up to extract.maxEntries.
+		p.add("worker.sweepMaxEntries", "must be at least 4 × extract.maxEntries + 200, so that no running job's folder is taken for one of no job")
 	}
+	positive(p, "worker.sweepMaxDuration", int64(w.SweepMaxDuration))
 	for _, c := range []struct {
 		key string
 		v   int

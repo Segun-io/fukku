@@ -3,6 +3,7 @@
 package flows
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -137,29 +138,34 @@ func TestEpisodeVersionRefusesAFileThatIsNotTheJobs(t *testing.T) {
 }
 
 // Staged copies the web process made earlier (another label's, another row's), left when a
-// version was confirmed again without a verdict, are its own names: they are removed before
-// the placement, which then goes through.
+// version was confirmed again, are its own names: they are removed before the link checks,
+// with Sonarr's verdict asked again right before the link (the version is staged once more)
+// and without it, and the placement goes through.
 func TestEpisodeVersionStaleStagedCopiesDoNotBlock(t *testing.T) {
-	x := newEpvEnv(t, func(c *config.Config) { c.Versions.RequireNotUpgradeVerdict = false })
-	j := x.epvJob()
-	rows := x.rows(j)
-	c, err := x.confirmEpv(j, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	src := x.src(j, "files/Show.S01E01.mkv")
-	for _, p := range []string{
-		filepath.Join(x.root, "jobs", j.ID, "versions", rows[0].ID, "Some Show - S01E01 - Old label.mkv"),
-		filepath.Join(x.root, "jobs", j.ID, "versions", "r-earlier", "Some Show - S01E01 - Older.mkv"),
-	} {
-		mustDo(t, os.MkdirAll(filepath.Dir(p), 0o755))
-		mustDo(t, os.Link(src, p))
-	}
-	if j = x.drive(x.eng, c.Job); j.State != store.Done {
-		t.Fatalf("job %s (%s: %s)", j.State, j.ErrorCode, j.ErrorText)
-	}
-	if !slices.Contains(x.libraryNames(), "Some Show - S01E01 - Español.mkv") {
-		t.Errorf("not placed: %v", x.libraryNames())
+	for _, verdict := range []bool{true, false} {
+		t.Run(fmt.Sprintf("verdict %t", verdict), func(t *testing.T) {
+			x := newEpvEnv(t, func(c *config.Config) { c.Versions.RequireNotUpgradeVerdict = verdict })
+			j := x.epvJob()
+			rows := x.rows(j)
+			c, err := x.confirmEpv(j, "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			src := x.src(j, "files/Show.S01E01.mkv")
+			for _, p := range []string{
+				filepath.Join(x.root, "jobs", j.ID, "versions", rows[0].ID, "Some Show - S01E01 - Old label.mkv"),
+				filepath.Join(x.root, "jobs", j.ID, "versions", "r-earlier", "Some Show - S01E01 - Older.mkv"),
+			} {
+				mustDo(t, os.MkdirAll(filepath.Dir(p), 0o755))
+				mustDo(t, os.Link(src, p))
+			}
+			if j = x.drive(x.eng, c.Job); j.State != store.Done {
+				t.Fatalf("job %s (%s: %s)", j.State, j.ErrorCode, j.ErrorText)
+			}
+			if !slices.Contains(x.libraryNames(), "Some Show - S01E01 - Español.mkv") {
+				t.Errorf("not placed: %v", x.libraryNames())
+			}
+		})
 	}
 }
 

@@ -25,7 +25,8 @@ const mediaDir = path.join(fixturesDir, "media");
  * (the job id is known by now).
  */
 function outsideJob(id: string) {
-  const own = [`intake/jobs/${id}`, `intake/worker/${id}`];
+  // worker/.spill: what any job left, set aside and removed by the sweeps.
+  const own = [`intake/jobs/${id}`, `intake/worker/${id}`, "intake/worker/.spill"];
   return (rel: string) => own.some((o) => rel === o || rel.startsWith(`${o}/`));
 }
 

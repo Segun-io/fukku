@@ -299,7 +299,8 @@ docker compose up -d
 A job that was extracting or merging during the upgrade fails its task; retry it. The
 preview clips of a job awaiting confirmation are looked up in `intake/worker` now: the ones
 rendered before the upgrade answer 404 until they are rendered again (ask for the preview once
-more on the job's page).
+more on the job's page). A finished job's clips answer 404: the worker's folder of a job goes
+once the job is done.
 
 ## Backup
 

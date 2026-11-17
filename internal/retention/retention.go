@@ -270,17 +270,15 @@ func (s *Sweeper) sweepIncoming(ctx context.Context, root *os.Root, now time.Tim
 // sweepJobsDir handles the directories in jobs/ and worker/ that have no job row: logged
 // as orphan_job_dir, deleted only once older than upload.jobRetention.
 func (s *Sweeper) sweepJobsDir(ctx context.Context, root *os.Root, now time.Time) {
-	s.sweepWorker(ctx, root)
-	for _, top := range []string{jobdir.Worker, jobdir.Jobs} {
-		s.sweepTop(ctx, root, now, top)
-	}
+	s.sweepWorker(ctx, root, now)
+	s.sweepTop(ctx, root, now, jobdir.Jobs)
 }
 
 // sweepWorker keeps worker/ to what the worker makes for a job (jobdir.WorkerSweeper): a hard
 // link it made there of a file the web process took into a job, through a descriptor it
 // kept, would be a writable name of an imported or placed file (#114). The worker's folder
 // of a job that is done is removed too: nothing in it is needed any more.
-func (s *Sweeper) sweepWorker(ctx context.Context, root *os.Root) {
+func (s *Sweeper) sweepWorker(ctx context.Context, root *os.Root, now time.Time) {
 	for _, j := range s.jobsIn(ctx, store.Done) {
 		if !jobdir.ValidID(j.ID) {
 			continue
@@ -289,7 +287,23 @@ func (s *Sweeper) sweepWorker(ctx context.Context, root *os.Root) {
 			s.log.Error("retention_remove", "job", j.ID, "path", jobdir.Worker, "error", err.Error())
 		}
 	}
+	// A folder of no job, older than upload.jobRetention, goes too: the sweep asks about the
+	// folders it reaches, in name order, so every one is reached over successive sweeps.
+	s.worker.Orphan = func(id string, modified time.Time) bool {
+		if _, err := s.store.Job(ctx, id); !errors.Is(err, store.ErrNotFound) {
+			return false
+		}
+		if now.Sub(modified) <= s.cfg.Upload.JobRetention.D() {
+			rel := path.Join(jobdir.Worker, id)
+			s.once(rel, "orphan_job_dir", "action", "kept", "path", rel, "modified", modified.UTC().Format(time.RFC3339))
+			return false
+		}
+		s.log.Warn("orphan_job_dir", "action", "deleted", "path", path.Join(jobdir.Worker, id))
+		s.audit(ctx, "job.orphan_deleted", id, map[string]string{"path": path.Join(jobdir.Worker, id)})
+		return true
+	}
 	res, err := s.worker.Sweep(root)
+	s.worker.Orphan = nil
 	LogWorkerSweep(s.log, res, err)
 }
 
@@ -298,7 +312,11 @@ func (s *Sweeper) sweepWorker(ctx context.Context, root *os.Root) {
 // than an extraction path (extract.maxPathSegments) can make, with room for the folders the
 // worker puts it in.
 func SweepLimits(cfg config.Config) jobdir.SweepLimits {
-	return jobdir.SweepLimits{MaxEntries: cfg.Worker.SweepMaxEntries, MaxDepth: cfg.Extract.MaxPathSegments + 8}
+	return jobdir.SweepLimits{
+		MaxEntries:  cfg.Worker.SweepMaxEntries,
+		MaxDepth:    cfg.Extract.MaxPathSegments + 8,
+		MaxDuration: cfg.Worker.SweepMaxDuration.D(),
+	}
 }
 
 // LogWorkerSweep logs what a sweep of worker/ removed (a sample of the paths) and why it
@@ -321,9 +339,6 @@ func (s *Sweeper) sweepTop(ctx context.Context, root *os.Root, now time.Time, to
 		name := e.Name()
 		rel := path.Join(top, name)
 		info, err := e.Info()
-		if top == jobdir.Worker && jobdir.IsSpill(name) {
-			continue // the sweep of worker/ removes it
-		}
 		if err != nil || !info.IsDir() || !jobdir.ValidID(name) {
 			s.ignore(rel, "not a job directory")
 			continue
@@ -338,14 +353,8 @@ func (s *Sweeper) sweepTop(ctx context.Context, root *os.Root, now time.Time, to
 			s.once(rel, "orphan_job_dir", "action", "kept", "path", rel, "modified", info.ModTime().UTC().Format(time.RFC3339))
 			continue
 		}
-		var rerr error
-		if top == jobdir.Worker { // set aside for the bounded sweep of worker/
-			rerr = jobdir.SpillWorker(s.cfg.Paths.IntakeRoot, name, "")
-		} else {
-			rerr = root.RemoveAll(rel)
-		}
-		if rerr != nil {
-			s.log.Error("retention_remove", "path", rel, "error", rerr.Error())
+		if err := root.RemoveAll(rel); err != nil {
+			s.log.Error("retention_remove", "path", rel, "error", err.Error())
 			continue
 		}
 		s.log.Warn("orphan_job_dir", "action", "deleted", "path", rel)

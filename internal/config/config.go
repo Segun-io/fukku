@@ -243,4 +243,6 @@ type Worker struct {
 	RequireSeparateMounts bool `yaml:"requireSeparateMounts"`
 	// SweepMaxEntries bounds the entries one sweep of worker/ and of jobs/ looks at.
 	SweepMaxEntries int `yaml:"sweepMaxEntries"`
+	// SweepMaxDuration bounds how long one sweep of worker/ takes.
+	SweepMaxDuration Duration `yaml:"sweepMaxDuration"`
 }

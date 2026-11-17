@@ -815,6 +815,9 @@ func (e *Engine) stageEpisodeVersion(jobID string, f store.File, v episodeVersio
 	if err := job.Remove(dst); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return err
 	}
+	// Staged copies of the file under an earlier label or row go first: the web process's
+	// own names, not the worker's.
+	e.staged(jobID, v, srcInfo)
 	if err := wantLinks(src, f.Path, 1); err != nil { // no name but the job's (#114)
 		return err
 	}

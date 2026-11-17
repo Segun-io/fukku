@@ -29,6 +29,30 @@ var (
 	ErrChanged = errors.New("jobdir: the file is not the one that was checked")
 )
 
+// openNoLink opens top/id (jobs/<id> or worker/<id>) as an os.Root, refusing a symbolic link
+// there even when it stays inside the intake root (os.Root would follow that one): the
+// folder is first opened with O_NOFOLLOW, and the root must be that same folder (ErrLink
+// otherwise), so a link swapped in between is caught too. A link at worker/<id> to
+// ../jobs/<another> would otherwise make the worker's folder of one job another job's.
+func openNoLink(intake *os.Root, top, id string) (*os.Root, error) {
+	d, err := openDirs(intake, []string{top, id}, false)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = d.Close() }()
+	r, err := intake.OpenRoot(path.Join(top, id))
+	if err != nil {
+		return nil, err
+	}
+	want, err1 := d.Stat()
+	got, err2 := r.Stat(".")
+	if err1 != nil || err2 != nil || !os.SameFile(want, got) {
+		_ = r.Close()
+		return nil, fmt.Errorf("%w: %s", ErrLink, path.Join(top, id))
+	}
+	return r, nil
+}
+
 // link is LinkFile; a test replaces it to swap the worker's name during the move.
 var link = LinkFile
 
