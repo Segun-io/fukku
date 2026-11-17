@@ -48,8 +48,17 @@ const stepTone: Record<PostStepInfo["status"], StatusTone> = {
 const stateColumn = "shrink-0 sm:w-36";
 
 /** The merge of a flow 2a job (#55): where it stands, then what it adds. */
-function MergeProgress({ merge, job }: { merge: MergeInfo; job: JobDetail }) {
-  const { t, formatBytes } = useT();
+function MergeProgress({
+  merge,
+  job,
+  record = false,
+}: {
+  merge: MergeInfo;
+  job: JobDetail;
+  /** The job is done: the merge is shown for the record, under the result. */
+  record?: boolean;
+}) {
+  const { t, formatBytes, formatNumber } = useT();
   const failed = merge.state === "failed";
   const made = merge.state === "merged";
   const imported = job.import?.rows.some((r) => r.result === "imported") ?? false;
@@ -58,8 +67,10 @@ function MergeProgress({ merge, job }: { merge: MergeInfo; job: JobDetail }) {
   const refusal = mergeRefusalText(merge.refusal);
   const none = t("import.merge.fact.no");
   return (
-    <div className="grid gap-4">
-      <h3>{t("import.merge.title")}</h3>
+    <div className={cn("grid", record ? "gap-2" : "gap-4")}>
+      <h3 className={record ? "mt-2 text-muted-foreground" : undefined}>
+        {t("import.merge.title")}
+      </h3>
       <ol aria-label={t("import.merge.steps")} className="divide-y border-y">
         <li className="flex flex-col gap-x-4 gap-y-1 py-3 sm:flex-row sm:items-baseline sm:justify-between">
           <span className="font-medium">{t("import.merge.step.make")}</span>
@@ -94,7 +105,11 @@ function MergeProgress({ merge, job }: { merge: MergeInfo; job: JobDetail }) {
           </StatusLabel>
         </li>
       </ol>
-      {merge.state === "pending" && <p role="status">{t("import.merge.pending")}</p>}
+      {merge.state === "pending" && (
+        <p role="status" className="max-w-[65ch] text-ink-2">
+          {t("import.merge.pending")}
+        </p>
+      )}
       {merge.state === "running" && (
         <p role="status" className="max-w-[65ch] text-ink-2">
           {t("import.merge.running")}
@@ -122,7 +137,7 @@ function MergeProgress({ merge, job }: { merge: MergeInfo; job: JobDetail }) {
         <div className="grid sm:col-span-2 sm:grid-cols-subgrid">
           <dt className="text-muted-foreground">{t("import.merge.fact.offset")}</dt>
           <dd className="figure">
-            {t("import.merge.fact.offset.value", { offset: String(merge.offsetMs) })}
+            {t("import.merge.fact.offset.value", { offset: formatNumber(merge.offsetMs) })}
           </dd>
         </div>
         {merge.languageTag !== "" && (
@@ -143,6 +158,20 @@ function MergeProgress({ merge, job }: { merge: MergeInfo; job: JobDetail }) {
         </div>
       </dl>
     </div>
+  );
+}
+
+/** What to know about a second version, as on the page where it was chosen. */
+function VersionNotices({ codes }: { codes: string[] }) {
+  const { t } = useT();
+  return (
+    <Notice role="note" tone="waiting" icon={Info} title={t("flow2.version.notices")}>
+      <ul className="grid list-disc gap-1.5 pl-5">
+        {codes.map((code) => (
+          <li key={code}>{t(versionNoticeText(code).key, versionNoticeText(code).params)}</li>
+        ))}
+      </ul>
+    </Notice>
   );
 }
 
@@ -170,15 +199,7 @@ function VersionStatus({ version }: { version: VersionResult }) {
           {version.detail}
         </p>
       )}
-      {version.notices.length > 0 && (
-        <ul className="grid list-disc gap-1 pl-5 text-sm text-ink-2">
-          {version.notices.map((code) => (
-            <li key={code} className="max-w-[65ch]">
-              {t(versionNoticeText(code).key, versionNoticeText(code).params)}
-            </li>
-          ))}
-        </ul>
-      )}
+      {version.notices.length > 0 && <VersionNotices codes={version.notices} />}
     </div>
   );
 }
@@ -240,15 +261,7 @@ function EpisodeVersionsStatus({ versions }: { versions: EpisodeVersionsResult }
           );
         })}
       </ul>
-      {versions.notices.length > 0 && (
-        <ul className="grid list-disc gap-1 pl-5 text-sm text-ink-2">
-          {versions.notices.map((code) => (
-            <li key={code} className="max-w-[65ch]">
-              {t(versionNoticeText(code).key, versionNoticeText(code).params)}
-            </li>
-          ))}
-        </ul>
-      )}
+      {versions.notices.length > 0 && <VersionNotices codes={versions.notices} />}
     </div>
   );
 }
@@ -305,7 +318,8 @@ export function ImportSection({ job, className }: { job: JobDetail; className?: 
     <section aria-labelledby="import-title" className={cn("grid gap-4", className)}>
       <h2 id="import-title">{t(finished ? "import.title.done" : "import.title")}</h2>
 
-      {imp?.merge && <MergeProgress merge={imp.merge} job={job} />}
+      {/* While it runs the merge leads; once it is done the result leads and the merge is the record. */}
+      {imp?.merge && !finished && <MergeProgress merge={imp.merge} job={job} />}
 
       {job.state === "importing" && !imp?.merge && (
         <p role="status" className="max-w-[65ch] text-ink-2">
@@ -344,7 +358,11 @@ export function ImportSection({ job, className }: { job: JobDetail; className?: 
             }
             action={
               result?.titleLink ? (
-                <Button asChild variant="outline">
+                <Button
+                  asChild
+                  variant="outline"
+                  className="h-auto min-h-9 max-w-full py-2 whitespace-normal"
+                >
                   <a href={result.titleLink} target="_blank" rel="noopener noreferrer">
                     {t("import.link")}
                     <ExternalLink aria-hidden="true" />
@@ -532,6 +550,8 @@ export function ImportSection({ job, className }: { job: JobDetail; className?: 
           </ul>
         </div>
       )}
+
+      {imp?.merge && finished && <MergeProgress merge={imp.merge} job={job} record />}
     </section>
   );
 }

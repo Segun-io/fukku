@@ -43,7 +43,7 @@ export function isCanonicalTag(tag: string): boolean {
  * empty and a field that was not touched is not sent.
  */
 export function MergeForm({ jobId, upload, preview, files }: Props) {
-  const { t, lang } = useT();
+  const { t, lang, formatNumber } = useT();
   const id = useId();
   const navigate = useNavigate();
   const confirm = useConfirmFlow2(jobId);
@@ -101,7 +101,7 @@ export function MergeForm({ jobId, upload, preview, files }: Props) {
   const changed = err instanceof ApiError && err.code === "library_changed";
 
   return (
-    <section aria-labelledby={`${id}-title`} className="grid gap-6">
+    <section aria-labelledby={`${id}-title`} className="grid gap-6 border-t pt-8">
       <div className="grid gap-2">
         <h3 id={`${id}-title`} ref={heading} tabIndex={-1}>
           {t("flow2.merge.title")}
@@ -217,12 +217,13 @@ export function MergeForm({ jobId, upload, preview, files }: Props) {
       )}
 
       <ConfirmStep
+        as="h4"
         title={t("flow2.merge.confirm.title")}
         facts={[
           { term: t("flow2.merge.fact.audio"), value: audioLine },
           {
             term: t("flow2.merge.fact.offset"),
-            value: t("import.merge.fact.offset.value", { offset: String(offset) }),
+            value: t("import.merge.fact.offset.value", { offset: formatNumber(offset) }),
             figure: true,
           },
           {

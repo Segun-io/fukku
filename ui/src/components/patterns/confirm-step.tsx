@@ -29,8 +29,16 @@ export type ConfirmStepProps = {
   onCancel?: () => void;
   /** True while the request runs: the button keeps its label and its width. */
   busy?: boolean;
+  /**
+   * The level of the question's heading. `h2` when the step is a part of the page by
+   * itself; `h3` or `h4` when it closes a part that has its own heading, so the outline
+   * stays in order. The look does not change. "Before you confirm" is one level below it.
+   */
+  as?: "h2" | "h3" | "h4";
   className?: string;
 };
+
+const below = { h2: "h3", h3: "h4", h4: "h5" } as const;
 
 /**
  * The confirmation step: the one careful decision of a flow. The facts come first, then
@@ -46,8 +54,10 @@ export function ConfirmStep({
   cancelLabel,
   onCancel,
   busy = false,
+  as: Title = "h2",
   className,
 }: ConfirmStepProps) {
+  const WarningsTitle = below[Title];
   const { t } = useT();
   const id = useId();
   const box = useRef<HTMLInputElement>(null);
@@ -74,7 +84,12 @@ export function ConfirmStep({
       onSubmit={submit}
       className={cn("grid gap-5", className)}
     >
-      <h2 id={`${id}-title`}>{title}</h2>
+      <Title
+        id={`${id}-title`}
+        className="font-display text-lg leading-[1.2] font-bold tracking-[-0.02em] text-balance"
+      >
+        {title}
+      </Title>
 
       <dl className="grid grid-cols-1 gap-x-6 gap-y-3 border-y py-4 sm:grid-cols-[auto_minmax(0,1fr)] sm:gap-y-2">
         {facts.map((fact) => (
@@ -94,10 +109,10 @@ export function ConfirmStep({
 
       {needsTick && (
         <div className="rounded-lg border border-caution-edge bg-caution p-4">
-          <h3 className="flex items-center gap-2">
+          <WarningsTitle className="flex items-center gap-2 font-display text-base leading-[1.3] font-bold tracking-[-0.01em]">
             <TriangleAlert aria-hidden="true" className="size-5 shrink-0 text-caution-foreground" />
             {t("patterns.confirm.warnings")}
-          </h3>
+          </WarningsTitle>
           <ul className="mt-2 grid list-disc gap-1.5 pl-5 marker:text-caution-foreground">
             {warnings.map((warning, index) => (
               // biome-ignore lint/suspicious/noArrayIndexKey: a fixed list for one render

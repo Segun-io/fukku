@@ -136,6 +136,9 @@ const es: Record<keyof typeof en, string> = {
   "patterns.demo.picker.compact": "Con archivos debajo",
   "patterns.demo.copy.title": "Campo para copiar",
   "patterns.demo.select.title": "Campo de selección",
+  "patterns.demo.choice.title": "Elección con consecuencias",
+  "patterns.demo.compare.title": "Dos cosas lado a lado",
+  "patterns.demo.nudge.title": "Campo con botones de paso",
   "patterns.demo.status.title": "Estado de una fila",
   "patterns.demo.flow.title": "Cabecera de un paso",
   "patterns.demo.shell.title": "Estados de la aplicación",
@@ -160,14 +163,14 @@ const es: Record<keyof typeof en, string> = {
   "admin.intro":
     "Cómo va el servidor y los ajustes con los que funciona. Aquí no se puede cambiar nada.",
   "admin.health.title": "Salud",
-  "admin.health.refresh": "Comprobar de nuevo",
-  "admin.health.checked": "Comprobado {date}",
+  "admin.health.refresh": "Revisar de nuevo",
+  "admin.health.checked": "Revisado {date}",
   "admin.health.version": "Fukku {version}",
   "admin.health.error.title": "No se pudo cargar el informe de salud",
   "admin.status.ready": "Todo funciona",
   "admin.status.degraded": "Funciona, pero una aplicación no responde",
   "admin.status.not_ready": "No está listo: algo falla en este servidor",
-  "admin.checks.title": "Comprobaciones",
+  "admin.checks.title": "Revisiones",
   "admin.check.ok": "Correcta",
   "admin.check.failing": "Falla",
   "admin.check.database": "Base de datos",
@@ -200,9 +203,9 @@ const es: Record<keyof typeof en, string> = {
   "admin.settings.title": "Ajustes",
   "admin.settings.intro":
     "Se leen del archivo de configuración y del entorno. Para cambiar uno, edita esos y reinicia. Los secretos nunca se muestran.",
-  "admin.settings.onlySet": "Solo los ajustes que no tienen el valor por defecto",
+  "admin.settings.onlySet": "Solo los ajustes que no tienen el valor predeterminado",
   "admin.settings.error.title": "No se pudieron cargar los ajustes",
-  "admin.settings.none": "Todos los ajustes tienen su valor por defecto.",
+  "admin.settings.none": "Todos los ajustes tienen su valor predeterminado.",
   "admin.setting.default": "Por defecto",
   "admin.setting.set": "Definido",
   "admin.setting.empty": "Vacío",
@@ -293,7 +296,7 @@ const es: Record<keyof typeof en, string> = {
   "job.probe.none": "Ninguno",
   "job.probe.noLanguage": "Idioma sin indicar",
   "job.probe.rate": "{rate} fps",
-  "job.probe.flag.default": "por defecto",
+  "job.probe.flag.default": "predeterminada",
   "job.probe.flag.forced": "forzados",
   "job.probe.flag.hearingImpaired": "para personas sordas",
   "job.skipped.title": "Lo que quedó fuera de {name}",
@@ -654,7 +657,7 @@ const es: Record<keyof typeof en, string> = {
   "confirm.warning.existing_file":
     "Un episodio de este archivo ya tiene un archivo en la biblioteca. Reemplazar archivos llegará en una versión posterior.",
   "confirm.warning.double_episode":
-    "Este archivo dura casi el doble que un episodio. Puede tener dos episodios: comprueba cuáles abarca.",
+    "Este archivo dura casi el doble que un episodio. Puede tener dos episodios: revisa cuáles abarca.",
   "confirm.warning.runtime_mismatch":
     "Este archivo es mucho más corto o más largo que el episodio al que se asignó. Puede ser el episodio equivocado u otro montaje.",
   "confirm.warning.duplicate_episode":
@@ -662,12 +665,12 @@ const es: Record<keyof typeof en, string> = {
   "confirm.warning.duplicate_film":
     "Hay más de un archivo para importar de esta película, y una película tiene un solo archivo. Deja fuera los demás.",
   "confirm.warning.language":
-    "Los idiomas de este archivo pueden no ser los que quieres para este título, por ejemplo un doblaje cuando se quiere el original. Compruébalos antes de importar.",
+    "Los idiomas de este archivo pueden no ser los que quieres para este título, por ejemplo un doblaje cuando se quiere el original. Revísalos antes de importar.",
   "confirm.warning.language.facts":
     "Formatos personalizados: {formats}. Puntuación {score}; el perfil pide al menos {min}.",
   "confirm.warning.unknown": "La aplicación o Fukku notó algo en este archivo (código: {code}).",
   "confirm.hint.dvd_order":
-    "La mayoría de los episodios están lejos de la duración esperada. Puede que los archivos sigan el orden del DVD y no el de emisión: comprueba los números de episodio.",
+    "La mayoría de los episodios están lejos de la duración esperada. Puede que los archivos sigan el orden del DVD y no el de emisión: revisa los números de episodio.",
   "confirm.hint.unknown": "Una nota del servidor (código: {code}).",
   "confirm.subtitles.title": "Archivos de subtítulos",
   "confirm.subtitles.intro":
@@ -718,11 +721,11 @@ const es: Record<keyof typeof en, string> = {
   "import.done.failedSteps": "Uno de los pasos siguientes falló: mira abajo.",
   "import.link": "Abrir el título en el servidor multimedia",
   "import.link.none": "No hay enlace al servidor multimedia para este título.",
-  "import.unmonitored.title": "Este título no está monitorizado",
+  "import.unmonitored.title": "Este título no está monitoreado",
   "import.unmonitored.chosen":
     "Elegiste no reemplazar este archivo cuando aparezca una copia mejor, así que las mejoras automáticas no lo reemplazarán. El botón de búsqueda del propio título en {app} sí puede hacerlo.",
   "import.unmonitored.body":
-    "Solo se importó un doblaje, así que el título ya no está monitorizado: las mejoras automáticas no reemplazarán este archivo. El botón de búsqueda del propio título en {app} sí puede hacerlo, así que no lo uses si quieres conservar este.",
+    "Solo se importó un doblaje, así que el título ya no está monitoreado: las mejoras automáticas no reemplazarán este archivo. El botón de búsqueda del propio título en {app} sí puede hacerlo, así que no lo uses si quieres conservar este.",
 
   // ---- Flow 2: otro idioma de una película que ya está en la biblioteca (#59) ----
   "match.exists.action": "Añadir otro idioma",
@@ -746,7 +749,7 @@ const es: Record<keyof typeof en, string> = {
   "flow2.notFlow2.body":
     "No hay nada que comparar. Revisa los archivos e impórtalos como una película nueva.",
   "flow2.pending": "Se está leyendo el archivo de Radarr. Tarda un momento.",
-  "flow2.noUpload.title": "No hay ningún vídeo que comparar",
+  "flow2.noUpload.title": "No hay ningún vídeo para comparar",
   "flow2.noUpload.body":
     "No se pudo leer ningún vídeo de este envío. Vuelve y revisa sus archivos.",
   "flow2.changed.action": "Elegir la película otra vez",
@@ -761,7 +764,7 @@ const es: Record<keyof typeof en, string> = {
   "flow2.audio": "Audio",
   "flow2.subtitles": "Subtítulos",
   "flow2.unknown": "No se sabe",
-  "flow2.seconds": "{value} s",
+  "flow2.seconds": "{value}\u00a0s",
   "flow2.finding.match.title": "El mismo montaje",
   "flow2.finding.match.body":
     "Los dos archivos duran lo mismo, con una diferencia de {delta}. El audio de tu envío se puede añadir al archivo de la biblioteca.",
@@ -790,19 +793,26 @@ const es: Record<keyof typeof en, string> = {
   "flow2.nothing.title": "Aquí no se puede hacer nada con este envío",
   "flow2.nothing.body":
     "Pide a quien administra Fukku que lo cambie, o importa los archivos a mano. No se cambió nada.",
-  "flow2.sync.title": "Comprueba que el audio está sincronizado",
+  "flow2.sync.title": "Revisa que el audio esté sincronizado",
   "flow2.sync.intro":
-    "Que duren lo mismo no demuestra que el audio encaje. Fukku hace clips cortos con la imagen de la película y el audio nuevo, del principio, de la mitad y del final. Mira y escucha cada uno.",
-  "flow2.sync.audio": "Pista de audio que añadir",
+    "Que duren lo mismo no demuestra que el audio encaje. Fukku hace tres clips cortos con la imagen de la película y el audio nuevo: del principio, de la mitad y del final. En cada uno, fíjate en un momento en que se vea producirse un sonido, como alguien que habla o una puerta que se cierra.",
+  "flow2.sync.audio": "Pista de audio que se añade",
   "flow2.sync.track": "{track} ({detail})",
   "flow2.sync.offset": "Desfase en milisegundos",
   "flow2.sync.offset.hint":
-    "Un número negativo adelanta el audio nuevo y uno positivo lo retrasa. Si llega 0,8 segundos tarde, escribe −800. De −60000 a 60000.",
+    "Déjalo en 0 para los primeros clips. También puedes escribir un número: uno negativo adelanta el audio nuevo y uno positivo lo retrasa. De −60000 a 60000.",
+  "flow2.sync.offset.unit": "ms",
+  "flow2.sync.offset.late": "El sonido llega después de la imagen",
+  "flow2.sync.offset.early": "El sonido llega antes que la imagen",
+  "flow2.sync.offset.earlier": "{ms} ms antes",
+  "flow2.sync.offset.later": "{ms} ms después",
+  "flow2.sync.offset.say.none": "El audio nuevo no se mueve.",
+  "flow2.sync.offset.say.later": "El audio nuevo empieza {seconds} después.",
+  "flow2.sync.offset.say.earlier": "El audio nuevo empieza {seconds} antes.",
   "flow2.sync.offset.invalid": "Escribe un número entero de −60000 a 60000.",
   "flow2.sync.make": "Hacer los clips",
   "flow2.sync.again": "Hacer los clips otra vez",
-  "flow2.sync.pending":
-    "Se están haciendo los clips. Tarda un momento y la página se actualiza sola.",
+  "flow2.sync.pending": "Haciendo los clips… Tarda un momento, y la página se actualiza sola.",
   "flow2.sync.failed.title": "No se pudieron hacer los clips",
   "flow2.sync.error.outside_library":
     "El archivo de la biblioteca está fuera de las carpetas que Fukku puede leer.",
@@ -814,25 +824,28 @@ const es: Record<keyof typeof en, string> = {
   "flow2.sync.error.task_failed": "El proceso de trabajo no pudo hacer los clips.",
   "flow2.sync.error.task_timeout": "El proceso de trabajo tardó demasiado en hacer los clips.",
   "flow2.sync.error.unknown": "No se pudieron hacer los clips (código: {code}).",
-  "flow2.sync.ready": "Hechos con {track} y un desfase de {offset} ms.",
+  "flow2.sync.ready": "Hechos con {track} y un desfase de {offset}\u00a0ms.",
   "flow2.sync.clips": "Clips",
   "flow2.sync.clip": "Clip {n} de {total}, desde {at}",
   "flow2.sync.clip.fallback": "Tu navegador no puede reproducir este clip.",
   "flow2.sync.stale":
-    "La pista o el desfase cambiaron después de hacer estos clips. Hazlos otra vez para comprobarlo.",
+    "La pista o el desfase cambiaron después de hacer estos clips. Hazlos otra vez para revisarlo.",
   "flow2.sync.match": "Coinciden, continuar",
   "flow2.sync.nomatch":
-    "Si no coinciden, cambia el desfase y haz los clips otra vez. Un doblaje que se va desfasando no se arregla con un desfase fijo: consérvalo como segunda versión.",
-  "flow2.sync.confirmed": "Comprobado con un desfase de {offset} ms.",
+    "Si el sonido va adelantado o atrasado lo mismo en todos los clips, cambia el desfase de arriba y haz los clips otra vez.",
+  "flow2.sync.drift":
+    "Si coincide al principio y no al final, los dos archivos van a velocidades distintas. Un desfase no lo arregla: conserva el envío como segunda versión.",
+  "flow2.sync.question": "¿El sonido y la imagen coinciden en todos los clips?",
+  "flow2.sync.confirmed": "Revisado con un desfase de {offset}\u00a0ms.",
   "flow2.refusal.title": "La última fusión fue rechazada",
   "flow2.refusal.choice":
-    "Usó {track} con un desfase de {offset} ms. No se cambió nada en la biblioteca.",
+    "Usó {track} con un desfase de {offset}\u00a0ms. No se cambió nada en la biblioteca.",
   "flow2.refusal.hint":
-    "Elige otro desfase u otra pista de audio, haz los clips otra vez, compruébalos y confirma la fusión de nuevo.",
+    "Elige otro desfase u otra pista de audio, haz los clips otra vez, revísalos y confirma la fusión de nuevo.",
   "flow2.merge.title": "Fusionar en el archivo de la biblioteca",
   "flow2.merge.intro":
     "Elige qué se añade. Todo lo que sigue es opcional: lo que dejes vacío usa los ajustes del servidor.",
-  "flow2.merge.subtitles": "Subtítulos que añadir",
+  "flow2.merge.subtitles": "Subtítulos que se añaden",
   "flow2.merge.subtitles.hint": "Reciben el mismo desfase que el audio.",
   "flow2.merge.subtitles.none": "El envío no trae subtítulos dentro.",
   "flow2.merge.tag": "Etiqueta de idioma",
@@ -841,7 +854,7 @@ const es: Record<keyof typeof en, string> = {
     "Esa no es una etiqueta de idioma válida. Usa letras y guiones, como es-419 o en-US, con el idioma en minúsculas.",
   "flow2.merge.name": "Nombre de la pista",
   "flow2.merge.name.hint": "Cómo se llama la pista en los reproductores. Vacío: el del servidor.",
-  "flow2.merge.keepDefault": "Mantener el audio original como pista por defecto",
+  "flow2.merge.keepDefault": "Mantener el audio original como pista predeterminada",
   "flow2.merge.confirm.title": "¿Fusionar el audio en el archivo de la biblioteca?",
   "flow2.merge.fact.audio": "Audio que se añade",
   "flow2.merge.fact.offset": "Desfase",
@@ -855,7 +868,7 @@ const es: Record<keyof typeof en, string> = {
     "Radarr lo reemplaza por el archivo fusionado, que conserva todas sus pistas y tiene también las nuevas.",
   "flow2.merge.fact.title": "La película",
   "flow2.merge.fact.title.value":
-    "Después queda sin monitorizar, salvo que el servidor esté configurado de otro modo, para que las mejoras automáticas no reemplacen el archivo fusionado.",
+    "Después queda sin monitorear, salvo que el servidor esté configurado de otro modo, para que las mejoras automáticas no reemplacen el archivo fusionado.",
   "flow2.merge.warning.replace":
     "El archivo anterior se elimina de la biblioteca. Si Radarr no tiene papelera de reciclaje, no se puede recuperar.",
   "flow2.merge.warning.search":
@@ -881,7 +894,7 @@ const es: Record<keyof typeof en, string> = {
   "flow2.version.problem.label_quality":
     "Radarr lee «{token}» en el nombre como una calidad. Quítala, o Radarr podría tomar el archivo por una copia mejor.",
   "flow2.version.problem.label_unchecked":
-    "Radarr no pudo leer el nombre, así que no se pudo comprobar la etiqueta. Prueba con una más sencilla.",
+    "Radarr no pudo leer el nombre, así que no se pudo revisar la etiqueta. Prueba con una más sencilla.",
   "flow2.version.problem.unknown": "La etiqueta tiene un problema (código: {code}).",
   "flow2.version.problem.admin":
     "Administras este servidor: las palabras que no se admiten en las etiquetas son el ajuste versions.forbiddenLabelTokens, y la etiqueta propuesta sale de versions.labelTemplate.",
@@ -908,9 +921,9 @@ const es: Record<keyof typeof en, string> = {
   "errors.not_flow2": "Este envío no es otro idioma de una película que esté en la biblioteca.",
   "errors.merge_not_offered":
     "Este envío no se puede fusionar en el archivo de la biblioteca. La comparación explica por qué.",
-  "errors.no_audio": "El envío no tiene ninguna pista de audio que añadir.",
+  "errors.no_audio": "El envío no tiene ninguna pista de audio para añadir.",
   "errors.preview_required":
-    "Los clips de sincronización están desactualizados. Hazlos otra vez con el desfase que quieras, compruébalos y luego fusiona.",
+    "Los clips de sincronización están desactualizados. Hazlos otra vez con el desfase que quieras, revísalos y luego fusiona.",
   "errors.library_changed":
     "El archivo de la película en Radarr cambió desde que la elegiste. Elige la película otra vez para que Fukku compare el archivo nuevo.",
   "errors.version_label": "Esa etiqueta no se puede usar. Cámbiala e inténtalo de nuevo.",
@@ -941,10 +954,10 @@ const es: Record<keyof typeof en, string> = {
   "import.merge.refusal.upload_unreadable": "No se pudo leer el archivo subido.",
   "import.merge.refusal.track_not_found": "Una pista elegida no está en el envío.",
   "import.merge.refusal.free_space": "No había espacio libre suficiente para el archivo fusionado.",
-  "import.merge.refusal.mux_failed": "La herramienta que une las pistas avisó de un problema.",
+  "import.merge.refusal.mux_failed": "La herramienta que une las pistas informó de un problema.",
   "import.merge.refusal.library_changed": "El archivo de la biblioteca cambió mientras se leía.",
   "import.merge.refusal.verify_failed":
-    "El archivo fusionado no pasó las comprobaciones (la imagen, la duración o las pistas no eran las esperadas).",
+    "El archivo fusionado no pasó las revisiones (la imagen, la duración o las pistas no eran las esperadas).",
   "import.merge.refusal.busy": "Otra fusión estaba usando el mismo lugar. Inténtalo de nuevo.",
   "import.merge.refusal.unknown": "Se rechazó la fusión (código: {code}).",
   "import.merge.fact.audio": "Pistas de audio",
@@ -952,23 +965,23 @@ const es: Record<keyof typeof en, string> = {
   "import.merge.fact.offset": "Desfase",
   "import.merge.fact.tag": "Etiqueta de idioma",
   "import.merge.fact.name": "Nombre de la pista",
-  "import.merge.fact.original": "El audio original sigue como pista por defecto",
+  "import.merge.fact.original": "El audio original sigue como pista predeterminada",
   "import.merge.fact.yes": "Sí",
   "import.merge.fact.no": "No",
-  "import.merge.fact.offset.value": "{offset} ms",
+  "import.merge.fact.offset.value": "{offset}\u00a0ms",
   "import.merge.done.title": "El archivo fusionado está en la biblioteca",
   "import.merge.done.body": "{app} reemplazó su archivo por {name}.",
-  "import.merge.warning.search_can_replace.title": "Esta película no está monitorizada",
+  "import.merge.warning.search_can_replace.title": "Esta película no está monitoreada",
   "import.merge.warning.search_can_replace":
     "Las mejoras automáticas y las búsquedas de Wanted no tocan el archivo fusionado. Pero el botón de búsqueda de la propia película en {app} aún puede reemplazarlo por una versión sin el audio nuevo, así que no lo uses si quieres conservar este.",
-  "import.merge.warning.upgrade_can_replace.title": "Esta película sigue monitorizada",
+  "import.merge.warning.upgrade_can_replace.title": "Esta película sigue monitoreada",
   "import.merge.warning.upgrade_can_replace":
-    "Una versión mejor sin el audio nuevo puede reemplazar el archivo fusionado. Para evitarlo, deja de monitorizar la película en {app}.",
+    "Una versión mejor sin el audio nuevo puede reemplazar el archivo fusionado. Para evitarlo, deja de monitorear la película en {app}.",
   "import.merge.warning.unknown.title": "El archivo fusionado aún puede reemplazarse",
   "import.merge.warning.unknown":
     "Algo en {app} aún puede reemplazar el archivo fusionado (código: {code}).",
   "import.unmonitored.merged":
-    "Una fusión reemplazó el archivo, así que la película ya no está monitorizada: las mejoras automáticas no lo reemplazarán. El botón de búsqueda de la propia película en {app} sí puede hacerlo, así que no lo uses si quieres conservar este.",
+    "Una fusión reemplazó el archivo, así que la película ya no está monitoreada: las mejoras automáticas no lo reemplazarán. El botón de búsqueda de la propia película en {app} sí puede hacerlo, así que no lo uses si quieres conservar este.",
   "import.version.running":
     "Fukku está guardando la versión junto a la película. Esta página se actualiza sola.",
   "import.version.done.title": "La segunda versión de {title} está guardada",
@@ -1002,7 +1015,7 @@ const es: Record<keyof typeof en, string> = {
   "confirm.dub.legend": "¿Qué debe pasar con ellos?",
   "confirm.dub.replace": "Reemplazar los archivos",
   "confirm.dub.replace.body":
-    "Tus archivos se importan sobre los de la biblioteca, y la temporada queda sin monitorizar para que las mejoras automáticas no los reemplacen. El botón de búsqueda de un episodio en {app} sí puede hacerlo.",
+    "Tus archivos se importan sobre los de la biblioteca, y la temporada queda sin monitorear para que las mejoras automáticas no los reemplacen. El botón de búsqueda de un episodio en {app} sí puede hacerlo.",
   "confirm.dub.subtitlesOnly": "Añadir solo los subtítulos",
   "confirm.dub.subtitlesOnly.body":
     "No se importa nada. Los subtítulos de tu envío van al gestor de subtítulos para los episodios que ya tienen un archivo.",
@@ -1037,7 +1050,7 @@ const es: Record<keyof typeof en, string> = {
   "flow2.version.problem.label_episode":
     "La etiqueta no puede contener un número de temporada o de episodio (como S02E05, 2x05 o E03): el servidor multimedia leería el archivo como otro episodio.",
   "flow2.version.notice.untracked_by_sonarr":
-    "Sonarr no hace seguimiento de los segundos archivos. Nunca los renombra ni los mejora, la mejora de un episodio sustituye solo su propio archivo, y borrar la serie con sus archivos borra también las versiones.",
+    "Sonarr no hace seguimiento de los segundos archivos. Nunca los renombra ni los mejora, la mejora de un episodio reemplaza solo su propio archivo, y borrar la serie con sus archivos borra también las versiones.",
   "flow2.version.notice.adopted_without_episode_file":
     "Si se borra el archivo propio de un episodio, Sonarr toma el segundo archivo como el del episodio en su próximo escaneo.",
   "confirm.version.title": "Segundas versiones",
@@ -1129,7 +1142,7 @@ const es: Record<keyof typeof en, string> = {
   "import.episodeVersion.refusal.version_unchecked":
     "Sonarr no dio un veredicto sobre este archivo, así que no se guardó.",
   "import.episodeVersion.refusal.version_exists":
-    "Ya existe un archivo con este nombre, así que no se sustituyó nada.",
+    "Ya existe un archivo con este nombre, así que no se reemplazó nada.",
   "import.episodeVersion.refusal.version_failed":
     "No se pudo guardar. Avisa a quien administra el servidor.",
   "import.episodeVersion.refusal.unknown": "No se guardó (código: {code}).",
