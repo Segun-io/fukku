@@ -395,3 +395,6 @@ outside the film folder, and episodes naming. A configuration that still sets it
 | `worker.nice` | `FUKKU_WORKER_NICE` | `10` | CPU priority of the tools the worker runs (0–19) |
 | `worker.heartbeatInterval` | `FUKKU_WORKER_HEARTBEAT_INTERVAL` | `15s` | How often the worker writes its heartbeat |
 | `worker.heartbeatMaxAge` | `FUKKU_WORKER_HEARTBEAT_MAX_AGE` | `2m` | An older heartbeat makes `/readyz` fail |
+| `worker.maxTrackTitleBytes` | `FUKKU_WORKER_MAX_TRACK_TITLE_BYTES` | `256` | Longest track title a probe keeps, in bytes; a longer one is cut (1-65536). Keeps a probe result small enough to read, whatever a file holds |
+| `worker.maxTrackTagBytes` | `FUKKU_WORKER_MAX_TRACK_TAG_BYTES` | `64` | Longest track language, codec or container name a probe keeps, in bytes; a longer one is cut (1-65536) |
+| `worker.maxStreamsPerFile` | `FUKKU_WORKER_MAX_STREAMS_PER_FILE` | `32` | Streams a probe keeps of one file; later ones are ignored (1-65536) |

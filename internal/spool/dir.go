@@ -36,6 +36,7 @@ const (
 	CodeBadTask     = "bad_task"     // the task cannot be run as written (e.g. a malformed job id)
 	CodeUnknownKind = "unknown_kind" // the worker has no handler for the kind
 	CodeInternal    = "internal"     // the handler failed or panicked
+	CodeBadResult   = "bad_result"   // Result found a result file it cannot read (too large, not JSON, not a file); the web side makes it, never the worker
 )
 
 // maxFileSize caps what is read from one spool file, so a broken or hostile peer cannot
@@ -190,20 +191,38 @@ func (d *Dir) Result(ctx context.Context, id string) (Result, bool, error) {
 	if errors.Is(err, fs.ErrNotExist) {
 		return Result{}, false, nil
 	}
+	if err != nil && !errors.Is(err, ErrUnreadable) {
+		// A link or another odd entry that cannot be opened is as unusable as a large file.
+		if fi, lerr := d.root.Lstat(name); lerr == nil && !fi.Mode().IsRegular() {
+			err = fmt.Errorf("spool: %s is not a regular file (%s): %w", name, fi.Mode().Type(), ErrUnreadable)
+		}
+	}
+	if errors.Is(err, ErrUnreadable) {
+		return badResult(id, err), true, nil
+	}
 	if err != nil {
 		return Result{}, false, err
 	}
 	var r Result
 	if err := json.Unmarshal(data, &r); err != nil {
-		return Result{}, false, fmt.Errorf("spool: %s: %w", name, err)
+		return badResult(id, fmt.Errorf("spool: %s: %w", name, err)), true, nil
 	}
 	if r.V != Version {
-		return Result{}, false, fmt.Errorf("spool: %s has version %d, this binary reads %d", name, r.V, Version)
+		return badResult(id, fmt.Errorf("spool: %s has version %d, this binary reads %d", name, r.V, Version)), true, nil
 	}
 	if r.ID != id {
-		return Result{}, false, fmt.Errorf("spool: %s is for task %q", name, r.ID)
+		return badResult(id, fmt.Errorf("spool: %s is for task %q", name, r.ID)), true, nil
 	}
 	return r, true, nil
+}
+
+// badResult stands for a result file that cannot be read. It is a failed result, so that
+// the caller fails the task once and acknowledges it (Ack removes the file without reading
+// it); an error returned on every pass would leave the job unable to finish, cancel or
+// expire.
+func badResult(id string, cause error) Result {
+	return Result{V: Version, ID: id, Status: StatusError,
+		Error: &Error{Code: CodeBadResult, Message: cause.Error()}}
 }
 
 // Ack removes a finished task: running/<id>.json if a crash left it behind, cancel/<id>,
@@ -467,6 +486,10 @@ func (d *Dir) exists(name string) (bool, error) {
 	return true, nil
 }
 
+// ErrUnreadable wraps what ReadRegular reports of a file that is there but cannot be used:
+// larger than the limit, or not a regular file.
+var ErrUnreadable = errors.New("unreadable spool file")
+
 func (d *Dir) read(name string) ([]byte, error) { return ReadRegular(d.root, name, maxFileSize) }
 
 // ReadRegular reads name inside root, which must be a regular file of at most limit bytes.
@@ -484,14 +507,14 @@ func ReadRegular(root *os.Root, name string, limit int64) ([]byte, error) {
 		return nil, fmt.Errorf("spool: %s: %w", name, err)
 	}
 	if !info.Mode().IsRegular() {
-		return nil, fmt.Errorf("spool: %s is not a regular file (%s)", name, info.Mode().Type())
+		return nil, fmt.Errorf("spool: %s is not a regular file (%s): %w", name, info.Mode().Type(), ErrUnreadable)
 	}
 	data, err := io.ReadAll(io.LimitReader(f, limit+1))
 	if err != nil {
 		return nil, fmt.Errorf("spool: %s: %w", name, err)
 	}
 	if int64(len(data)) > limit {
-		return nil, fmt.Errorf("spool: %s is larger than %d bytes", name, limit)
+		return nil, fmt.Errorf("spool: %s is larger than %d bytes: %w", name, limit, ErrUnreadable)
 	}
 	return data, nil
 }

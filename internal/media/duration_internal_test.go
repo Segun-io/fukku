@@ -1,6 +1,11 @@
 package media
 
-import "testing"
+import (
+	"encoding/json"
+	"strings"
+	"testing"
+	"unicode/utf8"
+)
 
 func TestStreamDuration(t *testing.T) {
 	for _, tc := range []struct {
@@ -43,10 +48,56 @@ func TestHugeDurationsAreCapped(t *testing.T) {
 	}
 	raw := rawProbe{}
 	raw.Format.Duration = "1e300"
-	if m := raw.toProbe(1); m.DurationMs != maxDurationMs {
+	if m := raw.toProbe(1, Options{}.limits()); m.DurationMs != maxDurationMs {
 		t.Errorf("format duration %d", m.DurationMs)
 	}
 	if got := secondsMs("20.020000"); got != 20020 {
 		t.Errorf("ordinary duration %d", got)
+	}
+}
+
+// What a probe keeps of a file is bounded, whatever the file holds: five files with
+// multi-megabyte titles must not add up to a result the spool cannot read.
+func TestProbeKeepsBoundedStrings(t *testing.T) {
+	type stream = struct {
+		Index        int               `json:"index"`
+		CodecType    string            `json:"codec_type"`
+		CodecName    string            `json:"codec_name"`
+		Width        int               `json:"width"`
+		Height       int               `json:"height"`
+		Channels     int               `json:"channels"`
+		AvgFrameRate string            `json:"avg_frame_rate"`
+		RFrameRate   string            `json:"r_frame_rate"`
+		Duration     string            `json:"duration"`
+		Tags         map[string]string `json:"tags"`
+		Disposition  map[string]int    `json:"disposition"`
+	}
+	huge := strings.Repeat("é", 2<<20) // 4 MiB of two-byte characters
+	raw := rawProbe{}
+	raw.Format.FormatName = huge
+	for i := range 1000 {
+		raw.Streams = append(raw.Streams, stream{Index: i, CodecType: "audio", CodecName: huge,
+			Tags: map[string]string{"title": huge, "language": huge}})
+	}
+	m := raw.toProbe(1, Options{}.limits())
+	if len(m.Audio) != defaultMaxStreamsPerFile {
+		t.Errorf("%d audio tracks kept, want %d", len(m.Audio), defaultMaxStreamsPerFile)
+	}
+	a := m.Audio[0]
+	if len(a.Title) != defaultMaxTitleBytes || len(a.Language) != defaultMaxTagBytes || len(a.Codec) != defaultMaxTagBytes ||
+		len(m.Container) != defaultMaxTagBytes {
+		t.Errorf("title %d, language %d, codec %d, container %d bytes", len(a.Title), len(a.Language), len(a.Codec), len(m.Container))
+	}
+	if !utf8.ValidString(a.Title) {
+		t.Errorf("title cut inside a character")
+	}
+	data, err := json.Marshal(m)
+	if err != nil || len(data) > 64<<10 {
+		t.Errorf("a probe of a hostile file is %d bytes (%v)", len(data), err)
+	}
+	// The settings change the bounds.
+	m = raw.toProbe(1, Options{MaxTitleBytes: 10, MaxTagBytes: 5, MaxStreamsPerFile: 2}.limits())
+	if len(m.Audio) != 2 || len(m.Audio[0].Title) != 10 || len(m.Audio[0].Language) != 4 { // 5 bytes cut to a boundary
+		t.Errorf("custom bounds: %d tracks, title %d, language %d", len(m.Audio), len(m.Audio[0].Title), len(m.Audio[0].Language))
 	}
 }

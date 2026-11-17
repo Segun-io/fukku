@@ -142,6 +142,10 @@ func Defaults() Config {
 			Nice:              10,
 			HeartbeatInterval: Duration(15 * time.Second),
 			HeartbeatMaxAge:   Duration(2 * time.Minute),
+
+			MaxTrackTitleBytes: 256,
+			MaxTrackTagBytes:   64,
+			MaxStreamsPerFile:  32,
 		},
 	}
 }

@@ -300,9 +300,7 @@ func TestResultChecks(t *testing.T) {
 			t.Fatal(err)
 		}
 		id := strings.TrimSuffix(name, ".json")
-		if _, ok, err := d.Result(ctx, id); ok || err == nil {
-			t.Errorf("%s: ok %v, err %v", id, ok, err)
-		}
+		assertBadResult(t, d, id)
 	}
 	// A link out of the spool is not followed.
 	outside := filepath.Join(t.TempDir(), "secret.json")
@@ -312,16 +310,31 @@ func TestResultChecks(t *testing.T) {
 	if err := os.Symlink(outside, filepath.Join(results, "link.json")); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok, err := d.Result(ctx, "link"); ok || err == nil {
-		t.Errorf("link: ok %v, err %v", ok, err)
-	}
+	assertBadResult(t, d, "link")
 	// An oversized file is refused.
 	big := `{"v":1,"id":"big","status":"ok","output":"` + strings.Repeat("x", 17<<20) + `"}`
 	if err := os.WriteFile(filepath.Join(results, "big.json"), []byte(big), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok, err := d.Result(ctx, "big"); ok || err == nil {
-		t.Errorf("big: ok %v, err %v", ok, err)
+	assertBadResult(t, d, "big")
+	// Each is removed by Ack, once, whatever it holds.
+	for _, id := range []string{"corrupt", "newer", "other", "link", "big"} {
+		if err := d.Ack(ctx, id); err != nil {
+			t.Fatalf("Ack(%s): %v", id, err)
+		}
+		if _, ok, err := d.Result(ctx, id); ok || err != nil {
+			t.Errorf("%s after Ack: ok %v, err %v", id, ok, err)
+		}
+	}
+}
+
+// assertBadResult checks that a result file that cannot be used comes back as a failed
+// result, never as an error that repeats on every pass.
+func assertBadResult(t *testing.T, d *spool.Dir, id string) {
+	t.Helper()
+	r, ok, err := d.Result(context.Background(), id)
+	if err != nil || !ok || r.ID != id || r.Status != spool.StatusError || r.Error == nil || r.Error.Code != spool.CodeBadResult {
+		t.Errorf("%s: %+v, ok %v, err %v", id, r, ok, err)
 	}
 }
 

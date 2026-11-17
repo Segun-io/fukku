@@ -3,6 +3,7 @@ package runner
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -745,4 +746,50 @@ func TestDiscard(t *testing.T) {
 		}
 	}
 	wantClean(t, e, j.ID)
+}
+
+// A result file that cannot be read (here: larger than the spool reads) fails its job once
+// and is removed, and a job in that state can still be cancelled.
+func TestUnreadableResult(t *testing.T) {
+	for _, cancel := range []bool{false, true} {
+		t.Run(fmt.Sprintf("cancel=%v", cancel), func(t *testing.T) {
+			e := newEnv(t)
+			dir, err := spool.Open(e.cfg.Worker.SpoolDir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = dir.Close() })
+			e.rq = dir
+			e.restart()
+			j := e.newJob(video("a.mkv"))
+			e.r.pass(e.ctx) // probing
+			e.r.pass(e.ctx) // submits the probe
+			id := probeID(e.job(j.ID), 1)
+			big := `{"v":1,"id":"` + id + `","status":"ok","output":"` + strings.Repeat("x", 17<<20) + `"}`
+			path := filepath.Join(e.cfg.Worker.SpoolDir, "results", id+".json")
+			if err := os.WriteFile(path, []byte(big), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			want := store.Failed
+			if cancel {
+				want = store.Cancelled
+				if _, err := e.st.Transition(e.ctx, j.ID, store.Probing, store.Cancelled, store.Change{Actor: "user1"}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			j = e.run(j.ID, want)
+			if !cancel {
+				wantState(t, j, store.Failed, CodeTaskFailed)
+				if !strings.Contains(j.ErrorText, spool.CodeBadResult) {
+					t.Errorf("error text %q", j.ErrorText)
+				}
+			}
+			if _, err := os.Stat(path); !os.IsNotExist(err) {
+				t.Errorf("the result file is still there: %v", err)
+			}
+			if e.logs.count("level=ERROR") != 0 {
+				t.Errorf("errors logged:\n%s", e.logs)
+			}
+		})
+	}
 }

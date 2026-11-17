@@ -15,6 +15,7 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	"unicode/utf8"
 
 	"github.com/segun-io/fukku/internal/config"
 )
@@ -55,6 +56,46 @@ type Options struct {
 	// LibraryFormats are the demuxers library probes may use (worker.libraryFormats); empty
 	// means the upload whitelist.
 	LibraryFormats []string
+	// Bounds of what a probe keeps of a file, so a hostile file cannot make a result too
+	// large to read. Zero means the built-in default.
+	MaxTitleBytes     int // worker.maxTrackTitleBytes
+	MaxTagBytes       int // worker.maxTrackTagBytes
+	MaxStreamsPerFile int // worker.maxStreamsPerFile
+}
+
+// Defaults of the bounds above (the same as the settings').
+const (
+	defaultMaxTitleBytes     = 256
+	defaultMaxTagBytes       = 64
+	defaultMaxStreamsPerFile = 32
+)
+
+// limits are the bounds applied to one probed file.
+type limits struct{ title, tag, streams int }
+
+func (o Options) limits() limits {
+	l := limits{o.MaxTitleBytes, o.MaxTagBytes, o.MaxStreamsPerFile}
+	if l.title <= 0 {
+		l.title = defaultMaxTitleBytes
+	}
+	if l.tag <= 0 {
+		l.tag = defaultMaxTagBytes
+	}
+	if l.streams <= 0 {
+		l.streams = defaultMaxStreamsPerFile
+	}
+	return l
+}
+
+// clip cuts s to at most n bytes, on a character boundary.
+func clip(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
+	}
+	return s[:n]
 }
 
 // OptionsFrom takes the probe options from the configuration.
@@ -65,6 +106,10 @@ func OptionsFrom(cfg config.Config) Options {
 		VideoExt:       cfg.Upload.VideoExtensions,
 		SubtitleExt:    cfg.Upload.SubtitleExtensions,
 		LibraryFormats: cfg.Worker.LibraryFormats,
+
+		MaxTitleBytes:     cfg.Worker.MaxTrackTitleBytes,
+		MaxTagBytes:       cfg.Worker.MaxTrackTagBytes,
+		MaxStreamsPerFile: cfg.Worker.MaxStreamsPerFile,
 	}
 }
 
@@ -198,7 +243,7 @@ func probeOpen(ctx context.Context, f *os.File, size int64, pf *ProbedFile, opt 
 		pf.Refusal = RefusalNoVideoStream
 		return nil
 	}
-	m := raw.toProbe(size)
+	m := raw.toProbe(size, opt.limits())
 	switch {
 	case len(m.Video) == 0:
 		pf.Refusal = RefusalNoVideoStream
@@ -293,9 +338,9 @@ type rawProbe struct {
 	} `json:"streams"`
 }
 
-func (r rawProbe) toProbe(size int64) Probe {
+func (r rawProbe) toProbe(size int64, lim limits) Probe {
 	m := Probe{
-		Container: r.Format.FormatName,
+		Container: clip(r.Format.FormatName, lim.tag),
 		Size:      size,
 		Video:     []VideoTrack{},
 		Audio:     []AudioTrack{},
@@ -305,8 +350,13 @@ func (r rawProbe) toProbe(size int64) Probe {
 		m.DurationMs = capMs(d * 1000)
 	}
 	m.BitRate, _ = strconv.ParseInt(r.Format.BitRate, 10, 64)
-	for _, s := range r.Streams {
-		lang, title := s.Tags["language"], s.Tags["title"]
+	streams := r.Streams
+	if len(streams) > lim.streams {
+		streams = streams[:lim.streams] // the rest is dropped, not reported
+	}
+	for _, s := range streams {
+		lang, title := clip(s.Tags["language"], lim.tag), clip(s.Tags["title"], lim.title)
+		s.CodecName = clip(s.CodecName, lim.tag)
 		def := s.Disposition["default"] == 1
 		switch s.CodecType {
 		case "video":

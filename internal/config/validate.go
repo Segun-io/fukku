@@ -283,6 +283,15 @@ func validateShared(p *problems, cfg Config) {
 	if w.HeartbeatMaxAge <= w.HeartbeatInterval {
 		p.add("worker.heartbeatMaxAge", "must be longer than worker.heartbeatInterval")
 	}
+	for _, c := range []struct {
+		key string
+		v   int
+	}{{"worker.maxTrackTitleBytes", w.MaxTrackTitleBytes}, {"worker.maxTrackTagBytes", w.MaxTrackTagBytes},
+		{"worker.maxStreamsPerFile", w.MaxStreamsPerFile}} {
+		if c.v < 1 || c.v > 65536 {
+			p.add(c.key, "must be between 1 and 65536")
+		}
+	}
 	validateMergeTrack(p, cfg.Merge)
 }
 

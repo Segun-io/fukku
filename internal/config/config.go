@@ -218,4 +218,8 @@ type Worker struct {
 	Nice              int      `yaml:"nice"`
 	HeartbeatInterval Duration `yaml:"heartbeatInterval"`
 	HeartbeatMaxAge   Duration `yaml:"heartbeatMaxAge"`
+	// What a probe keeps of one file; the rest is cut, so a result stays small.
+	MaxTrackTitleBytes int `yaml:"maxTrackTitleBytes"`
+	MaxTrackTagBytes   int `yaml:"maxTrackTagBytes"`
+	MaxStreamsPerFile  int `yaml:"maxStreamsPerFile"`
 }
