@@ -372,7 +372,7 @@ func (m *merger) run(ctx context.Context) (Output, error) {
 	}
 	if exit != 0 {
 		if m.tool.memoryExhausted(exit, log.buf.String()) {
-			return refuse(RefusalMuxFailed, "%s", media.MemoryDetail("mkvmerge")), nil
+			return refuse(RefusalMuxFailed, "%s: %s", media.MemoryDetail("mkvmerge"), muxMessages(log.buf.String(), 2)), nil
 		}
 		return refuse(RefusalMuxFailed, "mkvmerge exited with %d: %s", exit, muxMessages(log.buf.String(), 5)), nil
 	}

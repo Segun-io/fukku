@@ -110,12 +110,10 @@ func newTool(opt Options) (tool, error) {
 }
 
 // memoryExhausted reports whether a failed run of mkvmerge (its exit code, -1 when a signal
-// ended it, and its messages) ran out of memory: under worker.toolMemoryLimit an
-// allocation fails and mkvmerge aborts or says so; under the container's limit it is killed.
+// ended it, and its messages) may have run out of memory: it said so ("malloc() returned
+// nullptr", bad_alloc), or a signal ended it while worker.toolMemoryLimit was set.
 func (t tool) memoryExhausted(exit int, messages string) bool {
-	s := strings.ToLower(messages)
-	return (exit == -1 && t.opt.MemoryLimit > 0) || strings.Contains(s, "bad_alloc") ||
-		strings.Contains(s, "out of memory") || strings.Contains(s, "cannot allocate memory")
+	return (exit == -1 && t.opt.MemoryLimit > 0) || media.MemoryMessage(messages)
 }
 
 // errNotRun means mkvmerge could not be started or run: not a verdict on the files.
@@ -139,6 +137,9 @@ func (t tool) run(ctx context.Context, files []*os.File, out *limitedBuffer, arg
 	cmd.Stdout = out
 	cmd.Stderr = out
 	err = cmd.Run()
+	if lerr := media.LimitFailure(out.buf.String()); lerr != nil && err != nil {
+		return 0, lerr // prlimit could not set the limit: the deployment, not the files
+	}
 	if cmd.Process != nil {
 		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 	}

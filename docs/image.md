@@ -107,7 +107,7 @@ emulation; the private repository has no free native arm runner. Locally: `make 
 - **Memory.** The reference compose file gives the worker `mem_limit: 4g` and the web service
   `mem_limit: 1g`, both without swap and with `pids_limit: 256`. The worker also starts ffprobe,
   ffmpeg and mkvmerge under `prlimit --as=<worker.toolMemoryLimit>` (settings.md). The smoke test
-  checks that `prlimit` is in the image, sets the limit and stops a tool that needs more.
+  checks that `prlimit` is in the image and, on a native run, that it sets the limit and stops a tool that needs more (QEMU emulation, as the arm64 CI build, ignores `RLIMIT_AS`, so those two checks are skipped there with a log line).
 
 ## SBOM
 
@@ -115,7 +115,7 @@ Each image build in CI writes one SPDX JSON SBOM per architecture (`fukku-<arch>
 workflow artifact). It is made from two scans: syft on the built image (Debian packages, Go modules
 from the binary's build information, ffmpeg 7.1.x) and syft on `ui/` (the npm packages of
 `package-lock.json`, which are compiled into the binary and leave no lockfile in the image),
-joined by `tools/sbom-merge.sh`. The build fails if the result does not list ffmpeg 7.1.x and the
+joined by `tools/sbom-merge.sh`, and the result is checked by `tools/sbom-validate.sh` (pinned spdx-tools). The build fails if the result is not valid SPDX, or does not list ffmpeg 7.1.x and the
 UI's `react`.
 
 The `publish` job of `prerelease.yml` attaches the amd64 SBOM and a build provenance to the pushed
@@ -126,12 +126,12 @@ checks them). That part has not run yet: it needs the first approved publish, an
 
 ## Dependency vulnerabilities
 
-`make vulncheck` (`tools/vulncheck.sh`, the `vulncheck` job of `ci.yml` on every pull request and on
-the weekly schedule) runs `govulncheck` (pinned in `tools/dev/Dockerfile`) and `npm audit`. It needs the
+`make vulncheck` (`tools/vulncheck.sh`, the `vulncheck` job of `ci.yml` on pushes to main, manual runs and
+the weekly schedule, and on a pull request only when go.mod, go.sum, ui/package-lock.json or a Dockerfile (the Go image pin) changes) runs `govulncheck` (pinned in `tools/dev/Dockerfile`) and `npm audit`. It needs the
 internet, so it is not part of `make check`. **Fails:** a vulnerability in a Go function the code
 calls (govulncheck's own rule), or a high or critical advisory in a production npm dependency of
 `ui/`. **Warns:** vulnerable Go packages that are imported but not called, and moderate or low npm
 advisories or any in dev dependencies and `test/e2e`. A scan that cannot run (no network) fails.
-`dependabot.yml` (in the `.github` folder) proposes updates of the Go modules, npm packages, actions and images. Not
+`dependabot.yml` (in the `.github` folder) proposes updates of the Go modules, npm packages and actions; images and tools are pinned through `FROM ${ARG}` lines that Dependabot cannot read, so they are bumped by hand (and ffmpeg by the weekly pin check). Not
 covered yet: the Debian packages (a grype scan of the SBOM) and ffmpeg itself (`ffmpeg-pin.yml`
 follows its releases).

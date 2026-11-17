@@ -1,6 +1,7 @@
 package media
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"slices"
@@ -65,14 +66,40 @@ func TestWrapLimitsMemory(t *testing.T) {
 }
 
 func TestMemoryExhaustedText(t *testing.T) {
-	if MemoryExhausted(nil, "out of memory") {
+	if MemoryExhausted(nil, "out of memory", true) {
 		t.Error("no error is not out of memory")
 	}
 	err := exec.CommandContext(t.Context(), "sh", "-c", "exit 1").Run()
-	if MemoryExhausted(err, "Invalid data found") {
+	if MemoryExhausted(err, "Invalid data found", true) {
 		t.Error("an ordinary failure is not out of memory")
 	}
-	if !MemoryExhausted(err, "av_malloc: Cannot allocate memory") {
+	if !MemoryExhausted(err, "av_malloc: Cannot allocate memory", true) {
 		t.Error("ENOMEM text was missed")
+	}
+}
+
+func TestMemoryExhaustedEvidence(t *testing.T) {
+	err := exec.CommandContext(t.Context(), "sh", "-c", "kill -SEGV $$").Run()
+	if !MemoryExhausted(err, "", true) {
+		t.Error("a signal under a limit is a possibility")
+	}
+	if MemoryExhausted(err, "", false) {
+		t.Error("a signal with no limit is not evidence of anything")
+	}
+	exit2 := exec.CommandContext(t.Context(), "sh", "-c", "exit 2").Run()
+	if !MemoryExhausted(exit2, "Error: malloc() returned nullptr", false) {
+		t.Error("mkvmerge's allocation failure was missed")
+	}
+	if MemoryExhausted(exit2, "Invalid argument", true) {
+		t.Error("an ordinary exit is not out of memory")
+	}
+}
+
+func TestLimitFailure(t *testing.T) {
+	if err := LimitFailure("prlimit: failed to set the AS resource limit: Operation not permitted\n"); !errors.Is(err, ErrLimitNotSet) {
+		t.Errorf("got %v", err)
+	}
+	if LimitFailure("Invalid data found when processing input") != nil {
+		t.Error("a tool's own message is not prlimit's")
 	}
 }

@@ -66,7 +66,7 @@ runs:
         output-file: ${{ runner.temp }}/sbom-ui.spdx.json
         upload-artifact: false
         upload-release-assets: false
-    - name: merge the SBOMs and check for ffmpeg and the npm packages
+    - name: merge the SBOMs, validate the result, check for ffmpeg and the npm packages
       shell: bash
       env:
         SBOM: ${{ steps.sbom-name.outputs.name }}
@@ -76,6 +76,7 @@ runs:
           || { echo "the SBOM does not list ffmpeg 7.1.x" >&2; exit 1; }
         jq -e '[.packages[] | select(.name == "react")] | length > 0' "$RUNNER_TEMP/$SBOM" >/dev/null \
           || { echo "the SBOM does not list the UI's npm packages" >&2; exit 1; }
+        tools/sbom-validate.sh "$RUNNER_TEMP/$SBOM"
     - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
         name: ${{ steps.sbom-name.outputs.name }}

@@ -2,6 +2,7 @@ package media
 
 import (
 	"errors"
+	"fmt"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -36,27 +37,56 @@ func Wrap(nice int, memLimit int64, bin string, args []string) (string, []string
 	return name, args, nil
 }
 
-// MemoryExhausted reports whether a tool's failed run (err from Cmd.Run or Wait, stderr its
-// last messages) looks like running out of memory under Wrap's limit, or under the
-// container's: it died of SIGKILL (the cgroup OOM killer), SIGSEGV, SIGBUS or SIGABRT
-// (an allocation that failed and was not checked, or std::bad_alloc), or said so.
-func MemoryExhausted(err error, stderr string) bool {
+// ErrLimitNotSet means prlimit could not set worker.toolMemoryLimit (for example the
+// container's hard limit is lower): a problem of the deployment, not a verdict on the file.
+var ErrLimitNotSet = errors.New("could not apply worker.toolMemoryLimit")
+
+// LimitFailure returns ErrLimitNotSet (with prlimit's message) when stderr holds prlimit's
+// own failure to set the limit, and nil otherwise.
+func LimitFailure(stderr string) error {
+	for line := range strings.SplitSeq(stderr, "\n") {
+		if strings.HasPrefix(line, "prlimit: failed to set") {
+			return fmt.Errorf("%w: %s", ErrLimitNotSet, strings.TrimSpace(line))
+		}
+	}
+	return nil
+}
+
+// MemoryMessage reports whether a tool's messages show a failed allocation.
+func MemoryMessage(stderr string) bool {
+	s := strings.ToLower(stderr)
+	for _, m := range []string{"cannot allocate memory", "out of memory", "bad_alloc",
+		"malloc() returned", "memory allocation", "failed to allocate"} {
+		if strings.Contains(s, m) {
+			return true
+		}
+	}
+	return false
+}
+
+// MemoryExhausted reports whether a failed run (err from Cmd.Run or Wait, stderr the tool's
+// messages) may have run out of memory. There is evidence when the tool reported a failed
+// allocation, or when it died of SIGSEGV, SIGBUS, SIGABRT or SIGKILL while limited is true
+// (an address-space limit or a container limit was in force). It is a possibility, not a
+// proof: a crash on a crafted file looks the same, so callers word it as "may have".
+func MemoryExhausted(err error, stderr string, limited bool) bool {
 	var ee *exec.ExitError
 	if !errors.As(err, &ee) {
 		return false
 	}
-	if ws, ok := ee.Sys().(syscall.WaitStatus); ok && ws.Signaled() {
+	if MemoryMessage(stderr) {
+		return true
+	}
+	if ws, ok := ee.Sys().(syscall.WaitStatus); ok && ws.Signaled() && limited {
 		switch ws.Signal() {
 		case syscall.SIGKILL, syscall.SIGSEGV, syscall.SIGBUS, syscall.SIGABRT:
 			return true
 		}
 	}
-	s := strings.ToLower(stderr)
-	return strings.Contains(s, "cannot allocate memory") || strings.Contains(s, "out of memory") ||
-		strings.Contains(s, "bad_alloc") || strings.Contains(s, "memory allocation")
+	return false
 }
 
-// MemoryDetail is the detail of a refusal for a tool that ran out of memory.
+// MemoryDetail is the detail of a refusal for a tool that may have run out of memory.
 func MemoryDetail(tool string) string {
-	return tool + " ran out of memory (worker.toolMemoryLimit)"
+	return tool + " failed and may have run out of memory (worker.toolMemoryLimit or the container's memory limit)"
 }

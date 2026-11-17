@@ -124,12 +124,31 @@ jobs:
   # databases, so it is a job of its own, not part of `make check`. What fails and what warns is
   # written at the top of tools/vulncheck.sh: a vulnerability in a Go function the code calls, or
   # a high or critical advisory in a production npm package of the UI, fails; the rest warns.
+  #
+  # It runs on pushes to main, the weekly schedule and manual runs. On a pull request it runs only
+  # when what it scans can have changed (go.mod, go.sum, ui/package-lock.json, the Go image pin),
+  # so a new advisory against the standard library does not turn every unrelated pull request red.
   vulncheck:
     name: dependency vulnerabilities (govulncheck, npm audit)
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: ./.github/actions/dev-image
-      - run: make vulncheck
+          fetch-depth: ${{ github.event_name == 'pull_request' && 0 || 1 }}
+      - id: changed
+        if: github.event_name == 'pull_request'
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if git diff --name-only "$BASE" HEAD | grep -Eq '^(go\.mod|go\.sum|ui/package-lock\.json|Dockerfile|tools/dev/Dockerfile|tools/vulncheck\.sh)$'; then
+            echo "scan=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No dependency file changed: the scan is skipped on this pull request (it runs on main and weekly)."
+            echo "scan=false" >> "$GITHUB_OUTPUT"
+          fi
+      - if: github.event_name != 'pull_request' || steps.changed.outputs.scan == 'true'
+        uses: ./.github/actions/dev-image
+      - if: github.event_name != 'pull_request' || steps.changed.outputs.scan == 'true'
+        run: make vulncheck

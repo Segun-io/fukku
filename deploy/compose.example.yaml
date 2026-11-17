@@ -81,7 +81,7 @@ services:
     # Limits: 4g covers one ffmpeg or mkvmerge at a time (worker.concurrency 1) with room for
     # the 64m /tmp; raise it with worker.concurrency. Each tool also runs under an address-space
     # limit of worker.toolMemoryLimit (6GiB by default; it counts reserved address space, so it
-    # is above the real use). A tool past either limit fails its job with a clear refusal.
+    # is above the real use). A tool past either limit fails its job; the refusal says it "may have run out of memory" when there is evidence.
     mem_limit: 4g
     memswap_limit: 4g
     pids_limit: 256

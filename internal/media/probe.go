@@ -246,6 +246,8 @@ func runFFprobe(ctx context.Context, f *os.File, opt Options, formats string, sh
 	cmd.Env = []string{"PATH=" + os.Getenv("PATH")}
 	stdout := &limitedBuffer{max: maxProbeOutput}
 	cmd.Stdout = stdout
+	stderr := &limitedBuffer{max: 4 << 10}
+	cmd.Stderr = stderr
 	err = cmd.Run()
 	// Whatever happened, nothing of the process group may outlive the call.
 	if cmd.Process != nil {
@@ -258,6 +260,9 @@ func runFFprobe(ctx context.Context, f *os.File, opt Options, formats string, sh
 		return nil, RefusalTimeout, nil
 	}
 	if err != nil {
+		if lerr := LimitFailure(stderr.buf.String()); lerr != nil {
+			return nil, "", lerr // prlimit could not set the limit: the deployment, not the file
+		}
 		var ee *exec.ExitError
 		if errors.As(err, &ee) && (ee.ExitCode() == 126 || ee.ExitCode() == 127) {
 			// nice or prlimit could not run ffprobe: not a verdict on the file
