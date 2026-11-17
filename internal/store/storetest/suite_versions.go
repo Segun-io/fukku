@@ -46,12 +46,21 @@ func testVersions(t *testing.T, s store.Store) {
 		t.Fatalf("two records with id %d", a.ID)
 	}
 	// An episode's version (#58) keeps its episode, on insert and on replace.
-	ev := must(s.PutVersion(ctx, store.Version{JobID: "j3", App: "sonarr", TitleID: 11, EpisodeID: 102, SeasonNumber: 1, EpisodeNumber: 2,
+	ev := must(s.PutVersion(ctx, store.Version{JobID: "j3", App: "sonarr", TitleID: 11, TVDBID: 276116, EpisodeID: 102, SeasonNumber: 1, EpisodeNumber: 2,
 		Path: "/data/media/tv/Show/Season 01/Show - S01E02 - Español.mkv", Status: store.VersionPlacing}))(t)
-	ev.Status, ev.EpisodeID, ev.SeasonNumber, ev.EpisodeNumber = store.VersionLinked, 103, 1, 3
+	ev.Status, ev.EpisodeID, ev.SeasonNumber, ev.EpisodeNumber, ev.TVDBID = store.VersionLinked, 103, 1, 3, 276117
 	_ = must(s.PutVersion(ctx, ev))(t)
-	if e := must(s.VersionByPath(ctx, ev.Path))(t); e.App != "sonarr" || e.EpisodeID != 103 || e.SeasonNumber != 1 || e.EpisodeNumber != 3 || e.Status != store.VersionLinked {
+	if e := must(s.VersionByPath(ctx, ev.Path))(t); e.App != "sonarr" || e.EpisodeID != 103 || e.SeasonNumber != 1 || e.EpisodeNumber != 3 || e.TVDBID != 276117 || e.Status != store.VersionLinked {
 		t.Fatalf("an episode's version read back %+v", e)
+	}
+	// The re-check's statuses (#96) and their details are kept as written.
+	for _, status := range []string{store.VersionAdopted, store.VersionAdoptable, store.VersionEpisodeFileMissing, store.VersionSeriesMoved, store.VersionSeriesDeleted} {
+		ev = must(s.VersionByPath(ctx, ev.Path))(t)
+		ev.Status, ev.Detail = status, "why "+status
+		_ = must(s.PutVersion(ctx, ev))(t)
+		if e := must(s.VersionByPath(ctx, ev.Path))(t); e.Status != status || e.Detail != "why "+status || e.EpisodeID != 103 {
+			t.Fatalf("status %s read back %+v", status, e)
+		}
 	}
 	if err := s.DeleteVersion(ctx, ev.ID); err != nil {
 		t.Fatal(err)

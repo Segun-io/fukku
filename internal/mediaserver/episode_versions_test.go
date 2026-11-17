@@ -1,7 +1,6 @@
 package mediaserver_test
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"os"
@@ -169,27 +168,51 @@ func TestRefreshStepSkipsAJobOfOnlyEpisodeVersions(t *testing.T) {
 	}
 }
 
-// The keeper leaves episodes' versions alone: Jellyfin groups them by their names.
-func TestKeeperLeavesEpisodeVersions(t *testing.T) {
-	x := newKeeperEnv(t)
+// The keeper never groups an episode's version with Radarr's movie of the same id, and a
+// nudge for the film does not check it: episodes' versions are re-checked against Sonarr, on
+// scheduled passes only (#96). The episode's version is a checkable one (inside a library
+// root, with Sonarr), and the clock is fixed, so a check would show in its CheckedAt.
+func TestKeeperLeavesEpisodeVersionsToSonarr(t *testing.T) {
+	x := newRecheckEnv(t)
 	ctx := t.Context()
-	ep, err := x.st.PutVersion(ctx, store.Version{JobID: "j9", App: "sonarr", TitleID: 7, EpisodeID: 101, Path: x.version + ".episode", Status: store.VersionLinked})
-	if err != nil {
+	film := newKeeperEnv(t) // a film version and Radarr's movie 7
+	if _, err := x.st.PutVersion(ctx, store.Version{JobID: "j2", App: "radarr", TitleID: 7, Path: film.version, Status: store.VersionLinked}); err != nil {
 		t.Fatal(err)
 	}
-	runCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	ended := make(chan struct{})
-	go func() { _ = x.k.Run(runCtx); close(ended) }()
-	waitFor(t, func() bool {
-		rec, _ := x.st.VersionByPath(ctx, x.version)
-		return rec.Status == store.VersionGrouped
-	})
-	x.k.Nudge(store.Target{App: "radarr", TitleID: 7})
-	time.Sleep(50 * time.Millisecond)
-	cancel()
-	<-ended
-	if rec, _ := x.st.VersionByPath(ctx, ep.Path); rec.Status != store.VersionLinked || rec.Detail != "" || !rec.CheckedAt.IsZero() {
-		t.Fatalf("the keeper checked an episode's version (with Radarr's movie of the same id): %+v", rec)
+	rec, _ := x.st.VersionByPath(ctx, x.version)
+	rec.TitleID = 7 // the series id is the film's movie id
+	if _, err := x.st.PutVersion(ctx, rec); err != nil {
+		t.Fatal(err)
+	}
+	x.series.Library[0].ID = 7
+	x.series.Eps[7], x.series.Files[7] = x.series.Eps[11], x.series.Files[11]
+	for i := range x.series.Proposed[appSeason] {
+		x.series.Proposed[appSeason][i].SeriesID = 7
+	}
+	x.server.Pending = map[string]string{serverFile: "film-1", film.version: "ver-1"}
+	cfg := x.cfg
+	cfg.Paths.Mappings.MediaServer = append(cfg.Paths.Mappings.MediaServer, config.PathMapping{From: "/data/media/movies", To: "/media/movies"})
+	k := mediaserver.NewKeeper(cfg, nil, x.st, film.movies, x.server, x.locks)
+	k.SetSeries(x.series)
+	k.SetNow(func() time.Time { return x.now })
+	k.Pass(ctx, 0)
+	first, _ := x.st.VersionByPath(ctx, x.version)
+	if f, _ := x.st.VersionByPath(ctx, film.version); first.Status != store.VersionGrouped || f.Status != store.VersionGrouped {
+		t.Fatalf("scheduled pass: episode %+v, film %+v", first, f)
+	}
+	calls := len(x.series.ProposalCalls())
+	x.now = x.now.Add(time.Minute)
+	k.Pass(ctx, 7) // the film's nudge
+	got, _ := x.st.VersionByPath(ctx, x.version)
+	if !got.CheckedAt.Equal(first.CheckedAt) || got.Status != store.VersionGrouped || got.PrimaryItemID != "ep-1" || len(x.series.ProposalCalls()) != calls {
+		t.Fatalf("the film's nudge checked the episode's version: %+v (was %+v)", got, first)
+	}
+	if f, _ := x.st.VersionByPath(ctx, film.version); !f.CheckedAt.Equal(x.now) {
+		t.Fatalf("the nudge did not check the film: %+v", f)
+	}
+	for _, m := range x.server.MergeCalls() {
+		if slices.Contains(m, "ep-1") {
+			t.Fatalf("an episode's item was merged with the film: %v", m)
+		}
 	}
 }

@@ -57,7 +57,7 @@ func TestMigrateFromEmpty(t *testing.T) {
 	if v := scalar[int](t, s.w, "PRAGMA user_version"); v != len(ms) {
 		t.Fatalf("schema version %d, want %d", v, len(ms))
 	}
-	if !strings.Contains(logs, "msg=store_migrated version=6") || len(ms) != 6 {
+	if !strings.Contains(logs, "msg=store_migrated version=7") || len(ms) != 7 {
 		t.Fatalf("want every migration applied (%d files):\n%s", len(ms), logs)
 	}
 	for _, table := range []string{"jobs", "files", "uploads", "events", "audit", "targets", "import_rows", "imports", "post_steps", "versions"} {
@@ -96,11 +96,11 @@ func TestMigrateFromM1(t *testing.T) {
 	}
 
 	s, logs := openLogged(t, dir)
-	if strings.Contains(logs, "version=1") || !strings.Contains(logs, "msg=store_migrated version=2") || !strings.Contains(logs, "msg=store_migrated version=3") || !strings.Contains(logs, "msg=store_migrated version=4") || !strings.Contains(logs, "msg=store_migrated version=5") || !strings.Contains(logs, "msg=store_migrated version=6") {
-		t.Fatalf("want only 0002 to 0006 applied:\n%s", logs)
+	if strings.Contains(logs, "version=1") || !strings.Contains(logs, "msg=store_migrated version=2") || !strings.Contains(logs, "msg=store_migrated version=3") || !strings.Contains(logs, "msg=store_migrated version=4") || !strings.Contains(logs, "msg=store_migrated version=5") || !strings.Contains(logs, "msg=store_migrated version=6") || !strings.Contains(logs, "msg=store_migrated version=7") {
+		t.Fatalf("want only 0002 to 0007 applied:\n%s", logs)
 	}
-	if v := scalar[int](t, s.w, "PRAGMA user_version"); v != 6 {
-		t.Fatalf("schema version %d, want 6", v)
+	if v := scalar[int](t, s.w, "PRAGMA user_version"); v != 7 {
+		t.Fatalf("schema version %d, want 7", v)
 	}
 	j, err := s.Job(ctx, id)
 	if err != nil || j.Owner != "user1" || j.State != Probed {

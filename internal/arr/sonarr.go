@@ -221,3 +221,27 @@ func (s *sonarr) SetSeasonMonitored(ctx context.Context, seriesID, season int, m
 	body["seasons"] = data
 	return s.put(ctx, fmt.Sprintf("/series/%d", seriesID), body, nil)
 }
+
+// SeriesFinder is implemented by a Sonarr client that can find a show of its library by its
+// TVDB id: the re-check of episodes' versions (#96) follows a series deleted and added back
+// under a new id.
+type SeriesFinder interface {
+	// SeriesByTVDB returns the library's show with the TVDB id; ok is false when there is none.
+	SeriesByTVDB(ctx context.Context, tvdbID int) (s Series, ok bool, err error)
+}
+
+var _ SeriesFinder = (*sonarr)(nil)
+
+// SeriesByTVDB lists the library's shows with the TVDB id (GET /series?tvdbId=).
+func (s *sonarr) SeriesByTVDB(ctx context.Context, tvdbID int) (Series, bool, error) {
+	var out []seriesJSON
+	if err := s.get(ctx, "/series", url.Values{"tvdbId": {strconv.Itoa(tvdbID)}}, &out); err != nil {
+		return Series{}, false, err
+	}
+	for _, j := range out {
+		if j.TVDBID == tvdbID && j.ID != 0 {
+			return j.series(), true, nil
+		}
+	}
+	return Series{}, false, nil
+}

@@ -191,6 +191,7 @@ const VersionRefused = "refused"
 // ("episodeVersions") for the importing step.
 type episodeVersions struct {
 	Label    string           `json:"label"`
+	TVDBID   int              `json:"tvdbId,omitempty"` // the series', for the records (#96)
 	Versions []episodeVersion `json:"versions"`
 }
 
@@ -489,6 +490,7 @@ func episodeLanguage(up media.Probe, original string) string {
 // the series, and its episode files by id.
 type epvLibrary struct {
 	series string
+	tvdb   int // the series' TVDB id
 	files  map[int]arr.EpisodeFile
 }
 
@@ -514,6 +516,7 @@ func (s *session) loadEpvLibrary(ctx context.Context) (lib epvLibrary, why strin
 	if err != nil {
 		return lib, "", appFailure(AppSonarr, err)
 	}
+	lib.tvdb = sr.TVDBID
 	lib.files = map[int]arr.EpisodeFile{}
 	for _, f := range files {
 		lib.files[f.ID] = f
@@ -669,7 +672,7 @@ func (e *Engine) planEpisodeVersions(ctx context.Context, s *session, ex existin
 	if why != "" {
 		return nil, refuse(CodeVersionUnavailable, "Sonarr's folder name for the series cannot be part of a file name (%s).", why)
 	}
-	out := &episodeVersions{Label: label}
+	out := &episodeVersions{Label: label, TVDBID: lib.tvdb}
 	var unavailable, exists []string
 	reasons := map[string]bool{}
 	seen := map[string]bool{}
@@ -857,11 +860,18 @@ func (e *Engine) sonarrVerdict(ctx context.Context, jobID string, t store.Target
 // Sonarr's rescans, and Code is "". Otherwise version_upgrade. An error is a call to Sonarr
 // that failed.
 func EpisodeVerdict(ctx context.Context, sonarr arr.Importer, folder, file string, seriesID, episodeID, season, number int) (Verdict, error) {
-	name := path.Base(file)
 	items, err := sonarr.Proposal(ctx, folder)
 	if err != nil {
 		return Verdict{}, err
 	}
+	return EpisodeVerdictIn(ctx, sonarr, items, file, seriesID, episodeID, season, number)
+}
+
+// EpisodeVerdictIn is EpisodeVerdict on the items of a proposal already asked for the file's
+// folder: the re-check of placed versions (#96) asks once per season folder for all of the
+// versions in it.
+func EpisodeVerdictIn(ctx context.Context, sonarr arr.Importer, items []arr.Row, file string, seriesID, episodeID, season, number int) (Verdict, error) {
+	name := path.Base(file)
 	i := slices.IndexFunc(items, func(it arr.Row) bool { return path.Clean(it.Path) == path.Clean(file) })
 	if i < 0 {
 		return unchecked("Sonarr does not offer %s, so it gives no verdict", name), nil
@@ -1170,6 +1180,9 @@ func episodeVersionRecord(rec store.Version, job store.Job, t store.Target, c ep
 	rec.JobID, rec.App, rec.TitleID, rec.Title, rec.Year = job.ID, t.App, t.TitleID, t.Title, t.Year
 	rec.Path, rec.Label, rec.Status, rec.Detail = v.Path, c.Label, status, ""
 	rec.EpisodeID, rec.SeasonNumber, rec.EpisodeNumber = v.EpisodeID, v.Season, v.Episode
+	if c.TVDBID != 0 {
+		rec.TVDBID = c.TVDBID
+	}
 	return rec
 }
 
@@ -1218,10 +1231,6 @@ func (e *Engine) episodeVersionsResult(ctx context.Context, job store.Job, t sto
 	if err != nil {
 		return nil, err
 	}
-	byPath := map[string]store.Version{}
-	for _, r := range recs {
-		byPath[r.Path] = r
-	}
 	files, err := e.st.Files(ctx, job.ID)
 	if err != nil {
 		return nil, err
@@ -1238,7 +1247,7 @@ func (e *Engine) episodeVersionsResult(ctx context.Context, job store.Job, t sto
 			if admin {
 				r.Detail = f.Reason
 			}
-		} else if rec, ok := byPath[v.Path]; ok {
+		} else if rec, ok := episodeRecordOf(recs, v); ok {
 			r.Status = rec.Status
 			if admin {
 				r.Detail = rec.Detail
@@ -1250,6 +1259,26 @@ func (e *Engine) episodeVersionsResult(ctx context.Context, job store.Job, t sto
 		out.Versions = append(out.Versions, r)
 	}
 	return out, nil
+}
+
+// episodeRecordOf is the job's record of the version v among recs (the job's records). The
+// keeper's re-check (#96) may change a record's path (it follows a version Sonarr moved with
+// its series' folder) or its episode id (Sonarr renumbered the episode's id), never both the
+// episode's season and number, so the record is found by its path, else its episode id,
+// else its season and episode.
+func episodeRecordOf(recs []store.Version, v episodeVersion) (store.Version, bool) {
+	for _, match := range []func(store.Version) bool{
+		func(r store.Version) bool { return r.Path == v.Path },
+		func(r store.Version) bool { return v.EpisodeID != 0 && r.EpisodeID == v.EpisodeID },
+		func(r store.Version) bool { return r.SeasonNumber == v.Season && r.EpisodeNumber == v.Episode },
+	} {
+		for _, r := range recs {
+			if r.App == AppSonarr && match(r) {
+				return r, true
+			}
+		}
+	}
+	return store.Version{}, false
 }
 
 // ResultVersion is the import result of a row kept as an episode's version (ImportRowView):
@@ -1274,10 +1303,8 @@ func (e *Engine) episodeVersionRows(ctx context.Context, job store.Job, t store.
 			out[v.Row] = store.ResultFailed
 			continue
 		}
-		for _, r := range recs {
-			if r.Path == v.Path && r.Status != store.VersionPlacing {
-				out[v.Row] = ResultVersion
-			}
+		if r, ok := episodeRecordOf(recs, v); ok && r.Status != store.VersionPlacing {
+			out[v.Row] = ResultVersion
 		}
 	}
 	return out, nil

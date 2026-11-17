@@ -369,3 +369,35 @@ func TestSonarrAppErrorAndKey(t *testing.T) {
 		t.Errorf("e1 = %v, e4 = %v", e1, e4)
 	}
 }
+
+// The re-check of episodes' versions (#96): the proposal of only the files Sonarr does not
+// track, and a show found by its TVDB id.
+func TestSonarrUntrackedProposalAndSeriesByTVDB(t *testing.T) {
+	app, s := newSonarr(t, map[string]reply{
+		"GET /api/v3/manualimport": ok("sonarr_manualimport.json"),
+		"GET /api/v3/series":       {body: `[{"id":12,"tvdbId":276116,"title":"Show","path":"/tv/Show"},{"id":13,"tvdbId":1,"title":"Other"}]`},
+	})
+	p, ok := s.(arr.UntrackedProposer)
+	if !ok {
+		t.Fatal("the Sonarr client is not an UntrackedProposer")
+	}
+	if rows, err := p.UntrackedProposal(ctx, "/tv/Show/Season 01"); err != nil || len(rows) != 2 {
+		t.Fatalf("UntrackedProposal = %+v, %v", rows, err)
+	}
+	if q := strings.ToLower(app.last().RawQuery); q != "filterexistingfiles=true&folder=%2ftv%2fshow%2fseason+01" {
+		t.Errorf("query = %q", q)
+	}
+	f, ok := s.(arr.SeriesFinder)
+	if !ok {
+		t.Fatal("the Sonarr client is not a SeriesFinder")
+	}
+	if sr, found, err := f.SeriesByTVDB(ctx, 276116); err != nil || !found || sr.ID != 12 || sr.Path != "/tv/Show" {
+		t.Errorf("SeriesByTVDB(276116) = %+v, %v, %v", sr, found, err)
+	}
+	if q := app.last().RawQuery; q != "tvdbId=276116" {
+		t.Errorf("query = %q", q)
+	}
+	if _, found, err := f.SeriesByTVDB(ctx, 99); err != nil || found {
+		t.Errorf("SeriesByTVDB(99) = %v, %v", found, err)
+	}
+}

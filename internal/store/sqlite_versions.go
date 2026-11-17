@@ -11,7 +11,7 @@ import (
 
 const versionCols = `id, job_id, app, title_id, tmdb_id, title, year, path, label, status, detail,
 	primary_file_id, primary_path, primary_item_id, item_id, created_at, checked_at, grouped_at, primary_changed_at,
-	episode_id, season_number, episode_number`
+	episode_id, season_number, episode_number, tvdb_id`
 
 func scanVersion(sc interface{ Scan(...any) error }) (Version, error) {
 	var (
@@ -21,7 +21,7 @@ func scanVersion(sc interface{ Scan(...any) error }) (Version, error) {
 	)
 	err := sc.Scan(&v.ID, &v.JobID, &v.App, &v.TitleID, &v.TMDBID, &v.Title, &v.Year, &v.Path, &v.Label, &v.Status, &v.Detail,
 		&v.PrimaryFileID, &v.PrimaryPath, &v.PrimaryItemID, &v.ItemID, &created, &checked, &grouped, &changed,
-		&v.EpisodeID, &v.SeasonNumber, &v.EpisodeNumber)
+		&v.EpisodeID, &v.SeasonNumber, &v.EpisodeNumber, &v.TVDBID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Version{}, ErrNotFound
 	}
@@ -54,11 +54,11 @@ func (s *sqliteStore) PutVersion(ctx context.Context, v Version, audit ...AuditE
 		}
 		res, err := tx.ExecContext(ctx, `INSERT INTO versions (job_id, app, title_id, tmdb_id, title, year, path, label, status, detail,
 			primary_file_id, primary_path, primary_item_id, item_id, created_at, checked_at, grouped_at, primary_changed_at,
-			episode_id, season_number, episode_number)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			episode_id, season_number, episode_number, tvdb_id)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			v.JobID, v.App, v.TitleID, v.TMDBID, v.Title, v.Year, v.Path, v.Label, v.Status, v.Detail,
 			v.PrimaryFileID, v.PrimaryPath, v.PrimaryItemID, v.ItemID, v.CreatedAt.UnixNano(), nanos(v.CheckedAt), nanos(v.GroupedAt), nanos(v.PrimaryChangedAt),
-			v.EpisodeID, v.SeasonNumber, v.EpisodeNumber)
+			v.EpisodeID, v.SeasonNumber, v.EpisodeNumber, v.TVDBID)
 		if isUnique(err) {
 			return Version{}, ErrExists
 		}
@@ -76,10 +76,10 @@ func (s *sqliteStore) PutVersion(ctx context.Context, v Version, audit ...AuditE
 		v.CreatedAt = old.CreatedAt
 		_, err = tx.ExecContext(ctx, `UPDATE versions SET job_id = ?, app = ?, title_id = ?, tmdb_id = ?, title = ?, year = ?, path = ?, label = ?,
 			status = ?, detail = ?, primary_file_id = ?, primary_path = ?, primary_item_id = ?, item_id = ?,
-			checked_at = ?, grouped_at = ?, primary_changed_at = ?, episode_id = ?, season_number = ?, episode_number = ? WHERE id = ?`,
+			checked_at = ?, grouped_at = ?, primary_changed_at = ?, episode_id = ?, season_number = ?, episode_number = ?, tvdb_id = ? WHERE id = ?`,
 			v.JobID, v.App, v.TitleID, v.TMDBID, v.Title, v.Year, v.Path, v.Label, v.Status, v.Detail,
 			v.PrimaryFileID, v.PrimaryPath, v.PrimaryItemID, v.ItemID, nanos(v.CheckedAt), nanos(v.GroupedAt), nanos(v.PrimaryChangedAt),
-			v.EpisodeID, v.SeasonNumber, v.EpisodeNumber, v.ID)
+			v.EpisodeID, v.SeasonNumber, v.EpisodeNumber, v.TVDBID, v.ID)
 		if isUnique(err) {
 			return Version{}, ErrExists
 		}

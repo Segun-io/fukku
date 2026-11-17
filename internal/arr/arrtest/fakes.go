@@ -51,6 +51,9 @@ type base struct {
 	// FailPartway), as the app moves it: tests remove the source there. It runs with the
 	// fake locked, so it must not call the fake.
 	OnImport func(r arr.Row)
+	// OnProposal, when set, is called at the start of every Proposal call, with the fake
+	// unlocked (it may block, or look at what the caller holds).
+	OnProposal func(folder string)
 }
 
 // ImportCall is one recorded Import call.
@@ -112,6 +115,9 @@ func (b *base) RecheckCalls() [][]arr.Row {
 }
 
 func (b *base) Proposal(_ context.Context, folder string) ([]arr.Row, error) {
+	if b.OnProposal != nil {
+		b.OnProposal(folder)
+	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.folders = append(b.folders, folder)
@@ -553,4 +559,30 @@ func (f *FakeSeries) FailPartway(id, n int, message string) {
 	for _, r := range rows[:min(n, len(rows))] {
 		f.give(r)
 	}
+}
+
+var (
+	_ arr.SeriesFinder      = (*FakeSeries)(nil)
+	_ arr.UntrackedProposer = (*FakeSeries)(nil)
+)
+
+// UntrackedProposal is Proposal (the fake tracks no files of its own): it is recorded among
+// ProposalCalls, and Err["Proposal"] makes it fail too.
+func (b *base) UntrackedProposal(ctx context.Context, folder string) ([]arr.Row, error) {
+	return b.Proposal(ctx, folder)
+}
+
+// SeriesByTVDB finds the show of Library with the TVDB id. Err["SeriesByTVDB"] makes it fail.
+func (f *FakeSeries) SeriesByTVDB(_ context.Context, tvdbID int) (arr.Series, bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if err := f.fail("SeriesByTVDB"); err != nil {
+		return arr.Series{}, false, err
+	}
+	for _, s := range f.Library {
+		if s.TVDBID == tvdbID && s.ID != 0 {
+			return s, true, nil
+		}
+	}
+	return arr.Series{}, false, nil
 }
