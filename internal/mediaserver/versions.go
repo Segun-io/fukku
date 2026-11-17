@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/segun-io/fukku/internal/arr"
@@ -36,8 +37,10 @@ import (
 //
 // A check asks Radarr for the film's current file, finds both files in the media server,
 // and merges them again when the version is not among the film item's sources. A scheduled
-// pass refreshes the server at most once, for every file missing there, waits once (up to
-// mediaServer.itemWait) for all of them together, and then looks again.
+// pass refreshes the server at most once, for every file missing there (a file in no library
+// of the server is skipped, and the others go on), waits once (up to mediaServer.itemWait)
+// for all of them together, and then looks again. A version still missing then backs off
+// (backoff). A record still placing whose job has ended is settled (flows.SettlePlacing).
 //
 // Two statuses stop the regular checks: film_deleted (Radarr answers, and has no film of
 // that id or of the version's TMDB id) and missing (the version's file is gone). Neither
@@ -45,8 +48,11 @@ import (
 //
 //   - while a sentinel (paths.sentinels) or the folder the version was placed in is
 //     missing, nothing is decided: the record keeps its status and its detail says why;
-//   - a 404 for the film counts only once Radarr's own status call answers in the same pass
-//     (a wrong URL base or proxy answers 404 to that too);
+//   - a 404 for the film counts only once Radarr's own status call answers, asked again for
+//     each decision (a wrong URL base or proxy answers 404 to that too);
+//   - a movie id that answers with another film's TMDB id (a restored or rebuilt Radarr,
+//     another instance) is treated like a 404: the version is never grouped with that film;
+//     a record without a TMDB id learns it from Radarr's answer;
 //   - a film added back to Radarr under a new id is found again by its TMDB id
 //     (GET /movie?tmdbId=), and the version follows it (audit version.reattached);
 //   - film_deleted and missing are checked again every finalRecheck, so a version comes back
@@ -71,6 +77,9 @@ type Keeper struct {
 	now    func() time.Time
 	locks  *flows.JobLocks // shared with the placement (flows.VersionLock)
 	nudges chan int        // Radarr movie ids to check soon
+
+	mu    sync.Mutex
+	waits map[string]backoff // by version path: versions the server still does not list
 }
 
 // NewKeeper builds a keeper. server should be a Grouper; without one every check waits.
@@ -83,7 +92,7 @@ func NewKeeper(cfg config.Config, log *slog.Logger, st store.Store, movies arr.M
 		locks = flows.NewJobLocks()
 	}
 	return &Keeper{store: st, movies: movies, server: server, cfg: cfg, log: log, now: time.Now,
-		locks: locks, nudges: make(chan int, 64)}
+		locks: locks, nudges: make(chan int, 64), waits: map[string]backoff{}}
 }
 
 // Run checks every version at once, then every versions.regroupInterval (0: never on a
@@ -122,22 +131,60 @@ func (k *Keeper) Nudge(t store.Target) {
 	}
 }
 
-// due reports whether a pass checks rec: linked, grouped and waiting ones always (a linked
-// one is normally grouped by its job's step; one whose step gave up is taken over here, and
-// a check reads the record under the version's lock, so the two never group it twice);
-// film_deleted and missing ones every finalRecheck, or when their film is nudged; never one
-// being placed.
+// due reports whether a pass checks rec: linked, grouped and waiting ones (a linked one is
+// normally grouped by its job's step; one whose step gave up is taken over here, and a check
+// reads the record under the version's lock, so the two never group it twice), except a
+// waiting one in its backoff (backoff); film_deleted and missing ones every finalRecheck.
+// A nudge for the film checks all of the film's, backoff or not. Records being placed are
+// settled apart (settle).
 func (k *Keeper) due(rec store.Version, titleID int) bool {
-	if titleID != 0 && (rec.App != flows.AppRadarr || rec.TitleID != titleID) {
-		return false
+	if titleID != 0 {
+		return rec.App == flows.AppRadarr && rec.TitleID == titleID && rec.Status != store.VersionPlacing
 	}
 	switch rec.Status {
-	case store.VersionLinked, store.VersionGrouped, store.VersionWaiting:
+	case store.VersionLinked, store.VersionGrouped:
 		return true
+	case store.VersionWaiting:
+		return !k.backingOff(rec.Path)
 	case store.VersionFilmDeleted, store.VersionMissing:
-		return titleID != 0 || k.now().Sub(rec.CheckedAt) >= finalRecheck(k.cfg)
+		return k.now().Sub(rec.CheckedAt) >= finalRecheck(k.cfg)
 	}
 	return false
+}
+
+// A version whose file the media server still does not list after a pass's refresh waits
+// longer before the next attempt: each attempt costs a refresh (or a scan), a wait and the
+// polls. The gap doubles with each pass it stays so, in passes 1, 2, 4, 8…, up to
+// finalRecheck. It is kept in memory only: a restart tries again at once.
+type backoff struct {
+	misses int
+	next   time.Time
+}
+
+func (k *Keeper) backingOff(path string) bool {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	b, ok := k.waits[path]
+	return ok && k.now().Before(b.next)
+}
+
+// missed records that path was still waiting after a pass's attempt.
+func (k *Keeper) missed(path string) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	b := k.waits[path]
+	b.misses++
+	interval := k.cfg.Versions.RegroupInterval.D()
+	skip := time.Duration(1<<min(b.misses-1, 20) - 1) // passes to skip: 0, 1, 3, 7…
+	// Half a pass of slack, so that the pass after the skipped ones is due on time.
+	b.next = k.now().Add(min(skip*interval+interval/2, finalRecheck(k.cfg)))
+	k.waits[path] = b
+}
+
+func (k *Keeper) found(path string) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	delete(k.waits, path)
 }
 
 // pass checks the due versions: every one, or the film's (titleID ≠ 0). See the top of
@@ -152,6 +199,12 @@ func (k *Keeper) pass(ctx context.Context, titleID int) {
 	}
 	var due []store.Version
 	for _, rec := range recs {
+		if rec.Status == store.VersionPlacing {
+			if linked := k.settle(ctx, rec.Path); linked && (titleID == 0 || rec.TitleID == titleID) {
+				due = append(due, rec)
+			}
+			continue
+		}
 		if k.due(rec, titleID) {
 			due = append(due, rec)
 		}
@@ -159,64 +212,98 @@ func (k *Keeper) pass(ctx context.Context, titleID int) {
 	if len(due) == 0 {
 		return
 	}
-	p := &passState{}
-	var again []string
-	var missing []string
+	var again, missing []string
 	for _, rec := range due {
 		if ctx.Err() != nil {
 			return
 		}
-		_, miss, err := k.check(ctx, rec.Path, p, checkOpts{})
+		_, miss, err := k.check(ctx, rec.Path, checkOpts{})
 		if err != nil && ctx.Err() == nil {
 			k.log.Warn("version_check_failed", "job", rec.JobID, "title", rec.TitleID, "path", rec.Path, "error", err)
 		}
-		if len(miss) > 0 {
-			again = append(again, rec.Path)
-			for _, m := range miss {
-				if !slices.Contains(missing, m) {
-					missing = append(missing, m)
-				}
+		if len(miss) == 0 {
+			k.found(rec.Path)
+			continue
+		}
+		again = append(again, rec.Path)
+		for _, m := range miss {
+			if !slices.Contains(missing, m) {
+				missing = append(missing, m)
 			}
 		}
 	}
-	if len(missing) == 0 || ctx.Err() != nil || k.cfg.MediaServer.RefreshMethod == MethodNone {
+	if len(missing) == 0 || ctx.Err() != nil {
 		return
 	}
-	if err := k.refreshOnce(ctx, missing); err != nil {
-		if ctx.Err() == nil {
+	if k.cfg.MediaServer.RefreshMethod != MethodNone {
+		var unlisted *UnlistedError
+		switch err := k.refreshOnce(ctx, missing); {
+		case errors.As(err, &unlisted):
+			// The other paths' libraries were refreshed: the pass goes on with them.
 			k.log.Warn("version_check_failed", "error", err, "missing", len(missing))
+		case err != nil:
+			if ctx.Err() == nil {
+				k.log.Warn("version_check_failed", "error", err, "missing", len(missing))
+			}
+			for _, p := range again {
+				k.missed(p)
+			}
+			return
 		}
-		return
-	}
-	s := &Step{Server: k.server, Config: k.cfg}
-	if _, _, err := s.waitFor(ctx, missing, k.cfg.MediaServer.ItemWait.D(), k.poll()); err != nil {
-		return
+		s := &Step{Server: k.server, Config: k.cfg}
+		if _, _, err := s.waitFor(ctx, missing, k.cfg.MediaServer.ItemWait.D(), k.poll()); err != nil {
+			return
+		}
 	}
 	for _, path := range again {
-		if _, _, err := k.check(ctx, path, p, checkOpts{}); err != nil && ctx.Err() == nil {
+		_, miss, err := k.check(ctx, path, checkOpts{})
+		if err != nil && ctx.Err() == nil {
 			k.log.Warn("version_check_failed", "path", path, "error", err)
+		}
+		if len(miss) > 0 {
+			k.missed(path)
+		} else {
+			k.found(path)
 		}
 	}
 }
 
+// settle settles a record still placing whose job has ended (flows.SettlePlacing), under
+// the version's lock; linked reports that it became linked (it is then grouped like any
+// other).
+func (k *Keeper) settle(ctx context.Context, path string) (linked bool) {
+	defer k.locks.Lock(flows.VersionLock(path))()
+	rec, err := k.store.VersionByPath(ctx, path)
+	if err != nil {
+		return false
+	}
+	settled, linked, err := flows.SettlePlacing(ctx, k.store, k.cfg.Paths.IntakeRoot, rec)
+	switch {
+	case err != nil:
+		if ctx.Err() == nil {
+			k.log.Warn("version_check_failed", "job", rec.JobID, "path", path, "error", err)
+		}
+	case settled && linked:
+		k.log.Info("version_settled", "job", rec.JobID, "path", path, "outcome", "linked")
+	case settled:
+		k.log.Info("version_settled", "job", rec.JobID, "path", path, "outcome", "removed")
+	}
+	return linked
+}
+
 // refreshOnce tells the server about the files a pass found missing: one Refresh for all
 // of them, or, with mediaServer.refreshMethod libraryScan, one Scan, which starts nothing
-// while a scan is running. none tells it nothing.
+// while a scan is running. A path in no library of the server is skipped (UnlistedError,
+// after the others' libraries were refreshed).
 func (k *Keeper) refreshOnce(ctx context.Context, paths []string) error {
-	switch k.cfg.MediaServer.RefreshMethod {
-	case MethodNone:
-		return nil
-	case MethodLibraryScan:
+	if k.cfg.MediaServer.RefreshMethod == MethodLibraryScan {
 		started, err := k.server.Scan(ctx)
 		if err == nil {
 			k.log.Info("media_server_fallback_scan", "outcome", map[bool]string{true: "started", false: "already_running"}[started], "for", "versions")
 		}
 		return err
 	}
-	if err := k.server.Refresh(ctx, paths); err != nil {
-		return fmt.Errorf("refresh the media server: %w", err)
-	}
-	return nil
+	return k.server.Refresh(ctx, paths)
 }
 
 func (k *Keeper) poll() time.Duration {
@@ -224,21 +311,6 @@ func (k *Keeper) poll() time.Duration {
 		return d
 	}
 	return 2 * time.Second
-}
-
-// passState is what one pass learns once: whether Radarr's status call answers.
-type passState struct {
-	asked, up bool
-	why       error
-}
-
-func (k *Keeper) radarrUp(ctx context.Context, p *passState) (bool, error) {
-	if !p.asked {
-		p.asked = true
-		_, p.why = k.movies.Status(ctx)
-		p.up = p.why == nil
-	}
-	return p.up, p.why
 }
 
 // checkOpts: refresh makes a check tell the server about a missing file itself and wait up
@@ -256,12 +328,12 @@ type checkOpts struct {
 // not be made (an app did not answer, a mount is missing): the record keeps its status,
 // and its detail says why.
 func (k *Keeper) Check(ctx context.Context, path string, wait time.Duration, scan bool) (store.Version, error) {
-	rec, _, err := k.check(ctx, path, &passState{}, checkOpts{refresh: true, scan: scan, wait: wait})
+	rec, _, err := k.check(ctx, path, checkOpts{refresh: true, scan: scan, wait: wait})
 	return rec, err
 }
 
 // check is Check; without opts.refresh it reports the server's paths it found missing.
-func (k *Keeper) check(ctx context.Context, path string, p *passState, o checkOpts) (store.Version, []string, error) {
+func (k *Keeper) check(ctx context.Context, path string, o checkOpts) (store.Version, []string, error) {
 	defer k.locks.Lock(flows.VersionLock(path))()
 	rec, err := k.store.VersionByPath(ctx, path)
 	if err != nil {
@@ -281,9 +353,24 @@ func (k *Keeper) check(ctx context.Context, path string, p *passState, o checkOp
 		return k.failed(ctx, rec, errors.New("radarr is not configured"))
 	}
 	m, err := k.movies.Movie(ctx, rec.TitleID)
-	if arr.StatusOf(err) == http.StatusNotFound {
-		if up, why := k.radarrUp(ctx, p); !up {
-			return k.failed(ctx, rec, fmt.Errorf("radarr answers 404 for movie %d, and its status call fails too (%w): not taken for a deleted film", rec.TitleID, why))
+	gone := "" // why the film may no longer be Radarr's movie rec.TitleID
+	switch {
+	case arr.StatusOf(err) == http.StatusNotFound:
+		gone = fmt.Sprintf("radarr answers 404 for movie %d", rec.TitleID)
+	case err != nil:
+		return k.failed(ctx, rec, fmt.Errorf("radarr: %w", err))
+	case rec.TMDBID != 0 && m.TMDBID != 0 && m.TMDBID != rec.TMDBID:
+		// The id is another film now: Radarr was restored or rebuilt, or Fukku points at
+		// another instance. Never group the version with it.
+		gone = fmt.Sprintf("radarr's movie %d is another film now (TMDB %d, the version's film is TMDB %d)", rec.TitleID, m.TMDBID, rec.TMDBID)
+	case rec.TMDBID == 0 && m.TMDBID != 0:
+		rec.TMDBID = m.TMDBID // learnt now; written with the record below
+	}
+	if gone != "" {
+		// Asked again for each decision (never a cached answer): a wrong URL base or proxy
+		// answers 404 to the status call too.
+		if _, why := k.movies.Status(ctx); why != nil {
+			return k.failed(ctx, rec, fmt.Errorf("%s, and its status call fails too (%w): not taken for a deleted film", gone, why))
 		}
 		var found bool
 		if m, found, err = k.findAgain(ctx, rec); err != nil {
@@ -291,7 +378,7 @@ func (k *Keeper) check(ctx context.Context, path string, p *passState, o checkOp
 		}
 		if !found {
 			rec, err := k.final(ctx, rec, store.VersionFilmDeleted, "version.orphaned",
-				"Radarr no longer has the film: the version is left on disk, remove it by hand")
+				"Radarr no longer has the film ("+gone+"): the version is left on disk, remove it by hand")
 			return rec, nil, err
 		}
 		from := rec.TitleID
@@ -302,8 +389,6 @@ func (k *Keeper) check(ctx context.Context, path string, p *passState, o checkOp
 			return rec, nil, err
 		}
 		k.log.Info("version_reattached", "job", rec.JobID, "path", rec.Path, "from", from, "to", m.ID)
-	} else if err != nil {
-		return k.failed(ctx, rec, fmt.Errorf("radarr: %w", err))
 	}
 	if _, err := os.Lstat(rec.Path); errors.Is(err, fs.ErrNotExist) {
 		rec, err := k.final(ctx, rec, store.VersionMissing, "version.missing", "the version file is no longer on disk")

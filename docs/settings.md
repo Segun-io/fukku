@@ -228,14 +228,20 @@ file is gone `missing`; both are checked again every six `versions.regroupInterv
 hourly) and come back by themselves when the film or the file does. Neither status is decided
 from a passing fault: while a `paths.sentinels` file or the version's folder is missing, a check
 decides nothing (the record keeps its status, its detail says why), and a 404 for the film counts
-only when Radarr's own status call answers. A film deleted and added back to Radarr gets a new
-id: the version follows it by its TMDB id (audit `version.reattached`). Episodes (Sonarr) follow
-the plan's naming rules instead (#58).
+only when Radarr's own status call answers, asked again for each decision. Each version keeps its
+film's TMDB id: when Radarr's movie id now answers with another film's (a restored or rebuilt
+Radarr, or another instance), the version is never grouped with it and is treated like a deleted
+film. A film deleted and added back to Radarr gets a new id: the version follows it by its TMDB
+id (audit `version.reattached`). A version whose placement was cut short by a crash, and whose
+job then ended, is settled by the next check: linked and grouped when the file is the job's
+upload, otherwise its record is removed (so the name is not refused for ever). Episodes (Sonarr)
+follow the plan's naming rules instead (#58).
 
 The file is placed by a hard link from the job's folder, which never replaces an existing file,
 so `versions.root` must be on **the same mount** as the intake root and writable by the web
 process. Each confirmation checks this by trial: it links an empty file from the intake root into
-`versions.root` and removes both. (Two bind mounts of one host folder report the same device id,
+`versions.root` and removes both; trial files named `.fukku-linkcheck-…` that a crash left behind
+are removed by the next check once they are five minutes old. (Two bind mounts of one host folder report the same device id,
 yet a link between them fails, so comparing device ids is not enough. The move-import check of
 `paths.requireSameFilesystem` stays a device comparison: those moves are Radarr's and Sonarr's,
 through their own mounts.) `versions.root` must also be a folder of a Jellyfin Movies library (as
@@ -255,7 +261,7 @@ outside the film folder, and episodes naming. A configuration that still sets it
 | `versions.labelTemplate` | `FUKKU_VERSIONS_LABEL_TEMPLATE` | `{languageName}` | Label in `<film folder> - <label>.<ext>`, proposed to the user, who may change it. `{languageName}` is the upload's new audio language in that language (`Español` for a Spanish track the library file does not have), `{languageCode}` its ISO 639-1 code (`es`). Without a tagged audio language the user must type a label |
 | `versions.forbiddenLabelTokens` | `FUKKU_VERSIONS_FORBIDDEN_LABEL_TOKENS` | `2160p, 1080p, 720p, 576p, 480p, 4k, uhd, hd, sd, bluray, blu-ray, bdrip, brrip, remux, web, webdl, web-dl, webrip, hdtv, dvd, dvdrip, hdr, dv, proper, repack` | Words a label must not contain (whole words, any case; a token with `-` also matches with a space or `.`), so the version's name never reads as a quality or source (B3): such a label is refused with `version_label` |
 | `versions.requireNotUpgradeVerdict` | `FUKKU_VERSIONS_REQUIRE_NOT_UPGRADE_VERDICT` | `true` | Before a version is placed, ask the app what it reads in the version's name. Films: Radarr's `GET /parse` of `<film folder> - <label>` (no extension: with `.mkv` Radarr reads WEBDL-720p in any name) must read no quality, source, resolution, proper, real or repack beyond what it reads in `<film folder>` alone (so a film whose own title reads as a quality, such as `Cam (2018)`, can still have versions), else the label is refused (`version_label`). A name Radarr cannot parse at all gives no verdict, and is refused too: try another label, or turn this off. Episodes: Sonarr's "not an upgrade" verdict (#58) |
-| `versions.regroupInterval` | `FUKKU_VERSIONS_REGROUP_INTERVAL` | `10m` | How often every film version's grouping is checked: Fukku asks Radarr for the film's current file and merges the version with it again when the grouping was lost (audit `version.regrouped`, which names the old and the new file). Files the media server does not list yet get one refresh per pass for all of them (with `mediaServer.refreshMethod: libraryScan`, one scan, skipped while a scan runs), and one wait of up to `mediaServer.itemWait` for all of them together. Fukku also checks a film's versions right after each of its own imports for that film. `film_deleted` and `missing` versions are checked every six intervals (at least hourly). `0` turns the schedule off (then only the checks after imports run) |
+| `versions.regroupInterval` | `FUKKU_VERSIONS_REGROUP_INTERVAL` | `10m` | How often every film version's grouping is checked: Fukku asks Radarr for the film's current file and merges the version with it again when the grouping was lost (audit `version.regrouped`, which names the old and the new file). Files the media server does not list yet get one refresh per pass for all of them (with `mediaServer.refreshMethod: libraryScan`, one scan, skipped while a scan runs), and one wait of up to `mediaServer.itemWait` for all of them together; a file in no library of the media server is skipped (logged) and the others go on. A version still not listed after that backs off: the gap between its attempts doubles (1, 2, 4… passes), up to the hourly recheck (a nudge after an import tries at once; a restart starts over). Fukku also checks a film's versions right after each of its own imports for that film. `film_deleted` and `missing` versions are checked every six intervals (at least hourly). `0` turns the schedule off (then only the checks after imports run) |
 
 ## seasonDub
 

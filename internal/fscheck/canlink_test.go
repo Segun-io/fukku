@@ -1,10 +1,12 @@
 package fscheck
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestCanLink(t *testing.T) {
@@ -29,6 +31,57 @@ func TestCanLink(t *testing.T) {
 	}
 	if err := CanLink(intake, file); err == nil || !strings.Contains(err.Error(), "not a directory") {
 		t.Errorf("a file as the versions folder: %v", err)
+	}
+}
+
+// Trial files a crash left behind are removed by the next check once they are stale; fresh
+// ones (another check running) and other files are left alone.
+func TestCanLinkRemovesStaleTrials(t *testing.T) {
+	intake, versions := t.TempDir(), t.TempDir()
+	old := time.Now().Add(-time.Hour)
+	stale := []string{filepath.Join(intake, TrialPrefix+"111"), filepath.Join(versions, TrialPrefix+"111.link")}
+	kept := []string{filepath.Join(intake, TrialPrefix+"222"), filepath.Join(versions, "Film (2001)"), filepath.Join(intake, ".fukku-other")}
+	for _, p := range append(stale, kept...) {
+		if err := os.WriteFile(p, nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, p := range append(stale, kept[2]) {
+		if err := os.Chtimes(p, old, old); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := CanLink(intake, versions); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range stale {
+		if _, err := os.Stat(p); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("%s is still there (%v)", p, err)
+		}
+	}
+	for _, p := range kept {
+		if _, err := os.Stat(p); err != nil {
+			t.Errorf("%s was removed: %v", p, err)
+		}
+	}
+}
+
+// A trial link whose name is taken is an error of its own, not a different mount.
+func TestCanLinkNameTaken(t *testing.T) {
+	intake, versions := t.TempDir(), t.TempDir()
+	if err := os.WriteFile(filepath.Join(versions, TrialPrefix+"fixed.link"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	createTrial = func(dir, _ string) (*os.File, error) {
+		return os.OpenFile(filepath.Join(dir, TrialPrefix+"fixed"), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	}
+	t.Cleanup(func() { createTrial = os.CreateTemp })
+	err := CanLink(intake, versions)
+	if err == nil || !strings.Contains(err.Error(), "already exists") || strings.Contains(err.Error(), "same mount") {
+		t.Fatalf("CanLink = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(intake, TrialPrefix+"fixed")); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("the trial file is left: %v", err)
 	}
 }
 

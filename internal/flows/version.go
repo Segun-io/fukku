@@ -761,6 +761,62 @@ func (e *Engine) failVersion(ctx context.Context, job store.Job, t store.Target,
 	return e.p.move(ctx, job, &t, store.Failed, store.Change{ErrorCode: code, ErrorText: "second version: " + text})
 }
 
+// SettlePlacing settles the record of a placement whose job ended (done or cancelled) or
+// is gone while the record still says placing: a crash between the record and its link,
+// then the job was cancelled. Call it under the version's lock (VersionLock) with the record
+// as read under it. When the version's file is the job's upload (the same inode), the
+// record becomes linked, with version.linked, and linked is true; otherwise (no file, a
+// file that is not the upload, or an upload that is gone, so nothing proves the file is
+// the job's) the record is removed, so that the name is not refused for ever. A record
+// whose job is still going is left to it (settled false).
+func SettlePlacing(ctx context.Context, st store.Store, intakeRoot string, rec store.Version) (settled, linked bool, err error) {
+	if rec.Status != store.VersionPlacing {
+		return false, false, nil
+	}
+	job, err := st.Job(ctx, rec.JobID)
+	switch {
+	case errors.Is(err, store.ErrNotFound):
+	case err != nil:
+		return false, false, err
+	case job.State != store.Done && job.State != store.Cancelled:
+		return false, false, nil
+	}
+	if src, ok := uploadOf(ctx, st, intakeRoot, rec); ok {
+		if same, err := samePlaced(src, rec.Path); err == nil && same {
+			rec.Status, rec.Detail = store.VersionLinked, ""
+			_, err := st.PutVersion(ctx, rec, store.AuditEntry{Actor: actor, Action: "version.linked", JobID: rec.JobID,
+				Detail: map[string]string{"path": rec.Path, "label": rec.Label, "titleId": strconv.Itoa(rec.TitleID), "note": "settled after the job ended"}})
+			return err == nil, err == nil, err
+		}
+	}
+	if err := st.DeleteVersion(ctx, rec.ID); err != nil && !errors.Is(err, store.ErrNotFound) {
+		return false, false, err
+	}
+	return true, false, nil
+}
+
+// uploadOf is the job's upload that the version's record was placed from, as Fukku sees it.
+func uploadOf(ctx context.Context, st store.Store, intakeRoot string, rec store.Version) (string, bool) {
+	t, err := st.Target(ctx, rec.JobID)
+	if err != nil {
+		return "", false
+	}
+	c, ok := versionOf(t)
+	if !ok || c.Path != rec.Path {
+		return "", false
+	}
+	files, err := st.Files(ctx, rec.JobID)
+	if err != nil {
+		return "", false
+	}
+	for _, f := range files {
+		if f.ID == c.FileID && strings.HasPrefix(f.Path, jobdir.Files+"/") {
+			return filepath.Join(jobdir.Dir(intakeRoot, rec.JobID), filepath.FromSlash(f.Path)), true
+		}
+	}
+	return "", false
+}
+
 // samePlaced reports whether dest is already the job's file (the same inode): placed by an
 // earlier pass.
 func samePlaced(src, dest string) (bool, error) {

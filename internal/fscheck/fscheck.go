@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
+	"time"
 
 	"github.com/segun-io/fukku/internal/config"
 )
@@ -84,17 +86,24 @@ func CanLink(dir, other string) error {
 	case !info.IsDir():
 		return fmt.Errorf("%s is not a directory", other)
 	}
-	f, err := os.CreateTemp(dir, ".fukku-linkcheck-*")
+	// A crash between the trial file and its removal leaves them: the next check removes
+	// those older than staleTrial.
+	removeStaleTrials(dir)
+	removeStaleTrials(other)
+	f, err := createTrial(dir, TrialPrefix+"*")
 	if err != nil {
 		return fmt.Errorf("%s is not writable", dir)
 	}
 	src := f.Name()
 	_ = f.Close()
-	defer func() { _ = os.Remove(src) }()                   //nolint:gosec // the intake root, from the configuration
+	defer func() { _ = os.Remove(src) }()
 	dst := filepath.Join(other, filepath.Base(src)+".link") // another name: the two may be one folder
 	if err := os.Link(src, dst); err != nil {
-		if errors.Is(err, os.ErrPermission) {
+		switch {
+		case errors.Is(err, os.ErrPermission):
 			return fmt.Errorf("%s is not writable", other)
+		case errors.Is(err, os.ErrExist):
+			return fmt.Errorf("%s: the trial link %s already exists: %w", other, filepath.Base(dst), err)
 		}
 		return fmt.Errorf("%s is not on the same mount as %s: a hard link between them fails (%w)", other, dir, errors.Unwrap(err))
 	}
@@ -102,6 +111,36 @@ func CanLink(dir, other string) error {
 		return fmt.Errorf("%s: the trial link cannot be removed: %w", other, err)
 	}
 	return nil
+}
+
+// TrialPrefix starts the names of CanLink's trial files (".fukku-linkcheck-…" in the first
+// folder, the same name plus ".link" in the second).
+const TrialPrefix = ".fukku-linkcheck-"
+
+// createTrial makes the trial file. Tests replace it.
+var createTrial = os.CreateTemp
+
+// staleTrial is the age from which a trial file is taken for one a crash left behind (a
+// trial lasts milliseconds).
+const staleTrial = 5 * time.Minute
+
+// removeStaleTrials removes the regular files of dir named TrialPrefix… that are older
+// than staleTrial. Nothing else is touched; errors are ignored (the next check tries again).
+func removeStaleTrials(dir string) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		if !strings.HasPrefix(e.Name(), TrialPrefix) || !e.Type().IsRegular() {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil || time.Since(info.ModTime()) < staleTrial {
+			continue
+		}
+		_ = os.Remove(filepath.Join(dir, e.Name())) //nolint:gosec // a trial file of the configured folder
+	}
 }
 
 // Writable checks that dir exists and a file can be created in it. It never creates dir.

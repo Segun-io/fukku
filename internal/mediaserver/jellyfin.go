@@ -165,7 +165,7 @@ func (j *Jellyfin) refreshLibraries(ctx context.Context, paths []string) error {
 	if err := j.do(ctx, http.MethodGet, "/Library/VirtualFolders", nil, nil, &libs); err != nil {
 		return err
 	}
-	var ids []string
+	var ids, unlisted []string
 	seen := map[string]bool{}
 	for _, p := range paths {
 		id := ""
@@ -177,20 +177,34 @@ func (j *Jellyfin) refreshLibraries(ctx context.Context, paths []string) error {
 			}
 		}
 		if id == "" {
-			return fmt.Errorf("jellyfin: no library contains %s (check paths.mappings.mediaServer)", p)
+			unlisted = append(unlisted, p)
+			continue
 		}
 		if !seen[id] {
 			seen[id] = true
 			ids = append(ids, id)
 		}
 	}
+	// The libraries that hold a path are refreshed even when another path is in none: one
+	// misplaced file must not hold up the others (the version keeper refreshes many at once).
 	q := url.Values{"metadataRefreshMode": {"Default"}, "imageRefreshMode": {"Default"}, "recursive": {"false"}}
 	for _, id := range ids {
 		if err := j.do(ctx, http.MethodPost, "/Items/"+url.PathEscape(id)+"/Refresh", q, nil, nil); err != nil {
 			return err
 		}
 	}
+	if len(unlisted) > 0 {
+		return &UnlistedError{Paths: unlisted}
+	}
 	return nil
+}
+
+// UnlistedError is what Refresh returns, after refreshing the libraries of the other paths,
+// when some paths are in no library of the server.
+type UnlistedError struct{ Paths []string }
+
+func (e *UnlistedError) Error() string {
+	return fmt.Sprintf("jellyfin: no library contains %s (check paths.mappings.mediaServer)", strings.Join(e.Paths, ", "))
 }
 
 // Find returns the id of the film or episode whose file is path, or of the show whose folder

@@ -1,14 +1,38 @@
 package mediaserver_test
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/segun-io/fukku/internal/config"
 	"github.com/segun-io/fukku/internal/mediaserver"
 )
+
+// A path in no library does not hold up the others: their libraries are refreshed, and
+// the error names only the unlisted path.
+func TestRefreshLibraryRefreshSkipsUnlistedPaths(t *testing.T) {
+	f := &fakeJellyfin{}
+	j := newJellyfin(t, mediaserver.MethodLibraryRefresh, f)
+	err := j.Refresh(t.Context(), []string{"/elsewhere/V/V - Español.mkv", "/media/movies/A (2020)/A.mkv"})
+	var unlisted *mediaserver.UnlistedError
+	if !errors.As(err, &unlisted) || !slices.Equal(unlisted.Paths, []string{"/elsewhere/V/V - Español.mkv"}) ||
+		!strings.Contains(err.Error(), "no library contains /elsewhere/V/V - Español.mkv") {
+		t.Fatalf("err = %v", err)
+	}
+	var posts []string
+	for _, c := range f.calls {
+		if c.Method == http.MethodPost {
+			posts = append(posts, c.Path)
+		}
+	}
+	if !slices.Equal(posts, []string{"/Items/lib-movies/Refresh"}) {
+		t.Errorf("refreshes %v, want the movies library", posts)
+	}
+}
 
 // The Grouper side of the Jellyfin client: POST /Videos/MergeVersions with the ids, and the
 // media sources of an item from GET /Items?Ids= (as Jellyfin 12.4 answers, probe B3e).
