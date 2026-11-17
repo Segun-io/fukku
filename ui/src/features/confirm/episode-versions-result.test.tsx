@@ -2,6 +2,7 @@ import { screen, within } from "@testing-library/react";
 import { HttpResponse, http } from "msw";
 import { describe, expect, it } from "vitest";
 import type { ImportInfo, ImportResult, JobDetail, JobState } from "@/api/types";
+import es from "@/i18n/es";
 import { versionResult, versionsResult } from "@/mocks/episode-version-fixtures";
 import { jobDetail } from "@/mocks/fixtures";
 import { applyScenarios } from "@/mocks/handlers";
@@ -13,13 +14,19 @@ import { renderApp } from "@/test/render";
 const rows = (...results: string[]): ImportInfo["rows"] =>
   results.map((result, i) => ({ id: `r${i + 1}`, name: `File ${i + 1}.mkv`, result }));
 
-function serve(state: JobState, imp: ImportInfo, result: Partial<ImportResult> | null = null) {
+function serve(
+  state: JobState,
+  imp: ImportInfo,
+  result: Partial<ImportResult> | null = null,
+  extra: Partial<JobDetail> = {},
+) {
   const base = mappingJobs.find((j) => j.id === mappingJobId);
   const job = { ...(base as NonNullable<typeof base>), state };
   const detail: JobDetail = {
     ...jobDetail(job),
     target: { app: "sonarr", titleId: 12, title: "Lighthouse Letters", year: 2019 },
     import: imp,
+    ...extra,
     result: result && {
       titleLink: null,
       monitored: true,
@@ -180,6 +187,72 @@ describe("the import of episodes kept as second versions", () => {
     expect(
       await screen.findByText(/did not group the versions with the episodes\. Fukku tries again/),
     ).toBeVisible();
+  });
+
+  it("does not call a partial result a plain success, and counts both sides", async () => {
+    serve(
+      "done",
+      { status: "done", rows: rows("failed", "version", "version") },
+      {
+        episodeVersions: versionsResult([
+          versionResult("r1", 7, {
+            status: "refused",
+            refusal: "version_upgrade",
+            groupedAt: null,
+          }),
+          versionResult("r2", 8),
+          versionResult("r3", 9),
+        ]),
+      },
+    );
+    const title = await screen.findByText("2 of 3 second versions are in place");
+    const notice = title.closest("[data-tone]") as HTMLElement;
+    expect(notice).toHaveAttribute("data-tone", "caution");
+    expect(notice).toHaveTextContent("1 could not be placed");
+  });
+
+  it("says how many were refused next to the usual title when new episodes were imported", async () => {
+    serve(
+      "done",
+      { status: "done", rows: rows("version", "imported") },
+      {
+        episodeVersions: versionsResult([
+          versionResult("r1", 7, { status: "refused", refusal: "version_exists", groupedAt: null }),
+          versionResult("r2", 8),
+        ]),
+      },
+    );
+    const title = await screen.findByText("Lighthouse Letters is in the library");
+    expect(title.closest("[data-tone]")).toHaveTextContent("1 could not be placed");
+  });
+
+  it.each([
+    ["version_upgrade", /would take every second version/],
+    ["version_unchecked", /gave no verdict on any second version/],
+    ["version_exists", /already exists under its name/],
+  ])("explains a job that failed because every version was refused: %s", async (code, text) => {
+    serve(
+      "failed",
+      { status: "done", rows: rows("failed") },
+      {
+        episodeVersions: versionsResult([
+          versionResult("r1", 7, { status: "refused", refusal: code, groupedAt: null }),
+        ]),
+      },
+      { error: { code, message: "x" } },
+    );
+    expect(await screen.findByText(text)).toBeVisible();
+    expect(screen.queryByText(/Something went wrong with this upload/)).not.toBeInTheDocument();
+    // The placement's own sentence is there for the failed job too.
+    const list = screen.getByRole("list", { name: "Second versions" });
+    expect(
+      within(list).getByText(/was not placed|were not placed|gave no verdict|already exists/),
+    ).toBeVisible();
+  });
+
+  it("writes the episode as S01E07 in Spanish too, as in the file names", () => {
+    expect(es["import.episodeVersion.item"]).toBe("S{season}E{episode}");
+    expect(versionResult("r1", 12).name).toContain("S01E12");
   });
 
   it("shows the dev scenario of a finished import with versions", async () => {

@@ -1,5 +1,5 @@
 import { Info, TriangleAlert } from "lucide-react";
-import { useId } from "react";
+import { useEffect, useId, useRef } from "react";
 import type { EpisodeVersionsView, ProposalRow } from "@/api/proposal";
 import { useSession } from "@/api/session";
 import { inputClass } from "@/components/patterns/field";
@@ -29,6 +29,8 @@ type Props = {
   /** The server refused the label (`version_label`). */
   labelRefused: boolean;
   refusal: VersionRefusal | null;
+  /** The user chooses the policy (there are radios above); else the server fixes it. */
+  asks: boolean;
 };
 
 /**
@@ -45,6 +47,7 @@ export function EpisodeVersionsSection({
   onLabel,
   labelRefused,
   refusal,
+  asks,
 }: Props) {
   const { t } = useT();
   const id = useId();
@@ -56,6 +59,18 @@ export function EpisodeVersionsSection({
   const nameOf = (rowId: string) => rows.find((r) => r.id === rowId)?.name ?? rowId;
   const problemOf = (rowId: string) => view?.rows.find((r) => r.row === rowId)?.problem ?? "";
   const pad = (n: number) => String(n).padStart(2, "0");
+  const refused = useRef<HTMLDivElement>(null);
+  // A refusal names rows: focus moves to it, so it is read once and the user is where it is.
+  useEffect(() => {
+    if (refusal && refusal.rows.length > 0) refused.current?.focus();
+  }, [refusal]);
+  const describedBy = [
+    `${id}-label-hint`,
+    problem ? `${id}-problem` : "",
+    labelRefused ? `${id}-label-error` : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
 
   return (
     <section aria-labelledby={`${id}-title`} className="grid gap-5">
@@ -75,17 +90,27 @@ export function EpisodeVersionsSection({
           className={inputClass}
           value={label}
           aria-invalid={problem || labelRefused ? true : undefined}
-          aria-describedby={`${id}-label-hint`}
+          placeholder={view?.label || undefined}
+          aria-describedby={describedBy}
           onChange={(e) => onLabel(e.target.value)}
         />
         <p id={`${id}-label-hint`} className="max-w-[65ch] text-sm text-muted-foreground">
           {t("confirm.version.label.hint")}
+          {label.trim() === "" && view && view.label !== "" && (
+            <> {t("confirm.version.label.proposed", { label: view.label })}</>
+          )}
         </p>
+        {labelRefused && (
+          <p id={`${id}-label-error`} role="alert" className="text-sm text-destructive">
+            {t("errors.version_label")}
+          </p>
+        )}
       </div>
 
       {problem && (
         <Notice
-          role="alert"
+          id={`${id}-problem`}
+          role="note"
           tone="caution"
           icon={TriangleAlert}
           titleAs="h3"
@@ -149,6 +174,8 @@ export function EpisodeVersionsSection({
 
       {refusal && refusal.rows.length > 0 && (
         <Notice
+          ref={refused}
+          tabIndex={-1}
           role="alert"
           tone="error"
           icon={TriangleAlert}
@@ -175,7 +202,9 @@ export function EpisodeVersionsSection({
               );
             })}
           </ul>
-          <p className="mt-2 text-sm">{t("confirm.version.refused.hint")}</p>
+          <p className="mt-2 text-sm">
+            {t(asks ? "confirm.version.refused.hint" : "confirm.version.refused.hint.fixed")}
+          </p>
         </Notice>
       )}
     </section>

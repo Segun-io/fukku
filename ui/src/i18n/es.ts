@@ -1064,6 +1064,20 @@ const es: Record<keyof typeof en, string> = {
   "confirm.version.only.other":
     "No se importará nada nuevo. {count} episodios se conservan como segundas versiones.",
   "confirm.version.refused.title": "Estos archivos no se pueden conservar como segundas versiones",
+  "confirm.version.refused.hint.fixed":
+    "Este servidor lo decide por sí mismo. Cambia la etiqueta, o vuelve atrás y cambia la correspondencia.",
+  "jobError.version_upgrade":
+    "Sonarr tomaría todas las segundas versiones por los archivos propios de los episodios, así que no se guardó ninguna. La biblioteca no se cambió.",
+  "jobError.version_unchecked":
+    "Sonarr no dio un veredicto sobre ninguna segunda versión, así que no se guardó ninguna. La biblioteca no se cambió.",
+  "jobError.version_exists":
+    "Todas las segundas versiones ya existen con su nombre, así que no se guardó ninguna. La biblioteca no se cambió.",
+  "import.episodeVersion.partial.title": "{placed} de {total} segundas versiones están en su sitio",
+  "import.episodeVersion.partial.body.one":
+    "{count} no se pudo guardar. Mira cada versión más abajo.",
+  "import.episodeVersion.partial.body.other":
+    "{count} no se pudieron guardar. Mira cada versión más abajo.",
+  "confirm.version.label.proposed": "Si esto queda vacío, el servidor usa «{label}».",
   "confirm.version.refused.hint":
     "Elige otra opción arriba, cambia la etiqueta, o vuelve atrás y cambia la correspondencia.",
   "confirm.version.refusal.version_upgrade":
@@ -1080,7 +1094,7 @@ const es: Record<keyof typeof en, string> = {
     "El servidor multimedia no agrupó las versiones con los episodios. Fukku lo intenta de nuevo solo; mientras tanto aparecen como entradas separadas.",
   "import.episodeVersion.title": "Segundas versiones",
   "import.episodeVersion.label": "Etiqueta: {label}",
-  "import.episodeVersion.item": "T{season}E{episode}",
+  "import.episodeVersion.item": "S{season}E{episode}",
   "import.episodeVersion.done.title": "Las segundas versiones de {title} están en su sitio",
   "import.episodeVersion.done.body.one":
     "Se conserva {count} archivo junto al archivo propio de su episodio.",

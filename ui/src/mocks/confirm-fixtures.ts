@@ -4,19 +4,34 @@
 
 import type { ProposalRow } from "@/api/proposal";
 import type { ConfirmRequest, ImportInfo, ImportResult } from "@/api/types";
+import { versionResult, versionsResult } from "./episode-version-fixtures";
 
 export type Refusal = { status: number; code: string; message: string; rows?: string[] };
 
 const hasIssues = (r: ProposalRow) => r.rejections.length > 0 || r.warnings.length > 0;
 
 /** Why the server would refuse this confirmation, or null. */
-export function confirmRefusal(rows: ProposalRow[], body: ConfirmRequest): Refusal | null {
+export function confirmRefusal(
+  rows: ProposalRow[],
+  body: ConfirmRequest,
+  /** The policy the server fixes (`seasonDub.decided`), when it does. */
+  decided = "",
+): Refusal | null {
   const ids = new Set(rows.map((r) => r.id));
   if (body.overrides.some((id) => !ids.has(id))) {
     return { status: 400, code: "bad_request", message: "An override names no row." };
   }
+  const policy = body.seasonDub || decided;
+  if (body.version && policy !== "version") {
+    return {
+      status: 400,
+      code: "bad_request",
+      message: "version applies only to rows kept as second versions (seasonDub version).",
+    };
+  }
   const going = rows.filter((r) => !r.skip);
-  if (going.length === 0) {
+  // Rows kept as second versions, or given subtitles only, need no row to import.
+  if (going.length === 0 && policy !== "version" && policy !== "subtitlesOnly") {
     return { status: 409, code: "nothing_to_import", message: "Every row is skipped." };
   }
   const bad = (r: ProposalRow) => r.episodes !== undefined && r.episodes.length === 0;
@@ -47,10 +62,51 @@ export function confirmRefusal(rows: ProposalRow[], body: ConfirmRequest): Refus
 }
 
 /** What a mock import has reached: each call of the job detail moves it one step on. */
-export type ImportProgress = { rows: { id: string; name: string }[]; tick: number };
+export type ImportProgress = {
+  rows: { id: string; name: string }[];
+  /** Rows kept as second versions of their episodes (`seasonDub` `version`, #58). */
+  versions?: { id: string; name: string; season: number; episode: number; version: string }[];
+  label?: string;
+  tick: number;
+};
 
 /** The import and result of a mock job at `tick`; `state` is the job state to move to. */
-export function importAt(p: ImportProgress): {
+export function importAt(p: ImportProgress): ReturnType<typeof plainAt> {
+  const at = plainAt(p);
+  if (!p.versions?.length) return at;
+  // The rows kept as second versions are placed first, then grouped by the media server.
+  const kept = p.versions.map((v) => ({
+    id: v.id,
+    name: v.name,
+    result: p.tick === 0 ? "" : "version",
+  }));
+  at.import = { ...at.import, rows: [...at.import.rows, ...kept] };
+  if (at.result) {
+    const grouped = p.tick >= 3;
+    at.result = {
+      ...at.result,
+      seasonDub: { policy: "version", seasons: [...new Set(p.versions.map((v) => v.season))] },
+      episodeVersions: versionsResult(
+        p.versions.map((v) =>
+          versionResult(v.id, v.episode, {
+            seasonNumber: v.season,
+            name: v.version,
+            status: grouped ? "grouped" : "linked",
+            groupedAt: grouped ? "2026-01-02T12:05:00Z" : null,
+          }),
+        ),
+        { label: p.label ?? "" },
+      ),
+      postProcessing: [
+        ...at.result.postProcessing,
+        { step: "mediaServerEpisodeVersions", status: grouped ? "ok" : "pending", detail: "" },
+      ],
+    };
+  }
+  return at;
+}
+
+function plainAt(p: ImportProgress): {
   state: "importing" | "post-processing" | "done";
   import: ImportInfo;
   result: ImportResult | null;

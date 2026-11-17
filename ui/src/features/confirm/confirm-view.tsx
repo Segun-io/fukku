@@ -112,11 +112,21 @@ export function ConfirmView({ job, proposal, subtitleManager }: Props) {
           if (!(err instanceof ApiError)) return;
           if (err.code === "shared_file") setSharedRows(err.rows);
           if (isVersionRefusal(err.code)) setRefusal({ code: err.code, rows: err.rows });
+          if (err.code === "version_label") {
+            form.current?.querySelector<HTMLInputElement>('input[name="versionLabel"]')?.focus();
+          }
         },
       },
     );
   }
 
+  // The refusals of the version section are told there, with the rows or by the field, so the
+  // general message below would be a second alert for the same thing.
+  const shownApart =
+    isVersion &&
+    confirm.error instanceof ApiError &&
+    (confirm.error.code === "version_label" ||
+      (isVersionRefusal(confirm.error.code) && confirm.error.rows.length > 0));
   const stale = confirm.error instanceof ApiError && confirm.error.code === "needs_override";
 
   return (
@@ -195,6 +205,7 @@ export function ConfirmView({ job, proposal, subtitleManager }: Props) {
           }}
           labelRefused={confirm.error instanceof ApiError && confirm.error.code === "version_label"}
           refusal={refusal}
+          asks={dub?.ask === true}
         />
       )}
 
@@ -220,7 +231,12 @@ export function ConfirmView({ job, proposal, subtitleManager }: Props) {
                 });
                 setMissing((m) => m.filter((id) => id !== row.id));
               }}
-              onEdit={(patch) => edit.mutate({ rowId: row.id, edit: patch })}
+              onEdit={(patch) => {
+                // A refusal was about the rows as they were.
+                setRefusal(null);
+                confirm.reset();
+                edit.mutate({ rowId: row.id, edit: patch });
+              }}
             />
           ))}
         </ul>
@@ -290,7 +306,7 @@ export function ConfirmView({ job, proposal, subtitleManager }: Props) {
             {t("confirm.subtitles.invalid")}
           </p>
         )}
-        {confirm.isError && (
+        {confirm.isError && !shownApart && (
           <div>
             <ErrorMessage error={confirm.error} />
             {stale && <p className="text-sm text-ink-2">{t("confirm.override.stale")}</p>}

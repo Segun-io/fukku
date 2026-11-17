@@ -421,7 +421,7 @@ export const handlers = [
       return failure(409, "wrong_state", "The job is not waiting for confirmation.");
     }
     const body = (await request.json()) as ConfirmRequest;
-    const refusal = confirmRefusal(proposal.rows, body);
+    const refusal = confirmRefusal(proposal.rows, body, proposal.seasonDub?.decided);
     if (refusal) {
       return HttpResponse.json(
         { error: { code: refusal.code, message: refusal.message, rows: refusal.rows } },
@@ -429,7 +429,25 @@ export const handlers = [
       );
     }
     const going = proposal.rows.filter((r) => !r.skip);
-    imports[job.id] = { rows: going.map((r) => ({ id: r.id, name: r.name })), tick: 0 };
+    const view = proposal.seasonDub?.version;
+    const keeps = (body.seasonDub || proposal.seasonDub?.decided) === "version" && view;
+    const label = body.version?.label || view?.label || "";
+    imports[job.id] = {
+      rows: going.map((r) => ({ id: r.id, name: r.name })),
+      ...(keeps && view
+        ? {
+            label,
+            versions: view.rows.map((v) => ({
+              id: v.row,
+              name: proposal.rows.find((r) => r.id === v.row)?.name ?? v.row,
+              season: v.seasonNumber,
+              episode: v.episodeNumber,
+              version: v.name.replace(/ - [^-]*(\.\w+)$/, ` - ${label}$1`),
+            })),
+          }
+        : {}),
+      tick: 0,
+    };
     return HttpResponse.json(move(job, "importing"), { status: 202 });
   }),
 ];

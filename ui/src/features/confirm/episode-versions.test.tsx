@@ -4,6 +4,7 @@ import { HttpResponse, http } from "msw";
 import { afterEach, describe, expect, it } from "vitest";
 import type { Proposal, ProposalRow, SeasonDub } from "@/api/proposal";
 import type { ConfirmRequest, JobDetail } from "@/api/types";
+import { confirmRefusal } from "@/mocks/confirm-fixtures";
 import { versionDub, versionRow, versionView } from "@/mocks/episode-version-fixtures";
 import { jobDetail } from "@/mocks/fixtures";
 import { applyScenarios } from "@/mocks/handlers";
@@ -254,7 +255,7 @@ describe("the season-dub choice: second versions", () => {
     open();
     await chooseVersion(user);
     const notice = (await screen.findByText("This label cannot be used as it is")).closest(
-      "[role=alert]",
+      "[data-tone]",
     ) as HTMLElement;
     expect(notice).toHaveTextContent("must not contain a season or episode number");
     expect(await labelField()).toHaveAttribute("aria-invalid", "true");
@@ -333,9 +334,90 @@ describe("the season-dub choice: second versions", () => {
     await user.click(await importButton());
     const notice = await refusedNotice();
     expect(within(notice).getByText(/outside the library folders/)).toBeVisible();
+    // One alert only: the notice with the rows, which has the focus.
+    expect(screen.getAllByRole("alert")).toHaveLength(1);
+    expect(notice).toHaveFocus();
     expect(
-      screen.getByText(/A second version is not possible right now: it is switched off/),
+      screen.queryByText(/A second version is not possible right now/),
+    ).not.toBeInTheDocument();
+  });
+
+  it("tells the general message when version_unavailable names no rows (the series folder)", async () => {
+    const user = userEvent.setup();
+    serve([existing, fresh], versionDub());
+    open();
+    await chooseVersion(user);
+    refuse(409, "version_unavailable");
+    await user.click(await importButton());
+    expect(
+      await screen.findByText(/A second version is not possible right now: it is switched off/),
     ).toBeVisible();
+    expect(
+      screen.queryByText("These files cannot be kept as second versions"),
+    ).not.toBeInTheDocument();
+    expect(screen.getAllByRole("alert")).toHaveLength(1);
+  });
+
+  it("points to the label and the match, not to the options, when the server fixes the policy", async () => {
+    const user = userEvent.setup();
+    serve(
+      [existing, fresh],
+      versionDub({ policy: "version", ask: false, decided: "version", offers: ["version"] }),
+    );
+    open();
+    await labelField();
+    refuse(409, "version_upgrade", ["r1"]);
+    await user.click(await importButton());
+    const notice = await refusedNotice();
+    expect(within(notice).getByText(/This server settles it by itself/)).toBeVisible();
+    expect(within(notice).queryByText(/another option above/)).not.toBeInTheDocument();
+  });
+
+  it("clears a refusal when a row is edited", async () => {
+    const user = userEvent.setup();
+    serve([existing, fresh], versionDub());
+    open();
+    await chooseVersion(user);
+    refuse(409, "version_exists", ["r1"]);
+    await user.click(await importButton());
+    await refusedNotice();
+    await user.click(screen.getByRole("button", { name: "Leave this file out" }));
+    await waitFor(() =>
+      expect(
+        screen.queryByText("These files cannot be kept as second versions"),
+      ).not.toBeInTheDocument(),
+    );
+  });
+
+  it("shows the proposed label as the placeholder and says it is used when the field is empty", async () => {
+    const user = userEvent.setup();
+    serve([existing, fresh], versionDub());
+    open();
+    await chooseVersion(user);
+    const field = await labelField();
+    expect(field).toHaveAttribute("placeholder", "Español");
+    expect(screen.queryByText(/the server uses “Español”/)).not.toBeInTheDocument();
+    await user.clear(field);
+    expect(screen.getByText(/When this is empty, the server uses “Español”/)).toBeVisible();
+  });
+
+  it("links the label field to its problem", async () => {
+    const user = userEvent.setup();
+    serve(
+      [existing, fresh],
+      versionDub({
+        version: versionView({
+          label: "S01E02 Español",
+          problem: { reason: "label_episode", message: "x" },
+        }),
+      }),
+    );
+    open();
+    await chooseVersion(user);
+    const notice = (await screen.findByText("This label cannot be used as it is")).closest(
+      "[data-tone]",
+    ) as HTMLElement;
+    expect((await labelField()).getAttribute("aria-describedby")).toContain(notice.id);
   });
 
   it("keeps the label and the choice after a refusal", async () => {
@@ -360,7 +442,47 @@ describe("the season-dub choice: second versions", () => {
     expect(
       await screen.findByText("That label cannot be used. Change it and try again."),
     ).toBeVisible();
-    expect(await labelField()).toHaveAttribute("aria-invalid", "true");
+    const field = await labelField();
+    expect(field).toHaveAttribute("aria-invalid", "true");
+    const error = screen.getByText("That label cannot be used. Change it and try again.");
+    expect(field.getAttribute("aria-describedby")).toContain(error.id);
+    expect(field).toHaveFocus();
+    // The message is told once, by the field.
+    expect(screen.getAllByText("That label cannot be used. Change it and try again.")).toHaveLength(
+      1,
+    );
+  });
+
+  it("runs end to end against the dev mock: the choice, the label and the result", async () => {
+    const user = userEvent.setup();
+    applyScenarios(["mapping", "versions"]);
+    const { router } = renderApp(`/jobs/${mappingJobId}/confirm`);
+    for (let n = 4; n > 0; n--) {
+      await user.click(
+        (await screen.findAllByRole("button", { name: "Leave this file out" }))[0] as HTMLElement,
+      );
+      await waitFor(() =>
+        expect(screen.queryAllByRole("button", { name: "Leave this file out" })).toHaveLength(
+          n - 1,
+        ),
+      );
+    }
+    await chooseVersion(user);
+    const field = await labelField();
+    await user.clear(field);
+    await user.type(field, "Latino");
+    await user.click(await importButton());
+    await waitFor(() => expect(router.state.location.pathname).toBe(`/jobs/${mappingJobId}`));
+    expect(
+      await screen.findByRole("list", { name: "Second versions" }, { timeout: 14000 }),
+    ).toBeVisible();
+    expect(screen.getByText("Label: Latino")).toBeVisible();
+  }, 20000);
+
+  it("is refused by the dev mock when a label comes without the choice", async () => {
+    const refusal = confirmRefusal([fresh], { overrides: [], version: { label: "x" } });
+    expect(refusal).toMatchObject({ status: 400, code: "bad_request" });
+    expect(confirmRefusal([existing], { overrides: [], seasonDub: "version" })).toBeNull();
   });
 
   it("says when the storage is not available", async () => {

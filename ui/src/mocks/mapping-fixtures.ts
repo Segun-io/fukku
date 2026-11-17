@@ -13,8 +13,10 @@ import type {
   Rejection,
   RowEdit,
   RowEpisode,
+  SeasonDub,
   SeriesEpisode,
 } from "@/api/proposal";
+import { versionDub, versionRow, versionView } from "./episode-version-fixtures";
 
 const id = (n: number) => n.toString(16).padStart(32, "0");
 
@@ -80,6 +82,8 @@ type MockProposal = {
   app: "radarr" | "sonarr";
   target: { titleId: number; title: string; year: number };
   rows: Stored[];
+  /** The season-dub question for the rows that have a file (`?mock=versions`). */
+  seasonDub?: SeasonDub;
   /** The app has not answered yet (`?mock=pending`). */
   pending?: boolean;
   /** The next PATCH or bulk answers with this status, once (a test or a demo sets it). */
@@ -183,6 +187,16 @@ export function applyMappingScenarios(names: readonly string[]) {
     const film = proposals.get(mappingFilmJobId)?.rows[0];
     if (film) film.rejections = [{ reason: "Sample", permanent: true }];
   }
+  if (names.includes("versions")) {
+    // E07 already has a file: the server asks what to do with it and offers second versions.
+    const p = proposals.get(mappingJobId);
+    if (p) {
+      p.seasonDub = versionDub({
+        seasons: [{ season: 1, episodes: 5, existing: 1, new: 4 }],
+        version: versionView({ rows: [versionRow("r5", 107, 1, 7)] }),
+      });
+    }
+  }
   if (names.includes("pending")) {
     for (const p of proposals.values()) p.pending = true;
   }
@@ -278,6 +292,7 @@ function proposalOf(p: MockProposal): Proposal {
     languages: [english, spanish],
   };
   if (p.app === "sonarr") out.episodes = seriesEpisodes;
+  if (p.seasonDub) out.seasonDub = structuredClone(p.seasonDub);
   const mismatched = rows.filter((r) => r.warnings.some((w) => w.code === "runtime_mismatch"));
   if (rows.length > 1 && mismatched.length > rows.length / 2) out.hints.push({ code: "dvd_order" });
   return out;

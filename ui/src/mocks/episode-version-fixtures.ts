@@ -63,7 +63,7 @@ export function versionResult(
     row,
     seasonNumber: 1,
     episodeNumber: episode,
-    name: `${seriesFolder} - S01E0${episode} - Español.mkv`,
+    name: `${seriesFolder} - S01E${String(episode).padStart(2, "0")} - Español.mkv`,
     status: "grouped",
     refusal: "",
     detail: "",

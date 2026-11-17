@@ -1049,6 +1049,19 @@ const en = {
   "confirm.version.refused.title": "These files cannot be kept as second versions",
   "confirm.version.refused.hint":
     "Choose another option above, change the label, or go back and change the match.",
+  "confirm.version.refused.hint.fixed":
+    "This server settles it by itself. Change the label, or go back and change the match.",
+  "jobError.version_upgrade":
+    "Sonarr would take every second version for the episodes’ own files, so none was placed. The library was not changed.",
+  "jobError.version_unchecked":
+    "Sonarr gave no verdict on any second version, so none was placed. The library was not changed.",
+  "jobError.version_exists":
+    "Every second version already exists under its name, so none was placed. The library was not changed.",
+  "import.episodeVersion.partial.title": "{placed} of {total} second versions are in place",
+  "import.episodeVersion.partial.body.one": "{count} could not be placed. See each version below.",
+  "import.episodeVersion.partial.body.other":
+    "{count} could not be placed. See each version below.",
+  "confirm.version.label.proposed": "When this is empty, the server uses “{label}”.",
   "confirm.version.refusal.version_upgrade":
     "Sonarr would take this file for an upgrade of the episode’s own file on its next scan.",
   "confirm.version.refusal.version_unchecked":

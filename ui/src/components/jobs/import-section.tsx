@@ -289,6 +289,11 @@ export function ImportSection({ job, className }: { job: JobDetail; className?: 
   const nothingImported = subtitlesOnly && !anyImported;
   // Every row of the upload that had a file was kept as a second version, and nothing else imported.
   const versionsOnly = result?.episodeVersions != null && !anyImported;
+  const versionList = result?.episodeVersions?.versions ?? [];
+  const refusedVersions = versionList.filter((v) => v.status === "refused").length;
+  const placedVersions = versionList.length - refusedVersions;
+  // Some versions were placed and some refused: the result is not a plain success.
+  const partialVersions = refusedVersions > 0 && placedVersions > 0;
   const seasonList = result?.seasonDub?.seasons ?? [];
   const failedSteps = steps.filter((s) => s.status === "failed");
   // A row kept as an episode's second version (#58) is in the library as well.
@@ -318,14 +323,19 @@ export function ImportSection({ job, className }: { job: JobDetail; className?: 
       {finished && (
         <div className="grid gap-3">
           <Notice
-            tone="done"
-            icon={nothingImported ? Info : Check}
+            tone={versionsOnly && partialVersions ? "caution" : "done"}
+            icon={nothingImported ? Info : versionsOnly && partialVersions ? TriangleAlert : Check}
             role="status"
             title={
               nothingImported
                 ? t("import.seasonDub.subtitlesOnly.title")
                 : versionsOnly
-                  ? t("import.episodeVersion.done.title", { title: job.target?.title ?? "" })
+                  ? partialVersions
+                    ? t("import.episodeVersion.partial.title", {
+                        placed: placedVersions,
+                        total: versionList.length,
+                      })
+                    : t("import.episodeVersion.done.title", { title: job.target?.title ?? "" })
                   : result?.version
                     ? t("import.version.done.title", { title: job.target?.title ?? "" })
                     : result?.merge
@@ -346,22 +356,21 @@ export function ImportSection({ job, className }: { job: JobDetail; className?: 
             <p>
               {nothingImported
                 ? t("import.seasonDub.subtitlesOnly")
-                : versionsOnly && result?.episodeVersions
-                  ? t("import.episodeVersion.done.body", {
-                      count: result.episodeVersions.versions.filter((v) => v.status !== "refused")
-                        .length,
-                    })
-                  : result?.version
-                    ? t("import.version.done.body", {
-                        name: result.version.name,
-                        label: result.version.label,
-                      })
-                    : result?.merge
-                      ? t("import.merge.done.body", {
-                          app: app || t("import.app"),
-                          name: result.merge.name,
+                : versionsOnly && partialVersions
+                  ? t("import.episodeVersion.partial.body", { count: refusedVersions })
+                  : versionsOnly && result?.episodeVersions
+                    ? t("import.episodeVersion.done.body", { count: placedVersions })
+                    : result?.version
+                      ? t("import.version.done.body", {
+                          name: result.version.name,
+                          label: result.version.label,
                         })
-                      : t("import.done.body", { app: app || t("import.app") })}
+                      : result?.merge
+                        ? t("import.merge.done.body", {
+                            app: app || t("import.app"),
+                            name: result.merge.name,
+                          })
+                        : t("import.done.body", { app: app || t("import.app") })}
               {failedSteps.length > 0 && <> {t("import.done.failedSteps")}</>}
             </p>
             {result?.seasonDub?.policy === "replace" && (
@@ -372,6 +381,11 @@ export function ImportSection({ job, className }: { job: JobDetail; className?: 
                 })}
               </p>
             )}
+            {!versionsOnly && refusedVersions > 0 && (
+              <p className="mt-1">
+                {t("import.episodeVersion.partial.body", { count: refusedVersions })}
+              </p>
+            )}
             {subtitlesOnly && anyImported && (
               <p className="mt-1">{t("import.seasonDub.subtitlesOnly.mixed")}</p>
             )}
@@ -380,7 +394,6 @@ export function ImportSection({ job, className }: { job: JobDetail; className?: 
             )}
           </Notice>
           {result?.version && <VersionStatus version={result.version} />}
-          {result?.episodeVersions && <EpisodeVersionsStatus versions={result.episodeVersions} />}
           {result?.merge && result.merge.warnings.length > 0
             ? result.merge.warnings.map((w) => {
                 const known = (mergeWarningCodes as readonly string[]).includes(w.code);
@@ -418,6 +431,8 @@ export function ImportSection({ job, className }: { job: JobDetail; className?: 
               )}
         </div>
       )}
+
+      {result?.episodeVersions && <EpisodeVersionsStatus versions={result.episodeVersions} />}
 
       {showRows && imp && (
         <div className="grid gap-3">
