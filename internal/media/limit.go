@@ -11,7 +11,7 @@ import (
 
 // Wrap returns the program and arguments that run bin with args at nice priority nice
 // (worker.nice, 0 for none) under an address-space limit of memLimit bytes
-// (worker.toolMemoryLimit, 0 for none): `nice -n N prlimit --as=L -- bin args`. The limit
+// (worker.toolMemoryLimit, 0 for none): `nice -n N prlimit --core=0 --as=L -- bin args`. The limit
 // is set by prlimit(1) from util-linux, in the child only, so the worker keeps its own. A
 // tool that asks for more fails the allocation instead of growing until the host's OOM
 // killer picks a victim. A wrapper that cannot be found is an error (a broken install),
@@ -23,7 +23,9 @@ func Wrap(nice int, memLimit int64, bin string, args []string) (string, []string
 		if err != nil {
 			return "", nil, err
 		}
-		args = append([]string{"--as=" + strconv.FormatInt(memLimit, 10), "--", bin}, args...)
+		// --core=0: a tool that dies past the limit (or on a crafted file) leaves no core dump in
+		// the working directory; a dump would hold the tool's memory, the file it was reading included.
+		args = append([]string{"--core=0", "--as=" + strconv.FormatInt(memLimit, 10), "--", bin}, args...)
 		name = prlimit
 	}
 	if nice > 0 {
