@@ -183,7 +183,7 @@ func TestJ1MediaUpdated(t *testing.T) {
 // J2: POST /Videos/MergeVersions groups two films; does the grouping survive a full scan?
 func TestJ2MergeVersionsPersistence(t *testing.T) {
 	p := newProbe(t, "J2", "Jellyfin MergeVersions survives a library rescan",
-		"Unverified in the plan (the alternative versions.strategy=mergeApi depends on it)",
+		"Unverified in the plan (second versions of films are grouped with it, decision #20)",
 		false, "jellyfin")
 	name := uniq("Probe Merge (2004)")
 	dir := p.fresh(movies(name))

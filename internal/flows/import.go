@@ -75,6 +75,13 @@ type Engine struct {
 	// each submission. Tests replace it.
 	checkStorage func() error
 
+	// Second versions (#56, version.go): the post-processing steps of a version job, the
+	// filesystem checks of versions.root (tests replace them), and what is told when a job
+	// is done (the version keeper groups the film's versions again).
+	versionSteps        []PostStep
+	checkVersionStorage func() error
+	onDone              []func(store.Target)
+
 	mu      sync.Mutex
 	polled  map[string]time.Time // pacing only: when each importing job was last looked at
 	running map[string]bool      // jobs whose post-processing goroutine runs
@@ -97,6 +104,7 @@ func NewEngine(p *Proposals) *Engine {
 		}
 		return fscheck.SameFilesystem(e.p.cfg)
 	}
+	e.checkVersionStorage = func() error { return versionStorage(e.p.cfg) }
 	return e
 }
 
@@ -252,6 +260,9 @@ func (e *Engine) Importing(ctx context.Context, job store.Job) error {
 	// subtitlesOnly (#57): when the confirmation skipped every row (every episode has a file),
 	// nothing is imported; the post-processing hands the subtitles over.
 	if t, err := e.st.Target(ctx, job.ID); err == nil {
+		if v, ok := versionOf(t); ok { // a second version (#56): placed by Fukku, not imported
+			return e.placeVersion(ctx, job, t, v)
+		}
 		if c, ok := seasonDubOf(t); ok && c.Policy == PolicySubtitlesOnly {
 			rows, err := e.st.Rows(ctx, job.ID)
 			if err != nil {
@@ -758,6 +769,9 @@ func (e *Engine) Imported(ctx context.Context, job store.Job) error {
 	t, err := e.st.Target(ctx, job.ID)
 	if err != nil {
 		return err
+	}
+	if IsVersion(t) { // a second version (#56): Radarr's film and its monitoring are untouched
+		return e.p.move(ctx, job, &t, store.PostProcessing, store.Change{Note: "monitoring unchanged: a second version is not Radarr's file"})
 	}
 	rows, err := e.st.Rows(ctx, job.ID)
 	if err != nil {

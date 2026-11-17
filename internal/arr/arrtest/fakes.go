@@ -16,6 +16,8 @@ import (
 
 var (
 	_ arr.MovieManager  = (*FakeMovies)(nil)
+	_ arr.NameParser    = (*FakeMovies)(nil)
+	_ arr.MovieFinder   = (*FakeMovies)(nil)
 	_ arr.SeriesManager = (*FakeSeries)(nil)
 )
 
@@ -220,8 +222,41 @@ type FakeMovies struct {
 	// Queue holds the ids of films with an active download.
 	Queue map[int]bool
 	// Added records every Add call.
-	Added  []arr.AddMovie
-	nextID int
+	Added []arr.AddMovie
+	// Parsed maps a name to what Parse reads in it; any other name reads as Unknown.
+	Parsed map[string]arr.Parsed
+	// ParseCalls records the name of every Parse call.
+	ParseCalls []string
+	nextID     int
+}
+
+// Parse returns Parsed[title], or Unknown (parsed, no quality, revision 1).
+func (f *FakeMovies) Parse(_ context.Context, title string) (arr.Parsed, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.ParseCalls = append(f.ParseCalls, title)
+	if err := f.fail("Parse"); err != nil {
+		return arr.Parsed{}, err
+	}
+	if p, ok := f.Parsed[title]; ok {
+		return p, nil
+	}
+	return arr.Parsed{OK: true, Quality: arr.Quality{Name: "Unknown"}, Source: "unknown", Revision: 1}, nil
+}
+
+// MovieByTMDB returns the film of Library with the TMDB id. Err["MovieByTMDB"] makes it fail.
+func (f *FakeMovies) MovieByTMDB(_ context.Context, tmdbID int) (arr.Movie, bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if err := f.fail("MovieByTMDB"); err != nil {
+		return arr.Movie{}, false, err
+	}
+	for _, m := range f.Library {
+		if m.TMDBID == tmdbID && tmdbID != 0 {
+			return m, true, nil
+		}
+	}
+	return arr.Movie{}, false, nil
 }
 
 // Lookup returns Results, whatever the term. A result whose film is in Library (by TMDBID)

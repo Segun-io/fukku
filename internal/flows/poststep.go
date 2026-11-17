@@ -75,6 +75,23 @@ func GiveUp(err error) error {
 // Call it before the runner starts.
 func (e *Engine) AddPostStep(s PostStep) { e.steps = append(e.steps, s) }
 
+// AddVersionStep registers a post-processing step of second-version jobs (#56), which run
+// these instead of the import's steps. Call it before the runner starts.
+func (e *Engine) AddVersionStep(s PostStep) { e.versionSteps = append(e.versionSteps, s) }
+
+// OnDone registers f, called with the job's target when a job's post-processing has
+// finished (the version keeper groups the film's versions again after an import, #56).
+// f must not block. Call it before the runner starts.
+func (e *Engine) OnDone(f func(store.Target)) { e.onDone = append(e.onDone, f) }
+
+// stepsFor is the post-processing steps of a job with target t.
+func (e *Engine) stepsFor(t store.Target) []PostStep {
+	if IsVersion(t) {
+		return e.versionSteps
+	}
+	return e.steps
+}
+
 // PostProcessing is the runner step for post-processing jobs. Steps can wait for minutes
 // (the subtitle hand-over confirms each upload), and a runner step must not wait, so the
 // steps of a job run in their own goroutine, one per job; a pass while it runs does nothing.
@@ -132,8 +149,9 @@ func (e *Engine) postProcess(ctx context.Context, job store.Job) error {
 	for _, ps := range recorded {
 		byName[ps.Name] = ps
 	}
+	steps := e.stepsFor(t)
 	// Every step is listed from the start, in its order, so the result shows what is to come.
-	for _, s := range e.steps {
+	for _, s := range steps {
 		if _, ok := byName[s.Name()]; !ok {
 			ps := store.PostStep{JobID: job.ID, Name: s.Name(), Status: store.StepPending, UpdatedAt: e.now()}
 			if err := e.st.PutPostStep(ctx, ps); err != nil {
@@ -144,7 +162,7 @@ func (e *Engine) postProcess(ctx context.Context, job store.Job) error {
 	}
 	limit := max(e.p.cfg.Server.PostStepAttempts, 1)
 	pending := false
-	for _, s := range e.steps {
+	for _, s := range steps {
 		ps := byName[s.Name()]
 		if ps.Status != store.StepPending && ps.Status != "" {
 			continue
@@ -201,7 +219,13 @@ func (e *Engine) postProcess(ctx context.Context, job store.Job) error {
 	if pending {
 		return nil
 	}
-	return e.p.move(ctx, job, &t, store.Done, store.Change{Note: fmt.Sprintf("%d post-processing step(s) finished", len(e.steps))})
+	if err := e.p.move(ctx, job, &t, store.Done, store.Change{Note: fmt.Sprintf("%d post-processing step(s) finished", len(steps))}); err != nil {
+		return err
+	}
+	for _, f := range e.onDone {
+		f(t)
+	}
+	return nil
 }
 
 func (e *Engine) logStep(job store.Job, ps store.PostStep) {

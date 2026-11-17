@@ -139,7 +139,7 @@ same settings.
 | Setting | Environment | Default | Description |
 | --- | --- | --- | --- |
 | `paths.intakeRoot` | `FUKKU_PATHS_INTAKE_ROOT` | `/data/intake` | Where uploads (`.incoming/`) and jobs (`jobs/`) live. Must be on the library filesystem when `importMode=move` |
-| `paths.libraryRoots` | `FUKKU_PATHS_LIBRARY_ROOTS` | (empty) | Library root folders as Fukku sees them; used for the same-filesystem check, for second versions, and by the worker to read a film's library file in flow 2 (the runtime comparison): the worker reads a library file only when its path, as `paths.mappings.radarr` maps Radarr's, is a clean path inside one of these roots, and only through a read-only handle confined to that root (no `..`, no link out of it). A merge (flow 2a) reads the library file the same way and never writes it: its output is a new file in the job directory. With none set, a flow 2 job fails with `library_unreadable` |
+| `paths.libraryRoots` | `FUKKU_PATHS_LIBRARY_ROOTS` | (empty) | Library root folders as Fukku sees them; used for the same-filesystem check and by the worker to read a film's library file in flow 2 (the runtime comparison): the worker reads a library file only when its path, as `paths.mappings.radarr` maps Radarr's, is a clean path inside one of these roots, and only through a read-only handle confined to that root (no `..`, no link out of it). A merge (flow 2a) reads the library file the same way and never writes it: its output is a new file in the job directory. With none set, a flow 2 job fails with `library_unreadable` |
 | `paths.mappings.radarr` | `FUKKU_PATHS_MAPPINGS_RADARR` | (empty) | How Radarr sees Fukku's paths; empty means the same paths |
 | `paths.mappings.sonarr` | `FUKKU_PATHS_MAPPINGS_SONARR` | (empty) | How Sonarr sees Fukku's paths |
 | `paths.mappings.subtitles` | `FUKKU_PATHS_MAPPINGS_SUBTITLES` | (empty) | How the subtitle manager sees Fukku's paths |
@@ -213,13 +213,55 @@ same settings.
 
 ## versions
 
+A second version of a film (flow 2b, decision #20) is the upload kept **outside Radarr's
+root folders**, in `versions.root`, as `<versions.root>/<film folder>/<film folder> - <label>.<ext>`
+(the film folder is the name of Radarr's folder for the film). Radarr never sees it, so it never
+renames, upgrades or deletes it (probes B3e, B3g: a version inside the film folder can become
+the film's file on an upgrade). Jellyfin groups it with the film's file through its merge-versions
+call, so second versions of films need `mediaServer.provider: jellyfin`; with `none` they are not
+offered (`versions_unsupported`). Jellyfin loses that grouping when Radarr renames or upgrades
+the film's file, so Fukku checks every version on a schedule and after each of its own imports,
+and groups it again with the film's current file. These checks run whatever
+`versions.enabled` says, so versions placed before it was turned off keep their grouping. A film
+deleted in Radarr leaves its version on disk: Fukku marks it `film_deleted`, and a version whose
+file is gone `missing`; both are checked again every six `versions.regroupInterval` (at least
+hourly) and come back by themselves when the film or the file does. Neither status is decided
+from a passing fault: while a `paths.sentinels` file or the version's folder is missing, a check
+decides nothing (the record keeps its status, its detail says why), and a 404 for the film counts
+only when Radarr's own status call answers, asked again for each decision. Each version keeps its
+film's TMDB id: when Radarr's movie id now answers with another film's (a restored or rebuilt
+Radarr, or another instance), the version is never grouped with it and is treated like a deleted
+film. A film deleted and added back to Radarr gets a new id: the version follows it by its TMDB
+id (audit `version.reattached`). A version whose placement was cut short by a crash, and whose
+job then ended, is settled by the next check: linked and grouped when the file is the job's
+upload, otherwise its record is removed (so the name is not refused for ever). Episodes (Sonarr)
+follow the plan's naming rules instead (#58).
+
+The file is placed by a hard link from the job's folder, which never replaces an existing file,
+so `versions.root` must be on **the same mount** as the intake root and writable by the web
+process. Each confirmation checks this by trial: it links an empty file from the intake root into
+`versions.root` and removes both; trial files named `.fukku-linkcheck-…` that a crash left behind
+are removed by the next check once they are five minutes old. (Two bind mounts of one host folder report the same device id,
+yet a link between them fails, so comparing device ids is not enough. The move-import check of
+`paths.requireSameFilesystem` stays a device comparison: those moves are Radarr's and Sonarr's,
+through their own mounts.) `versions.root` must also be a folder of a Jellyfin Movies library (as
+`paths.mappings.mediaServer` maps it).
+In probe M3-versions the first version in a folder just added to the library was not found
+after the library refresh, only after the fallback scan (`mediaServer.refreshFallback`), so that
+first job waits `mediaServer.itemWait`; scanning the library once after adding the folder avoids it.
+
+`versions.strategy` (`naming` or `mergeApi`) was removed in #56: films always use the merge
+outside the film folder, and episodes naming. A configuration that still sets it fails to load
+(unknown key, or unknown variable `FUKKU_VERSIONS_STRATEGY`).
+
 | Setting | Environment | Default | Description |
 | --- | --- | --- | --- |
-| `versions.enabled` | `FUKKU_VERSIONS_ENABLED` | `false` | Allow second versions (flow 2b), the one direct write into the library |
-| `versions.strategy` | `FUKKU_VERSIONS_STRATEGY` | `naming` | `naming` (file names the media server groups, B1/B2) or `mergeApi` (the media server's merge-versions call) |
-| `versions.labelTemplate` | `FUKKU_VERSIONS_LABEL_TEMPLATE` | `{languageName}` | Label in `<folder name> - <label>.<ext>` |
-| `versions.forbiddenLabelTokens` | `FUKKU_VERSIONS_FORBIDDEN_LABEL_TOKENS` | `2160p, 1080p, 720p, 576p, 480p, 4k, uhd, hd, sd, bluray, blu-ray, bdrip, brrip, remux, web, webdl, web-dl, webrip, hdtv, dvd, dvdrip, hdr, dv, proper, repack` | Words a label must not contain, so the *arr app never adopts the version as an upgrade (B3) |
-| `versions.requireNotUpgradeVerdict` | `FUKKU_VERSIONS_REQUIRE_NOT_UPGRADE_VERDICT` | `true` | Before linking, the *arr app must reject the file as "not an upgrade" |
+| `versions.enabled` | `FUKKU_VERSIONS_ENABLED` | `false` | Offer second versions (flow 2b), the one direct write into the library |
+| `versions.root` | `FUKKU_VERSIONS_ROOT` | (empty) | Folder for films' second versions, as Fukku sees it. Required when `versions.enabled` is on. Must not overlap `paths.libraryRoots` or `paths.intakeRoot`, and before each version Fukku also checks it against Radarr's root folders (as `paths.mappings.radarr` maps them). Fukku creates one folder per film in it, never the root itself |
+| `versions.labelTemplate` | `FUKKU_VERSIONS_LABEL_TEMPLATE` | `{languageName}` | Label in `<film folder> - <label>.<ext>`, proposed to the user, who may change it. `{languageName}` is the upload's new audio language in that language (`Español` for a Spanish track the library file does not have), `{languageCode}` its ISO 639-1 code (`es`). Without a tagged audio language the user must type a label |
+| `versions.forbiddenLabelTokens` | `FUKKU_VERSIONS_FORBIDDEN_LABEL_TOKENS` | `2160p, 1080p, 720p, 576p, 480p, 4k, uhd, hd, sd, bluray, blu-ray, bdrip, brrip, remux, web, webdl, web-dl, webrip, hdtv, dvd, dvdrip, hdr, dv, proper, repack` | Words a label must not contain (whole words, any case; a token with `-` also matches with a space or `.`), so the version's name never reads as a quality or source (B3): such a label is refused with `version_label` |
+| `versions.requireNotUpgradeVerdict` | `FUKKU_VERSIONS_REQUIRE_NOT_UPGRADE_VERDICT` | `true` | Before a version is placed, ask the app what it reads in the version's name. Films: Radarr's `GET /parse` of `<film folder> - <label>` (no extension: with `.mkv` Radarr reads WEBDL-720p in any name) must read no quality, source, resolution, proper, real or repack beyond what it reads in `<film folder>` alone (so a film whose own title reads as a quality, such as `Cam (2018)`, can still have versions), else the label is refused (`version_label`). A name Radarr cannot parse at all gives no verdict, and is refused too: try another label, or turn this off. Episodes: Sonarr's "not an upgrade" verdict (#58) |
+| `versions.regroupInterval` | `FUKKU_VERSIONS_REGROUP_INTERVAL` | `10m` | How often every film version's grouping is checked: Fukku asks Radarr for the film's current file and merges the version with it again when the grouping was lost (audit `version.regrouped`, which names the old and the new file). Files the media server does not list yet get one refresh per pass for all of them (with `mediaServer.refreshMethod: libraryScan`, one scan, skipped while a scan runs), and one wait of up to `mediaServer.itemWait` for all of them together; a file in no library of the media server is skipped (logged) and the others go on. A version still not listed after that backs off: the gap between its attempts doubles (1, 2, 4… passes), up to the hourly recheck (a nudge after an import tries at once; a restart starts over). Fukku also checks a film's versions right after each of its own imports for that film. `film_deleted` and `missing` versions are checked every six intervals (at least hourly). `0` turns the schedule off (then only the checks after imports run) |
 
 ## seasonDub
 

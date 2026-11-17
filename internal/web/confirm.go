@@ -42,6 +42,29 @@ import (
 //	409 wrong_state        the job is not awaiting confirmation (or the rows changed meanwhile)
 //	409 flow2              the film already has a file (flow 2, #52): the job's "flow2" says
 //	                       what can be done instead
+//
+// A flow 2 job is confirmed as a second version of the film (#56, decision #20) with
+//
+//	POST /api/jobs/{id}/confirm  {"flow2": "version", "version": {"label": "Español"}}
+//	                              → 202 Job (state importing)
+//
+// label is optional (empty: flow2.version.label, the proposed one); overrides, subtitles
+// and seasonDub must be absent. The version is placed outside Radarr's root folders, in
+// versions.root, and grouped with the film in the media server (flows/version.go). Audit:
+// version.confirmed, then version.linked once the file is in place. Errors besides the
+// common ones:
+//
+//	409 version_unavailable  "version" is not among flow2.offers, or versions.root cannot be
+//	                       used (inside a Radarr root folder, say)
+//	409 version_label      the label is refused: a forbidden token, a word Jellyfin takes for
+//	                       an extra, a character that cannot be in a file name, too long, or
+//	                       Radarr reads a quality in the name (versions.requireNotUpgradeVerdict)
+//	409 version_exists     a file of the version's name is already there; nothing is replaced
+//	409 library_changed    Radarr's file for the film changed since the match: the job went
+//	                       back to probed; match the film again
+//	503 storage_unavailable  versions.root is missing, not writable, or not on the same mount
+//	                       as the intake root (checked by a trial hard link)
+//	400 bad_request        flow2 or version on a job that is not flow 2, or with other fields
 //	400 bad_request        an override names no row of the job; a subtitle choice names no
 //	                       subtitle file of the job, a file twice, or an unknown language
 //	503 storage_unavailable  a sentinel is missing, or the intake and library roots are on
@@ -103,7 +126,7 @@ func (s *Server) confirmError(w http.ResponseWriter, r *http.Request, err error)
 	switch e.Code {
 	case flows.CodeNeedsOverride, flows.CodeIncompleteRows, flows.CodeSeasonDubChoice, flows.CodeSharedFile:
 		writeJSON(w, http.StatusConflict, rowsErrorBody{rowsError{Code: e.Code, Message: e.Message, Rows: e.Rows}})
-	case flows.CodeNothingToImport:
+	case flows.CodeNothingToImport, flows.CodeVersionLabel, flows.CodeVersionUnavailable, flows.CodeVersionExists, flows.CodeLibraryChanged:
 		writeError(w, http.StatusConflict, e.Code, e.Message)
 	case flows.CodeStorageUnavailable:
 		writeError(w, http.StatusServiceUnavailable, e.Code, e.Message)

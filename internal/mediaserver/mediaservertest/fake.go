@@ -9,7 +9,10 @@ import (
 	"github.com/segun-io/fukku/internal/mediaserver"
 )
 
-var _ mediaserver.MediaServer = (*Fake)(nil)
+var (
+	_ mediaserver.MediaServer = (*Fake)(nil)
+	_ mediaserver.Grouper     = (*Fake)(nil)
+)
 
 // Fake is a media server that lists the paths in Items (path to item id). Titles in Pending
 // appear in Items once a Refresh has been made and more than FindsNeeded Find calls have
@@ -25,11 +28,17 @@ type Fake struct {
 	FindsNeeded int
 	// ScanOnly makes Pending appear only after a Scan, as in a library that was never scanned.
 	ScanOnly bool
+	// Unlisted paths are in no library of the server: Refresh refreshes the others and
+	// returns a *mediaserver.UnlistedError naming them, and they never appear.
+	Unlisted map[string]bool
 
 	Refreshed [][]string // the paths of every Refresh call
 	FindCalls []string   // the path of every Find call
 	Scans     int        // the number of Scan calls
+	Merged    [][]string // the item ids of every MergeVersions call
 
+	groups    map[string]int // item id to its MergeVersions group
+	group     int
 	refreshed bool
 	scanned   bool
 	finds     int
@@ -49,6 +58,15 @@ func (f *Fake) Refresh(_ context.Context, paths []string) error {
 		return err
 	}
 	f.refreshed = true
+	var unlisted []string
+	for _, p := range paths {
+		if f.Unlisted[p] {
+			unlisted = append(unlisted, p)
+		}
+	}
+	if len(unlisted) > 0 {
+		return &mediaserver.UnlistedError{Paths: unlisted}
+	}
 	return nil
 }
 
@@ -77,9 +95,11 @@ func (f *Fake) Find(_ context.Context, path string) (string, error) {
 				f.Items = map[string]string{}
 			}
 			for p, id := range f.Pending {
-				f.Items[p] = id
+				if !f.Unlisted[p] {
+					f.Items[p] = id
+					delete(f.Pending, p)
+				}
 			}
-			f.Pending = nil
 		}
 	}
 	return f.Items[path], nil

@@ -102,7 +102,7 @@ func (s *sqliteStore) ReplaceTarget(ctx context.Context, jobID string, from, to 
 // ReplaceTarget starts from these states and ends in one of the second set: rows exist only
 // from matched on, so a job never waits for confirmation with none.
 var (
-	matchStates   = map[State]bool{Probed: true, Matched: true, AwaitingConfirmation: true}
+	matchStates   = map[State]bool{Probed: true, Matched: true, AwaitingConfirmation: true, Importing: true}
 	replaceStates = map[State]bool{Probed: true, Matched: true}
 )
 

@@ -168,32 +168,39 @@ func staleProbe(rec Flow2, probe media.Probe) error {
 // target (and so without the stale probe), so the user matches the film again and Radarr
 // is asked for the tracked file again. A failed job would resume in matched and keep the
 // old record. The reason is the transition's note. Nothing happens when the job changed
-// meanwhile.
+// meanwhile. The second versions (#56) use it too, from awaiting-confirmation and from
+// importing (before anything is written): the job is expected in job.State.
 func (p *Proposals) rescan(ctx context.Context, job store.Job, t store.Target, why error) error {
+	_, err := p.backToProbed(ctx, job, t, why)
+	return err
+}
+
+// backToProbed is rescan, and reports whether the job moved.
+func (p *Proposals) backToProbed(ctx context.Context, job store.Job, t store.Target, why error) (bool, error) {
 	defer p.Lock(job.ID)()
 	cur, err := p.st.Job(ctx, job.ID)
 	if err != nil {
-		return err
+		return false, err
 	}
 	tg, err := p.st.Target(ctx, job.ID)
 	if errors.Is(err, store.ErrNotFound) {
-		return nil
+		return false, nil
 	}
 	if err != nil {
-		return err
+		return false, err
 	}
-	if cur.State != store.Matched || tg.App != t.App || tg.TitleID != t.TitleID || !tg.MatchedAt.Equal(t.MatchedAt) {
-		return nil
+	if cur.State != job.State || tg.App != t.App || tg.TitleID != t.TitleID || !tg.MatchedAt.Equal(t.MatchedAt) {
+		return false, nil
 	}
-	_, err = p.st.ReplaceTarget(ctx, job.ID, store.Matched, store.Probed, nil, store.Change{Actor: actor, Note: why.Error()})
+	_, err = p.st.ReplaceTarget(ctx, job.ID, job.State, store.Probed, nil, store.Change{Actor: actor, Note: why.Error()})
 	if errors.Is(err, store.ErrConflict) || errors.Is(err, store.ErrInvalidTransition) {
-		return nil
+		return false, nil
 	}
 	if err != nil {
-		return err
+		return false, err
 	}
-	p.log.Info("job_state", "job", job.ID, "from", store.Matched, "to", store.Probed, "note", why.Error())
-	return nil
+	p.log.Info("job_state", "job", job.ID, "from", job.State, "to", store.Probed, "note", why.Error())
+	return true, nil
 }
 
 // storeLibraryProbe writes the probe into the target's flow 2 record, under the job's lock

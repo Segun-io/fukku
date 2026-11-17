@@ -42,7 +42,49 @@ type Jellyfin struct {
 	http    *http.Client
 }
 
-var _ MediaServer = (*Jellyfin)(nil)
+var (
+	_ MediaServer = (*Jellyfin)(nil)
+	_ Grouper     = (*Jellyfin)(nil)
+)
+
+// MergeVersions groups the items as versions of one title (POST /Videos/MergeVersions).
+// The grouping survives library scans and metadata refreshes (probe J2), but not a rename
+// or a replacement of one of the files (probe B3e).
+func (j *Jellyfin) MergeVersions(ctx context.Context, itemIDs []string) error {
+	if len(itemIDs) < 2 {
+		return errors.New("jellyfin: merging versions needs two items or more")
+	}
+	return j.do(ctx, http.MethodPost, "/Videos/MergeVersions", url.Values{"ids": {strings.Join(itemIDs, ",")}}, nil, nil)
+}
+
+// Sources returns the paths of the item's media sources: its file and the files grouped
+// with it (GET /Items?Ids=). After a merge both items list both files (probe B3e).
+func (j *Jellyfin) Sources(ctx context.Context, itemID string) ([]string, error) {
+	var res struct {
+		Items []struct {
+			ID           string `json:"Id"`
+			MediaSources []struct {
+				Path string `json:"Path"`
+			} `json:"MediaSources"`
+		} `json:"Items"`
+	}
+	q := url.Values{"Ids": {itemID}, "Fields": {"Path,MediaSources"}, "EnableImages": {"false"}}
+	if err := j.do(ctx, http.MethodGet, "/Items", q, nil, &res); err != nil {
+		return nil, err
+	}
+	var out []string
+	for _, it := range res.Items {
+		if it.ID != itemID {
+			continue
+		}
+		for _, ms := range it.MediaSources {
+			if ms.Path != "" {
+				out = append(out, ms.Path)
+			}
+		}
+	}
+	return out, nil
+}
 
 // NewJellyfin builds the client from the mediaServer settings.
 func NewJellyfin(cfg config.MediaServer) *Jellyfin {
@@ -123,7 +165,7 @@ func (j *Jellyfin) refreshLibraries(ctx context.Context, paths []string) error {
 	if err := j.do(ctx, http.MethodGet, "/Library/VirtualFolders", nil, nil, &libs); err != nil {
 		return err
 	}
-	var ids []string
+	var ids, unlisted []string
 	seen := map[string]bool{}
 	for _, p := range paths {
 		id := ""
@@ -135,20 +177,34 @@ func (j *Jellyfin) refreshLibraries(ctx context.Context, paths []string) error {
 			}
 		}
 		if id == "" {
-			return fmt.Errorf("jellyfin: no library contains %s (check paths.mappings.mediaServer)", p)
+			unlisted = append(unlisted, p)
+			continue
 		}
 		if !seen[id] {
 			seen[id] = true
 			ids = append(ids, id)
 		}
 	}
+	// The libraries that hold a path are refreshed even when another path is in none: one
+	// misplaced file must not hold up the others (the version keeper refreshes many at once).
 	q := url.Values{"metadataRefreshMode": {"Default"}, "imageRefreshMode": {"Default"}, "recursive": {"false"}}
 	for _, id := range ids {
 		if err := j.do(ctx, http.MethodPost, "/Items/"+url.PathEscape(id)+"/Refresh", q, nil, nil); err != nil {
 			return err
 		}
 	}
+	if len(unlisted) > 0 {
+		return &UnlistedError{Paths: unlisted}
+	}
 	return nil
+}
+
+// UnlistedError is what Refresh returns, after refreshing the libraries of the other paths,
+// when some paths are in no library of the server.
+type UnlistedError struct{ Paths []string }
+
+func (e *UnlistedError) Error() string {
+	return fmt.Sprintf("jellyfin: no library contains %s (check paths.mappings.mediaServer)", strings.Join(e.Paths, ", "))
 }
 
 // Find returns the id of the film or episode whose file is path, or of the show whose folder

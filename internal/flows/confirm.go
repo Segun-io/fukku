@@ -22,6 +22,10 @@ type ConfirmRequest struct {
 	// SeasonDub is what to do with rows whose episodes already have a file (#57): one of
 	// the proposal's seasonDub.offers when seasonDub.ask is set; empty otherwise.
 	SeasonDub string `json:"seasonDub,omitempty"`
+	// Flow2 is what to do with a flow 2 job (#52): "version" keeps the upload as a second
+	// version of the film (#56), with Version. Empty: an import, which a flow 2 job refuses.
+	Flow2   string          `json:"flow2,omitempty"`
+	Version *VersionRequest `json:"version,omitempty"`
 }
 
 // Confirmation is what a confirmation did, for the audit log.
@@ -78,9 +82,15 @@ func (e *Engine) confirm(ctx context.Context, user, email, jobID string, req Con
 	if err != nil {
 		return Confirmation{}, err
 	}
-	if _, ok := Flow2Of(s.t); ok {
+	if rec, ok := Flow2Of(s.t); ok {
+		if req.Flow2 == OfferVersion {
+			return e.confirmVersion(ctx, user, email, s, rec, req) // #56
+		}
 		// Importing the upload would replace the film's file: flow 2 merges or adds a version.
 		return Confirmation{}, refuse(CodeFlow2, "The film already has a file in the library: this job can merge the new language into it or keep it as a second version, not import it.")
+	}
+	if req.Flow2 != "" || req.Version != nil {
+		return Confirmation{}, badRequest("flow2 and version apply only to a job whose film already has a file (flow 2).")
 	}
 	if s.t.App == AppRadarr {
 		// A flow 1 job was matched to a film without a file; one may have appeared since

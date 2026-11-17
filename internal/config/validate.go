@@ -249,11 +249,7 @@ func validateShared(p *problems, cfg Config) {
 		p.add("merge.languageTag", "must be a BCP 47 tag such as es-419")
 	}
 
-	v := cfg.Versions
-	oneOf(p, "versions.strategy", v.Strategy, "naming", "mergeApi")
-	if strings.TrimSpace(v.LabelTemplate) == "" {
-		p.add("versions.labelTemplate", "must not be empty")
-	}
+	validateVersions(p, cfg)
 
 	sd := cfg.SeasonDub
 	policies := []string{"merge", "version", "replace", "subtitlesOnly"}

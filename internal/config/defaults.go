@@ -119,7 +119,6 @@ func Defaults() Config {
 		},
 		Versions: Versions{
 			Enabled:       false,
-			Strategy:      "naming",
 			LabelTemplate: "{languageName}",
 			ForbiddenLabelTokens: []string{
 				"2160p", "1080p", "720p", "576p", "480p", "4k", "uhd", "hd", "sd",
@@ -127,6 +126,7 @@ func Defaults() Config {
 				"hdtv", "dvd", "dvdrip", "hdr", "dv", "proper", "repack",
 			},
 			RequireNotUpgradeVerdict: true,
+			RegroupInterval:          Duration(10 * time.Minute),
 		},
 		SeasonDub: SeasonDub{
 			Policy: "ask",

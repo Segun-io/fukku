@@ -174,7 +174,13 @@ func runWeb(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	deps.Imports.SetMetrics(deps.Metrics)
 	// Subtitles first, so that the media server's scan finds them next to the video.
 	deps.Imports.AddPostStep(subtitleStep(cfg, st))
-	deps.Imports.AddPostStep(mediaServerStep(cfg, log, deps.Radarr, deps.Sonarr))
+	ms := mediaServerStep(cfg, log, deps.Radarr, deps.Sonarr)
+	deps.Imports.AddPostStep(ms)
+	// Second versions of films (#56): their grouping in the media server, first by the job's
+	// own step, then by the keeper after each import and every versions.regroupInterval.
+	keeper := mediaserver.NewKeeper(cfg, log, st, deps.Radarr, ms.Server, deps.Locks)
+	deps.Imports.AddVersionStep(&mediaserver.VersionStep{Keeper: keeper, Store: st, Config: cfg})
+	deps.Imports.OnDone(keeper.Nudge)
 	// The job runner (#29) drives jobs next to the HTTP server and stops with it, before
 	// the store closes.
 	rn := runner.New(cfg, log, st, q, time.Now)
@@ -187,9 +193,17 @@ func runWeb(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	rn.ResumeWhen(flows.CodeArrUnavailable, "the app answers again", deps.Proposals.AppAnswers)
 	ran := make(chan error, 1)
 	go func() { ran <- rn.Run(ctx) }()
+	kept := make(chan struct{})
+	go func() {
+		defer close(kept)
+		// Whatever versions.enabled says: versions placed before it was turned off keep their
+		// grouping. With no record, a pass is one query.
+		_ = keeper.Run(ctx)
+	}()
 	err = web.New(cfg, log, ui.FS(), deps).Run(ctx)
 	cancel()
 	<-swept
+	<-kept
 	err = errors.Join(err, <-ran)
 	deps.Imports.Wait() // the post-processing goroutines end with ctx
 	return errors.Join(err, st.Close())
