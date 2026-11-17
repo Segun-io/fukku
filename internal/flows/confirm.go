@@ -275,7 +275,11 @@ func (e *Engine) confirm(ctx context.Context, user, email string, admin bool, jo
 	}
 	var dubChoice any // nil: the key goes
 	if dub != "" {
-		dubChoice = seasonDubChoice{Policy: dub, Seasons: ex.seasons, Rows: ex.rows}
+		c := seasonDubChoice{Policy: dub, Seasons: ex.seasons, Rows: ex.rows}
+		if dub == PolicyReplace {
+			c.Files = s.replacedFiles(ex.rows)
+		}
+		dubChoice = c
 	}
 	if opts, err = withOption(opts, "seasonDub", dubChoice); err != nil {
 		return Confirmation{}, err

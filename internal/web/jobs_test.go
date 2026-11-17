@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -18,6 +19,7 @@ import (
 
 	"github.com/segun-io/fukku/internal/auth"
 	"github.com/segun-io/fukku/internal/config"
+	"github.com/segun-io/fukku/internal/flows"
 	"github.com/segun-io/fukku/internal/jobdir"
 	"github.com/segun-io/fukku/internal/store"
 	"github.com/segun-io/fukku/internal/store/storetest"
@@ -556,6 +558,23 @@ func TestRetry(t *testing.T) {
 	for _, st := range []store.State{store.Uploading, store.Probed, store.Stalled, store.Cancelled, store.Done} {
 		e.fail(user1, "POST", jobPath(e.job("user1", st), "retry"), 409, "wrong_state")
 	}
+}
+
+// A job that failed with library_has_file would fail the same way on each retry (#116): it
+// offers no retry, and a retry is refused.
+func TestNoRetryForLibraryHasFile(t *testing.T) {
+	e := newEnv(t)
+	j := e.job("user1", store.Probed)
+	j, err := e.store.Transition(t.Context(), j.ID, store.Probed, store.Failed, store.Change{ErrorCode: flows.CodeLibraryHasFile, ErrorText: "sonarr: refused"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var v jobView
+	e.ok(user1, "GET", jobPath(j, ""), 200, &v)
+	if slices.Contains(v.Actions, "retry") || !slices.Contains(v.Actions, "delete") {
+		t.Errorf("actions %v", v.Actions)
+	}
+	e.fail(user1, "POST", jobPath(j, "retry"), 409, "wrong_state")
 }
 
 func TestDelete(t *testing.T) {

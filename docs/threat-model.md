@@ -196,10 +196,11 @@ stops more:
 - **A retry repeats an earlier confirmation.** The admin check is made when a job is
   confirmed; a retry or a resume submits what was confirmed then, so the owner can retry an
   admin's confirmation of their upload (a merge, `replace`), or one made before an upgrade
-  to #116 or while the setting was off. A retry cannot replace more than was confirmed:
-  each submission checks that it replaces no file the title got since, unless the
-  confirmation chose `replace` for that row (or the job is a merge, whose file is checked
-  against the match's).
+  to #116 or while the setting was off. Each submission checks that it replaces no file the
+  title got since, other than the file a `replace` row had at the confirmation (a merge's
+  film file is checked against the match's); a grab that lands between that check and the
+  app running the ManualImport (a command still queued or running is not checked again)
+  can still be replaced.
 - **`subtitlesOnly` and the subtitle hand-over are open to every user.** They import no
   video; Bazarr writes the job's subtitle file beside the episode's or film's file, and may
   overwrite an earlier subtitle of the same language and flags (as its own upgrades do). A

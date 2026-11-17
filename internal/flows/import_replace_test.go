@@ -2,6 +2,7 @@ package flows
 
 import (
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -98,6 +99,58 @@ func TestResumeDoesNotReplaceAnEpisodeThatGotAFile(t *testing.T) {
 	}
 	if j, _ = x.step(x.eng, x.jobNow(j)); j.State != store.Failed || j.ErrorCode != CodeLibraryHasFile || len(x.series.Imports) != 0 {
 		t.Fatalf("the resume: job %s (%s: %s), %d imports", j.State, j.ErrorCode, j.ErrorText, len(x.series.Imports))
+	}
+	// The text names the episode and the file, not the row's id.
+	if !strings.Contains(j.ErrorText, "S01E01 (Show.S01E01.mkv) has a file in Sonarr now") || strings.Contains(j.ErrorText, "r1") {
+		t.Errorf("error text %q", j.ErrorText)
+	}
+}
+
+// A row the confirmation chose to replace replaces the file its episode had then, and no
+// other: when Sonarr got a new file for that episode since (a grab), the retry refuses it.
+func TestRetryUnderReplaceRefusesAFileThatChanged(t *testing.T) {
+	x := dubEnv(t, nil, 101)
+	j := x.dubJob()
+	if _, err := x.confirmDub(j, PolicyReplace); err != nil {
+		t.Fatal(err)
+	}
+	j = x.jobNow(j)
+	tg, _ := x.st.Target(x.ctx, j.ID)
+	if c, _ := seasonDubOf(tg); c.Files["101"] != 601 {
+		t.Fatalf("stored files %v", c.Files)
+	}
+	x.series.Queue = map[int]bool{showID: true}
+	if j, _ = x.step(x.eng, j); j.State != store.Failed {
+		t.Fatalf("busy: %s", j.State)
+	}
+	x.series.Queue = nil
+	x.series.Eps[showID][0].FileID = 999 // a new release of S01E01
+	if j, _ = x.step(x.eng, x.retry(j)); j.State != store.Probed || len(x.series.Imports) != 0 {
+		t.Fatalf("the retry: job %s (%s), %d imports", j.State, j.ErrorText, len(x.series.Imports))
+	}
+	h, _ := x.st.History(x.ctx, j.ID)
+	if last := h[len(h)-1]; !strings.Contains(last.Note, "S01E01 (Show.S01E01.mkv) has a file in Sonarr now") {
+		t.Errorf("note %q", last.Note)
+	}
+}
+
+// A choice stored before the files were kept (an upgrade) is not compared.
+func TestReplaceChoiceWithoutFilesIsNotCompared(t *testing.T) {
+	t1 := store.Target{App: AppSonarr}
+	var err error
+	if t1.Options, err = withOption(nil, "seasonDub", seasonDubChoice{Policy: PolicyReplace, Rows: []string{"r1"}}); err != nil {
+		t.Fatal(err)
+	}
+	plan := []planned{{row: store.Row{ID: "r1"}, ar: arr.Row{EpisodeIDs: []int{101}}}}
+	now := tracked{Episodes: map[string]int{"101": 999}}
+	if got := replacesUnchosen(t1, plan, []bool{false}, now); len(got) != 0 {
+		t.Errorf("refused %v", got)
+	}
+	if t1.Options, err = withOption(nil, "seasonDub", seasonDubChoice{Policy: PolicyReplace, Rows: []string{"r1"}, Files: map[string]int{"101": 601}}); err != nil {
+		t.Fatal(err)
+	}
+	if got := replacesUnchosen(t1, plan, []bool{false}, now); len(got) != 1 {
+		t.Errorf("not refused: %v", got)
 	}
 }
 

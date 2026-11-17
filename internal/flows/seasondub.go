@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/segun-io/fukku/internal/store"
@@ -82,6 +83,11 @@ type seasonDubChoice struct {
 	Policy  string   `json:"policy"`
 	Seasons []int    `json:"seasons,omitempty"` // the seasons with an episode replaced or given subtitles
 	Rows    []string `json:"rows,omitempty"`    // the rows that have an episode with a file
+	// Files is, under replace, the library file of each episode of Rows at the confirmation
+	// (episode id → Sonarr's episode file id, 0: none): the import replaces those files
+	// only, and refuses when one changed since (#116). Absent for a choice stored before it
+	// was kept: those rows are not compared.
+	Files map[string]int `json:"files,omitempty"`
 }
 
 func seasonDubOf(t store.Target) (seasonDubChoice, bool) {
@@ -305,6 +311,25 @@ func (s *session) chooseDub(req string) (string, existing, error) {
 		return "", existing{}, badRequest("Nothing is offered for the rows that already have a file.")
 	}
 	return "", existing{}, nil
+}
+
+// replacedFiles returns the library file of each episode of rows, as Sonarr said when the
+// proposal was judged (episode id → episode file id; 0: none).
+func (s *session) replacedFiles(rows []string) map[string]int {
+	out := map[string]int{}
+	for _, r := range s.rows {
+		if !slices.Contains(rows, r.ID) {
+			continue
+		}
+		ar, _, err := decodeRow(r)
+		if err != nil {
+			continue
+		}
+		for _, id := range ar.EpisodeIDs {
+			out[strconv.Itoa(id)] = s.idx[id].FileID
+		}
+	}
+	return out
 }
 
 // replaceCovers reports whether a rejection of a row replaced by the policy is one the

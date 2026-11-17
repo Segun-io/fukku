@@ -647,17 +647,18 @@ func (e *Engine) submit(ctx context.Context, job store.Job, w work, got []bool) 
 // replacesUnchosen returns the rows about to be submitted (got false) whose film or episode
 // has a file in the app now (now, from look) that the confirmation did not choose to
 // replace: a flow 1 film never does (a film with a file is flow 2), and an episode's row
-// only under the season-dub policy replace, as one of the rows it covered. A merge is
-// checked by mergeStillTracked instead.
-func replacesUnchosen(t store.Target, plan []planned, got []bool, now tracked) []string {
+// only under the season-dub policy replace, as one of the rows it covered, and only the
+// file the episode had at the confirmation (seasonDubChoice.Files): a file Sonarr got since
+// is refused too. A merge is checked by mergeStillTracked instead.
+func replacesUnchosen(t store.Target, plan []planned, got []bool, now tracked) []planned {
 	if IsMerge(t) {
 		return nil
 	}
-	var chosen []string
+	var choice seasonDubChoice
 	if c, ok := seasonDubOf(t); ok && c.Policy == PolicyReplace {
-		chosen = c.Rows
+		choice = c
 	}
-	var out []string
+	var out []planned
 	for i, pl := range plan {
 		if got[i] {
 			continue
@@ -665,14 +666,23 @@ func replacesUnchosen(t store.Target, plan []planned, got []bool, now tracked) [
 		switch t.App {
 		case AppRadarr:
 			if now.Movie != nil {
-				out = append(out, pl.row.ID)
+				out = append(out, pl)
 			}
 		case AppSonarr:
-			if slices.Contains(chosen, pl.row.ID) {
-				continue
-			}
-			if slices.ContainsFunc(pl.ar.EpisodeIDs, func(id int) bool { return now.Episodes[strconv.Itoa(id)] != 0 }) {
-				out = append(out, pl.row.ID)
+			chosen := slices.Contains(choice.Rows, pl.row.ID)
+			if slices.ContainsFunc(pl.ar.EpisodeIDs, func(id int) bool {
+				key := strconv.Itoa(id)
+				fid := now.Episodes[key]
+				if fid == 0 {
+					return false
+				}
+				if !chosen {
+					return true
+				}
+				was, kept := choice.Files[key]
+				return choice.Files != nil && (!kept || was != fid)
+			}) {
+				out = append(out, pl)
 			}
 		}
 	}
@@ -684,18 +694,52 @@ func replacesUnchosen(t store.Target, plan []planned, got []bool, now tracked) [
 // film is then flow 2; a show's proposal asks what to do with those episodes). After one,
 // the job fails with CodeLibraryHasFile, since the import record belongs to that
 // submission; nothing is sent either way.
-func (e *Engine) libraryHasFile(ctx context.Context, job store.Job, w work, rows []string) error {
+func (e *Engine) libraryHasFile(ctx context.Context, job store.Job, w work, rows []planned) error {
 	what := "the film has a file in Radarr now"
 	if w.t.App == AppSonarr {
-		what = "episodes of " + strings.Join(rows, ", ") + " have a file in Sonarr now"
+		what = e.episodesText(ctx, w.t, rows) + " in Sonarr now"
 	}
-	e.log.Warn("import_would_replace", "job", job.ID, "app", w.t.App, "rows", strings.Join(rows, ","))
+	ids := make([]string, 0, len(rows))
+	for _, pl := range rows {
+		ids = append(ids, pl.row.ID)
+	}
+	e.log.Warn("import_would_replace", "job", job.ID, "app", w.t.App, "rows", strings.Join(ids, ","))
 	if w.imp.SubmittedAt.IsZero() {
 		e.forget(job.ID)
 		_, err := e.p.backToProbed(ctx, job, w.t, fmt.Errorf("not imported: %s, which this import would replace; match the title again", what))
 		return err
 	}
 	return e.fail(ctx, job, w.t, CodeLibraryHasFile, "refused before the import: "+what+", which this import would replace; nothing was sent")
+}
+
+// episodesText names the rows' episodes and files for the job's history: "S01E02
+// (Show.S01E02.mkv), S01E03 (Show.S01E03.mkv) have a new file" (the episode numbers are read
+// from Sonarr; when it does not answer, the file names alone).
+func (e *Engine) episodesText(ctx context.Context, t store.Target, rows []planned) string {
+	idx := map[int]arr.Episode{}
+	if eps, err := e.p.sonarr.Episodes(ctx, t.TitleID); err == nil {
+		idx = episodeIndex(eps)
+	}
+	parts := make([]string, 0, len(rows))
+	for _, pl := range rows {
+		var codes []string
+		for _, id := range pl.ar.EpisodeIDs {
+			if ep, ok := idx[id]; ok {
+				codes = append(codes, fmt.Sprintf("S%02dE%02d", ep.SeasonNumber, ep.Number))
+			}
+		}
+		name := path.Base(pl.ar.Path)
+		if len(codes) == 0 {
+			parts = append(parts, name)
+		} else {
+			parts = append(parts, fmt.Sprintf("%s (%s)", strings.Join(codes, "-"), name))
+		}
+	}
+	verb := "has a file"
+	if len(rows) > 1 {
+		verb = "have a file"
+	}
+	return strings.Join(parts, ", ") + " " + verb
 }
 
 // finish marks every row imported and moves the job to imported.

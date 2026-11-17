@@ -224,7 +224,7 @@ func (s *Server) actions(j store.Job, admin, beforeImport bool, submitted time.T
 	if beforeImport || s.canCancel(j, admin, submitted) {
 		out = append(out, "cancel")
 	}
-	if state == store.Failed {
+	if state == store.Failed && retryable(j) {
 		out = append(out, "retry")
 	}
 	if slices.Contains(deletable, state) {
@@ -234,6 +234,13 @@ func (s *Server) actions(j store.Job, admin, beforeImport bool, submitted time.T
 		out = append(out, "submit")
 	}
 	return out
+}
+
+// retryable reports whether a failed job may be retried. One that failed with
+// library_has_file would fail the same way again: the title has a file the import would
+// replace (#116), so the files are uploaded again instead.
+func retryable(j store.Job) bool {
+	return j.ErrorCode != flows.CodeLibraryHasFile
 }
 
 // canCancel reports whether a job may be cancelled. A job stalled on its way through the
@@ -699,7 +706,7 @@ func (s *Server) retryJob(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if j.State != store.Failed || j.Resume == "" {
+	if j.State != store.Failed || j.Resume == "" || !retryable(j) {
 		wrongState(w)
 		return
 	}
