@@ -411,7 +411,7 @@ func (e *Engine) confirmMerge(ctx context.Context, user, email string, s *sessio
 		for slot := 1; slot <= runner.PreviewSlots; slot++ {
 			if err := q.Cancel(ctx, runner.PreviewID(s.job.ID, slot)); err != nil {
 				e.log.Warn("preview_cancel_failed", "job", s.job.ID, "slot", slot, "error", err)
-				break
+				// The other slots are still cancelled; the importing step cancels them again.
 			}
 		}
 	}

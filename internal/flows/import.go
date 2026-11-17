@@ -602,7 +602,13 @@ func (e *Engine) submit(ctx context.Context, job store.Job, w work, got []bool) 
 	// the command among the app's before it submits again.
 	// The app has answered every call of this pass: its refusals so far are not counted.
 	imp := store.Import{JobID: job.ID, SubmittedAt: e.now(), Baseline: baseline, RefusalsFrom: len(w.hist)}
-	if err := e.st.PutImport(ctx, imp); err != nil {
+	// BeginImport writes only while the job is still importing: after a cancel (#92) the
+	// job's files are going, and nothing is sent.
+	if err := e.st.BeginImport(ctx, imp); errors.Is(err, store.ErrConflict) {
+		e.forget(job.ID)
+		e.log.Info("import_not_submitted", "job", job.ID, "note", "the job is no longer importing")
+		return nil
+	} else if err != nil {
 		return err
 	}
 	mode := e.cfgMode(w.t.App)

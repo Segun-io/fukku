@@ -21,6 +21,7 @@ var m2Tests = []struct {
 	{"TransitionFor", testTransitionFor},
 	{"Rows", testRows},
 	{"Import", testImport},
+	{"CancelUnsubmitted", testCancelUnsubmitted},
 	{"ConfirmImport", testConfirmImport},
 	{"PostSteps", testPostSteps},
 	{"ActiveJobsFor", testActiveJobsFor},

@@ -332,6 +332,16 @@ func (s *sqliteStore) UpdateRow(ctx context.Context, r Row) error {
 // ---- import ---------------------------------------------------------------------------
 
 func (s *sqliteStore) PutImport(ctx context.Context, i Import) error {
+	return s.putImport(ctx, i, false)
+}
+
+func (s *sqliteStore) BeginImport(ctx context.Context, i Import) error {
+	return s.putImport(ctx, i, true)
+}
+
+// putImport writes the import record; with importing it first checks, in the same
+// transaction, that the job is importing.
+func (s *sqliteStore) putImport(ctx context.Context, i Import, importing bool) error {
 	tx, err := s.w.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -339,6 +349,15 @@ func (s *sqliteStore) PutImport(ctx context.Context, i Import) error {
 	defer func() { _ = tx.Rollback() }()
 	if err := jobExists(ctx, tx, i.JobID); err != nil {
 		return err
+	}
+	if importing {
+		var state State
+		if err := tx.QueryRowContext(ctx, "SELECT state FROM jobs WHERE id = ?", i.JobID).Scan(&state); err != nil {
+			return err
+		}
+		if state != Importing {
+			return ErrConflict
+		}
 	}
 	if _, err := tx.ExecContext(ctx,
 		`INSERT INTO imports (job_id, command_id, submitted_at, finished_at, baseline, refusals_from) VALUES (?, ?, ?, ?, ?, ?)
@@ -349,6 +368,33 @@ func (s *sqliteStore) PutImport(ctx context.Context, i Import) error {
 		return err
 	}
 	return tx.Commit()
+}
+
+func (s *sqliteStore) CancelUnsubmitted(ctx context.Context, jobID string, from State, c Change) (Job, error) {
+	tx, err := s.w.BeginTx(ctx, nil)
+	if err != nil {
+		return Job{}, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if err := jobExists(ctx, tx, jobID); err != nil {
+		return Job{}, err
+	}
+	var submitted sql.NullInt64
+	err = tx.QueryRowContext(ctx, "SELECT submitted_at FROM imports WHERE job_id = ?", jobID).Scan(&submitted)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return Job{}, err
+	}
+	if !fromNanos(submitted).IsZero() {
+		return Job{}, ErrConflict
+	}
+	next, err := s.transitionTx(ctx, tx, jobID, from, Cancelled, c)
+	if err != nil {
+		return Job{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return Job{}, err
+	}
+	return next, nil
 }
 
 func (s *sqliteStore) Import(ctx context.Context, jobID string) (Import, error) {

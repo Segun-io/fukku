@@ -172,7 +172,7 @@ func (s *Server) confirmJob(w http.ResponseWriter, r *http.Request) {
 		s.internalError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusAccepted, s.view(u, c.Job, files, uploads))
+	writeJSON(w, http.StatusAccepted, s.view(r.Context(), u, c.Job, files, uploads))
 }
 
 func (s *Server) confirmError(w http.ResponseWriter, r *http.Request, err error) {
