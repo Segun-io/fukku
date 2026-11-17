@@ -168,8 +168,9 @@ func staleProbe(rec Flow2, probe media.Probe) error {
 // target (and so without the stale probe), so the user matches the film again and Radarr
 // is asked for the tracked file again. A failed job would resume in matched and keep the
 // old record. The reason is the transition's note. Nothing happens when the job changed
-// meanwhile. The second versions (#56) use it too, from awaiting-confirmation and from
-// importing (before anything is written): the job is expected in job.State.
+// meanwhile. The second versions (#56) and the merge (#55) use it too, from
+// awaiting-confirmation and from importing (before anything is written to the library):
+// the job is expected in job.State.
 func (p *Proposals) rescan(ctx context.Context, job store.Job, t store.Target, why error) error {
 	_, err := p.backToProbed(ctx, job, t, why)
 	return err

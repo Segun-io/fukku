@@ -19,8 +19,21 @@ import (
 // result.monitored is null until the monitoring is set (the imported step); for a show it
 // is true when every imported episode is monitored. unmonitorReason says why Fukku left it
 // unmonitored: dub_only (only a dub was imported, merge.unmonitorAfterDubOnlyImport; the
-// title's own search can still replace it), chosen (the user chose so at the match), or ""
-// (as it was in the app, or monitored).
+// title's own search can still replace it), chosen (the user chose so at the match), merged
+// (a merge replaced the film's file, merge.unmonitorAfterMerge, #55), or "" (as it was in
+// the app, or monitored).
+//
+// A merge (#55) adds "import.merge" (MergeView) and "result.merge" (MergeResult):
+//
+//	"merge": {"state": "merged", "refusal": "", "audioTracks": [2], "subtitleTracks": [], "offsetMs": -800,
+//	          "languageTag": "es-419", "trackName": "Español (Latino)", "keepOriginalDefault": true,
+//	          "arrLanguage": {"id": 37, "name": "Spanish (Latino)"}, "name": "Film (2001) WEBDL-1080p.mkv", "size": 123456789}
+//	"merge": {"name": "Film (2001) WEBDL-1080p.mkv",
+//	          "warnings": [{"code": "search_can_replace", "message": "The film is unmonitored, …"}]}
+//
+// import.merge.state is pending, running (the worker merges), merged or failed (the job
+// failed before the merge was made; refusal is the merge task's, e.g. verify_failed, or ""
+// when it did not refuse). arrLanguage is null when Radarr has no language for the tag.
 
 // Import statuses.
 const (
@@ -33,6 +46,10 @@ const (
 type ImportView struct {
 	Status string          `json:"status"`
 	Rows   []ImportRowView `json:"rows"`
+	// Merge is the merge of a flow 2a job (#55, merge.go): what it adds and how far it is.
+	// Its row (the merged file) is in rows once Radarr has re-checked it. Null for every
+	// other job.
+	Merge *MergeView `json:"merge"`
 }
 
 // ImportRowView is a row's result: "" (not yet), imported, failed or skipped. Name is the
@@ -54,8 +71,11 @@ type ResultView struct {
 	SeasonDub *SeasonDubResult `json:"seasonDub"`
 	// Version is the second version the job placed (#56) and its grouping in the media
 	// server; null for every other job.
-	Version        *VersionResult `json:"version"`
-	PostProcessing []StepView     `json:"postProcessing"`
+	Version *VersionResult `json:"version"`
+	// Merge is the merged file a flow 2a job imported (#55), with the warnings for the user
+	// (what can still replace it in Radarr, B6). Null for every other job.
+	Merge          *MergeResult `json:"merge"`
+	PostProcessing []StepView   `json:"postProcessing"`
 }
 
 // StepView is a post-processing step: pending, ok, failed or skipped. The detail of a step
@@ -91,7 +111,11 @@ func (e *Engine) Detail(ctx context.Context, job store.Job, admin bool) (*Import
 	for _, f := range files {
 		names[f.ID] = path.Base(f.Path)
 	}
-	iv = &ImportView{Rows: make([]ImportRowView, 0, len(rows))}
+	t, err := e.st.Target(ctx, job.ID)
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		return nil, nil, err
+	}
+	iv = &ImportView{Rows: make([]ImportRowView, 0, len(rows)), Merge: viewMerge(job, t)}
 	for _, r := range rows {
 		iv.Rows = append(iv.Rows, ImportRowView{ID: r.ID, Name: names[r.FileID], Result: r.Result})
 	}
@@ -122,11 +146,7 @@ func (e *Engine) Detail(ctx context.Context, job store.Job, admin bool) (*Import
 	for _, ps := range recorded {
 		byName[ps.Name] = ps
 	}
-	rv := &ResultView{PostProcessing: []StepView{}}
-	t, err := e.st.Target(ctx, job.ID)
-	if err != nil && !errors.Is(err, store.ErrNotFound) {
-		return nil, nil, err
-	}
+	rv := &ResultView{PostProcessing: []StepView{}, Merge: mergeResult(t)}
 	if mon, ok := monitoringOf(t); ok {
 		rv.Monitored, rv.UnmonitorReason = &mon.Monitored, mon.Reason
 	}

@@ -399,3 +399,28 @@ func TestSubtitlesOnlyGoesToTheEpisodesThatHaveAFile(t *testing.T) {
 		t.Fatalf("without the policy: %v", err)
 	}
 }
+
+// A merge (#55) imports the merged file, not the upload: the upload's subtitle files are
+// handed over for the film all the same.
+func TestMergeHandsTheUploadsSubtitlesOver(t *testing.T) {
+	h := newHarness(t)
+	up := h.add("Film.mkv", store.KindVideo, "v")
+	h.add("Film.es.srt", store.KindSubtitle, "x")
+	merged := store.File{ID: 10, JobID: jobID, Path: "merged/1/Film (2001) WEBDL-1080p.mkv", Kind: store.KindVideo, Status: store.FileOK}
+	h.files = append(h.files, merged)
+	proposal, _ := json.Marshal(arr.Row{MovieID: 7})
+	h.rows = []store.Row{{ID: "r10", JobID: jobID, FileID: merged.ID, Result: store.ResultImported, Proposal: proposal}}
+	// Without the merge, the upload was not imported.
+	if _, _, err := h.run(); err == nil || !strings.Contains(err.Error(), "not imported") {
+		t.Fatalf("without the merge: err = %v", err)
+	}
+	h.target.Options = json.RawMessage(fmt.Sprintf(`{"merge": {"uploadFileId": %d, "upload": %q, "output": {"fileId": 10, "path": %q, "size": 1}}}`,
+		up.ID, up.Path, merged.Path))
+	done, _, err := h.run()
+	if !done || err != nil || len(h.fake.Sent()) != 1 {
+		t.Fatalf("done=%v err=%v uploads=%d", done, err, len(h.fake.Sent()))
+	}
+	if s := h.fake.Sent()[0]; s.App != "radarr" || s.TitleID != 7 || s.Language != "es" {
+		t.Errorf("sent %+v", s)
+	}
+}

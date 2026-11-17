@@ -727,7 +727,16 @@ func TestDiscard(t *testing.T) {
 		}
 	}
 	e.q.Complete(lib1.ID, nil)
-	if l := e.leftovers(j.ID); len(l) != 4 {
+	// And a flow 2a merge (#55) of each attempt: a result, and a waiting task.
+	m1 := spool.Task{ID: MergeID(j.ID, 1), Kind: spool.KindMerge, Job: j.ID}
+	m2 := spool.Task{ID: MergeID(j.ID, 2), Kind: spool.KindMerge, Job: j.ID}
+	for _, task := range []spool.Task{m1, m2} {
+		if err := e.q.Submit(e.ctx, task); err != nil {
+			t.Fatal(err)
+		}
+	}
+	e.q.Complete(m1.ID, nil)
+	if l := e.leftovers(j.ID); len(l) != 6 {
 		t.Fatalf("leftovers %v", l)
 	}
 	for range 2 { // safe to repeat

@@ -65,6 +65,35 @@ import (
 //	503 storage_unavailable  versions.root is missing, not writable, or not on the same mount
 //	                       as the intake root (checked by a trial hard link)
 //	400 bad_request        flow2 or version on a job that is not flow 2, or with other fields
+//
+// A flow 2 job whose upload is the same cut is confirmed as a merge (#55, flows/merge.go):
+//
+//	POST /api/jobs/{id}/confirm  {"flow2": "merge", "merge": {"audioTracks": [2], "subtitleTracks": [],
+//	                              "offsetMs": -800, "languageTag": "es-419", "trackName": "Español (Latino)",
+//	                              "keepOriginalDefault": true}}
+//	                              → 202 Job (state importing)
+//
+// Every field of merge is optional: the preview's audio track and offset, no subtitle
+// track, and merge.languageTag, merge.trackName and merge.keepOriginalDefault. Tracks are
+// the upload's stream indexes (flow2.upload.audio, flow2.upload.subtitles). subtitles may
+// come with it (the job's subtitle files, handed over after the import); overrides and
+// seasonDub may not. The worker merges, Radarr replaces the film's file with the merged one
+// through Manual Import, and the film is unmonitored (merge.unmonitorAfterMerge). Audit:
+// merge.confirmed. The job's "import.merge" and "result.merge" show it. Errors besides the
+// common ones:
+//
+//	409 merge_not_offered  the upload cannot be merged (flow2.notOffered says why), or the
+//	                       job is not Radarr's
+//	409 preview_required   no ready preview of the upload with this offset and audio track
+//	                       (or a new one was requested meanwhile): render and watch the clips
+//	409 library_changed    Radarr's file for the film changed since the match; the job went
+//	                       back to probed, to be matched again
+//	400 bad_request        a track that is not the upload's, no audio track, a language tag
+//	                       not in canonical BCP 47 form, an invalid track name; flow2 or merge
+//	                       for a job that is not flow 2; overrides or seasonDub with a merge
+//
+// The import's own refusals:
+//
 //	400 bad_request        an override names no row of the job; a subtitle choice names no
 //	                       subtitle file of the job, a file twice, or an unknown language
 //	503 storage_unavailable  a sentinel is missing, or the intake and library roots are on
@@ -126,7 +155,8 @@ func (s *Server) confirmError(w http.ResponseWriter, r *http.Request, err error)
 	switch e.Code {
 	case flows.CodeNeedsOverride, flows.CodeIncompleteRows, flows.CodeSeasonDubChoice, flows.CodeSharedFile:
 		writeJSON(w, http.StatusConflict, rowsErrorBody{rowsError{Code: e.Code, Message: e.Message, Rows: e.Rows}})
-	case flows.CodeNothingToImport, flows.CodeVersionLabel, flows.CodeVersionUnavailable, flows.CodeVersionExists, flows.CodeLibraryChanged:
+	case flows.CodeNothingToImport, flows.CodeVersionLabel, flows.CodeVersionUnavailable, flows.CodeVersionExists,
+		flows.CodeLibraryChanged, flows.CodeMergeNotOffered, flows.CodePreviewRequired:
 		writeError(w, http.StatusConflict, e.Code, e.Message)
 	case flows.CodeStorageUnavailable:
 		writeError(w, http.StatusServiceUnavailable, e.Code, e.Message)

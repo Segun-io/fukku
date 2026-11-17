@@ -241,6 +241,13 @@ func plan(files []store.File, rows []store.Row, target store.Target) []item {
 	for _, r := range rows {
 		rowOf[r.FileID] = r
 	}
+	// A merge (#55) imports the merged file, not the upload: the upload's subtitle files go
+	// to the film as the merged file's row.
+	if up, merged, ok := flows.MergedFile(target); ok {
+		if r, ok := rowOf[merged]; ok {
+			rowOf[up] = r
+		}
+	}
 	videos := map[string]store.File{} // dir + "/" + stem
 	for _, f := range files {
 		if f.Kind == store.KindVideo && f.Status == store.FileOK {

@@ -208,8 +208,21 @@ same settings.
 | `merge.trackName` | `FUKKU_MERGE_TRACK_NAME` | `Español (Latino)` | Default name of the tracks a merge adds (audio and subtitles); a merge task may name another. At most 256 bytes, no control characters; empty adds them unnamed |
 | `merge.keepOriginalDefault` | `FUKKU_MERGE_KEEP_ORIGINAL_DEFAULT` | `true` | The original audio stays the default track: the library file's default flags are kept (a file in another container than Matroska states none, so its first video and audio track are made the default unless ffprobe reports others) and no added track is default. `false` makes the first added audio track the default instead, and the library file's audio tracks lose the flag. A merge task may choose otherwise |
 | `merge.coverageTolerance` | `FUKKU_MERGE_COVERAGE_TOLERANCE` | `3s` | How far each audio track a merge adds may fall short of the film, by the merged file's own timestamps (more than 0, at most `1m`): it must start no later than its start in the upload (after the offset) and end no earlier than the film's end (the video's end time or, when it ends sooner, the original audio's; a negative offset moves that end earlier by the offset) and than the end its DURATION tag in the upload states (shifted by the offset), each within this. A dub cut short, such as a truncated file whose header still states the full length, is refused (`verify_failed`) |
-| `merge.unmonitorAfterMerge` | `FUKKU_MERGE_UNMONITOR_AFTER_MERGE` | `true` | Unmonitor the title after a merge, so an upgrade without the dub cannot replace it (B6) |
+| `merge.unmonitorAfterMerge` | `FUKKU_MERGE_UNMONITOR_AFTER_MERGE` | `true` | Unmonitor the film once Radarr has imported the merged file, so that RSS sync and the Wanted searches do not replace it with a release without the dub (B6). The film's own Search in Radarr still can; the job's result says so (`search_can_replace`). Off: the film's monitoring is left as it was, and the result warns that any upgrade can replace the file (`upgrade_can_replace`) |
 | `merge.unmonitorAfterDubOnlyImport` | `FUKKU_MERGE_UNMONITOR_AFTER_DUB_ONLY_IMPORT` | `true` | Same after importing a file that only has the dub |
+
+A merge (flow 2a) never writes the library file: the worker writes the merged file into the
+job's directory (`merged/<attempt>/`, under the library file's name with `.mkv`), and Radarr
+replaces its file with it through Manual Import (with `radarr.importMode` `move` it takes
+the merged file away; the upload stays in the job until the job is removed). Radarr deletes
+the file it replaces unless its recycle bin is on: set Radarr's recycle bin (Settings, Media
+Management) to a folder on the library's filesystem to keep the previous file for a while.
+Before the merge and again before the import, Radarr's file for the film must still be the
+one of the match (its movie-file id and size); if it is not, the job goes back to the match
+and nothing is written. The merged file gets the existing file's quality and its languages
+plus Radarr's language for the tag (`es-419` is Spanish (Latino), `pt-BR` Portuguese
+(Brazil), any other tag its base language's English name); a tag Radarr has no language for
+leaves the existing languages only.
 
 ## versions
 
