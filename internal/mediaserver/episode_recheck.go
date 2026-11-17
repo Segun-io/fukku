@@ -30,8 +30,14 @@ import (
 // Sonarr, in this order, and record what they find as the version's status, with an audit
 // entry and a log event when it changes (the notice):
 //
-//   - series_deleted: Sonarr answers 404 for the series, or the series no longer has the
-//     episode. The file, if still there, is left alone.
+//   - the series: Sonarr's series id must still be the version's show. A 404, or a series
+//     with another TVDB id than the record's (a restored or rebuilt Sonarr, another
+//     instance), is looked for again by the TVDB id (GET /series?tvdbId=), and the record
+//     follows a show added back under a new id (audit version.reattached). The episode is
+//     found by its id, else by its season and number (Sonarr gives an episode a new id when
+//     its metadata is rebuilt; audit version.reattached too).
+//   - series_deleted: none of that finds the series or the episode. The file, if still
+//     there, is left alone.
 //   - series_moved: Sonarr's folder for the series is elsewhere and the version is not in it.
 //     Sonarr moves the whole folder when it moves a series' files, the version with it: then
 //     the record follows the version to its new path (audit version.followed; no file is
@@ -42,25 +48,31 @@ import (
 //   - episode_file_missing: Sonarr lists no file for the episode, or its file is not on disk:
 //     Sonarr's next rescan takes the version for the episode's file.
 //   - adoptable: Sonarr's verdict on the version (flows.EpisodeVerdictIn, the check made
-//     before the version was placed, asked of the file where it is) no longer rejects it as
-//     not an upgrade: its next rescan takes the version for the episode's file. Asked only
-//     with versions.requireNotUpgradeVerdict, when the episode's file changed, every
-//     finalRecheck, and on every pass while the version is adoptable.
+//     before the version was placed, asked of the file where it is, from Sonarr's proposal
+//     of the season folder with filterExistingFiles=true) no longer rejects it as not an upgrade: its
+//     next rescan takes the version for the episode's file. Asked only with
+//     versions.requireNotUpgradeVerdict, when the episode's file changed, every
+//     finalRecheck, and on every pass while the version is adoptable. A version stays
+//     adoptable until a verdict rejects it again: no verdict (the call failed, Sonarr gives
+//     none) decides nothing. A failed verdict backs off by season folder, as an unlisted
+//     version does, and the check goes on without it.
 //   - otherwise the version is grouped once the media server lists both files as one
 //     episode, or waiting (the server is refreshed once per pass, and a version it still does
 //     not list backs off, as films' do: a version placed again at a path Jellyfin knew can
 //     stay unlisted for minutes).
 //
 // Fukku never deletes, moves, renames or places a library file for any of them, and never
-// asks Sonarr to rescan. adopted, series_deleted and missing are checked
-// again every finalRecheck; the others on every pass (series_moved too: a move of Sonarr's
-// may be under way). Whatever the check finds, it decides
-// nothing from a passing fault, as for films: while a paths.sentinels file, the library root
-// that holds the version (paths.libraryRoots) or Sonarr's folder for the series is missing,
-// or Sonarr does not answer, the record keeps its status and its detail says why; a status
-// that comes from Sonarr's answer (series_deleted, series_moved, adopted) needs Sonarr's own
-// status call to answer, asked again for each decision. A record whose job is still running
-// is the job's step's.
+// asks Sonarr to rescan. adopted, series_deleted and missing are checked again every
+// finalRecheck; the others on every pass (series_moved too: a move of Sonarr's may be under
+// way). Whatever the check finds, it decides nothing from a passing fault, as for films:
+// while a paths.sentinels file, the library root that holds the version (paths.libraryRoots)
+// or Sonarr's folder for the series is missing, or Sonarr does not answer, the record keeps
+// its status and its detail says why; a status that comes from Sonarr's answer
+// (series_deleted, series_moved, adopted) needs Sonarr's own status call to answer, asked
+// again for each decision. Sonarr's slow calls (the series, its episodes and files, the
+// verdict) are made before the version's lock is taken (prepareEpisode), once per pass for
+// each series and season folder. A record whose job is still running (or stalled while
+// importing or post-processing) is the job's step's.
 
 // verdictMark is when Sonarr's verdict on an episode's version was last asked, and the
 // episode's file it was asked against. In memory only: a restart asks again.
@@ -69,11 +81,19 @@ type verdictMark struct {
 	fileID int
 }
 
+// sonarrFault is a check that failed because Sonarr did not answer: logged once per outage.
+type sonarrFault struct{ err error }
+
+func (e sonarrFault) Error() string { return "sonarr: " + e.err.Error() }
+func (e sonarrFault) Unwrap() error { return e.err }
+
 // sonarrCache is what a pass read of Sonarr, so that the versions of one series (one season
 // folder) cost one set of calls (one proposal).
 type sonarrCache struct {
 	series    map[int]*seriesView
 	proposals map[string]proposalAnswer
+	verdicts  map[string]verdictResult // by version path: asked by prepareEpisode
+	failed    map[string]bool          // season folders whose verdict failed in this pass
 }
 
 type seriesView struct {
@@ -89,9 +109,18 @@ type proposalAnswer struct {
 	err   error
 }
 
+// verdictResult is Sonarr's verdict on a version, asked against the episode's file fileID.
+type verdictResult struct {
+	fileID int
+	vd     flows.Verdict
+	err    error
+}
+
 func (c *sonarrCache) seriesOf(ctx context.Context, sm arr.SeriesManager, id int) *seriesView {
-	if v, ok := c.cached(id); ok {
-		return v
+	if c != nil {
+		if v, ok := c.series[id]; ok {
+			return v
+		}
 	}
 	v := &seriesView{}
 	s, err := sm.Series(ctx, id)
@@ -128,21 +157,24 @@ func (c *sonarrCache) seriesOf(ctx context.Context, sm arr.SeriesManager, id int
 	return v
 }
 
-func (c *sonarrCache) cached(id int) (*seriesView, bool) {
-	if c == nil {
-		return nil, false
-	}
-	v, ok := c.series[id]
-	return v, ok
-}
-
+// proposal is Sonarr's proposal of a season folder, asked without the files it tracks
+// (filterExistingFiles=true) when the client can: the episodes' own files need no verdict,
+// and each file of a proposal costs Sonarr a media-info read. Probe M3-episode-version-recheck:
+// Sonarr 4.0.20 gives the same verdict on the version so, but still lists a season folder's
+// tracked files, so this saves nothing there yet.
 func (c *sonarrCache) proposal(ctx context.Context, sm arr.SeriesManager, folder string) ([]arr.Row, error) {
 	if c != nil {
 		if a, ok := c.proposals[folder]; ok {
 			return a.items, a.err
 		}
 	}
-	items, err := sm.Proposal(ctx, folder)
+	var items []arr.Row
+	var err error
+	if u, ok := sm.(arr.UntrackedProposer); ok {
+		items, err = u.UntrackedProposal(ctx, folder)
+	} else {
+		items, err = sm.Proposal(ctx, folder)
+	}
 	if c != nil && ctx.Err() == nil {
 		if c.proposals == nil {
 			c.proposals = map[string]proposalAnswer{}
@@ -150,6 +182,43 @@ func (c *sonarrCache) proposal(ctx context.Context, sm arr.SeriesManager, folder
 		c.proposals[folder] = proposalAnswer{items, err}
 	}
 	return items, err
+}
+
+// verdictFor is the verdict prepareEpisode asked in this pass for the version at path against
+// the episode's file fileID.
+func (c *sonarrCache) verdictFor(path string, fileID int) (verdictResult, bool) {
+	if c == nil {
+		return verdictResult{}, false
+	}
+	r, ok := c.verdicts[path]
+	return r, ok && r.fileID == fileID
+}
+
+// otherShow says why Sonarr's series is not the version's show (another TVDB id); "" when it
+// may be.
+func (v *seriesView) otherShow(rec store.Version) string {
+	if rec.TVDBID != 0 && v.series.TVDBID != 0 && v.series.TVDBID != rec.TVDBID {
+		return fmt.Sprintf("sonarr's series %d is another show now (TVDB %d, the version's is TVDB %d)", rec.TitleID, v.series.TVDBID, rec.TVDBID)
+	}
+	return ""
+}
+
+// episodeFor is the version's episode in the series: by its id, else by its season and number
+// (byNumber: the episode has another id now).
+func (v *seriesView) episodeFor(rec store.Version) (ep arr.Episode, found, byNumber bool) {
+	if e, ok := v.eps[rec.EpisodeID]; ok {
+		return e, true, false
+	}
+	var match []arr.Episode
+	for _, e := range v.eps {
+		if e.SeasonNumber == rec.SeasonNumber && e.Number == rec.EpisodeNumber {
+			match = append(match, e)
+		}
+	}
+	if len(match) != 1 {
+		return arr.Episode{}, false, false
+	}
+	return match[0], true, true
 }
 
 // episodeDue reports whether a scheduled pass re-checks an episode's version (see the top of
@@ -168,7 +237,8 @@ func (k *Keeper) episodeDue(rec store.Version) bool {
 }
 
 // stepOwns reports whether an episode's version belongs to its job's step still: the job is
-// importing or post-processing, and its step mediaServerEpisodeVersions writes the record.
+// importing or post-processing, or stalled there (it resumes into the step), and its step
+// mediaServerEpisodeVersions writes the record.
 func (k *Keeper) stepOwns(ctx context.Context, rec store.Version) bool {
 	if rec.App != flows.AppSonarr {
 		return false
@@ -177,7 +247,8 @@ func (k *Keeper) stepOwns(ctx context.Context, rec store.Version) bool {
 	if err != nil {
 		return false
 	}
-	return job.State == store.Importing || job.State == store.Imported || job.State == store.PostProcessing
+	running := []store.State{store.Importing, store.Imported, store.PostProcessing}
+	return slices.Contains(running, job.State) || job.State == store.Stalled && slices.Contains(running, job.Resume)
 }
 
 // noticeStatus: a status of the re-check that a version recovers from.
@@ -188,6 +259,48 @@ func noticeStatus(s string) bool {
 		return true
 	}
 	return false
+}
+
+// prepareEpisode makes Sonarr's slow calls for the check of an episode's version, before its
+// lock is taken: the series (once per pass), and the verdict when it is due and its season
+// folder is not backing off (one proposal per folder and pass). checkEpisode decides from
+// them.
+func (k *Keeper) prepareEpisode(ctx context.Context, rec store.Version, o checkOpts) {
+	if k.series == nil || o.sonarr == nil {
+		return
+	}
+	v := o.sonarr.seriesOf(ctx, k.series, rec.TitleID)
+	if !k.cfg.Versions.RequireNotUpgradeVerdict || v.err != nil || v.gone != "" || v.otherShow(rec) != "" {
+		return
+	}
+	ep, found, _ := v.episodeFor(rec)
+	if !found || ep.FileID == 0 {
+		return
+	}
+	if _, has := v.files[ep.FileID]; !has || !k.verdictDue(rec, ep.FileID) {
+		return
+	}
+	folder := pathmap.To(k.cfg.Paths.Mappings.Sonarr, filepath.Dir(rec.Path))
+	if k.backingOffIn(k.vfails, folder) {
+		return
+	}
+	vd, err := k.episodeVerdict(ctx, rec, ep.ID, o.sonarr)
+	if ctx.Err() != nil {
+		return
+	}
+	c := o.sonarr
+	if c.verdicts == nil {
+		c.verdicts, c.failed = map[string]verdictResult{}, map[string]bool{}
+	}
+	c.verdicts[rec.Path] = verdictResult{fileID: ep.FileID, vd: vd, err: err}
+	switch {
+	case err != nil && !c.failed[folder]:
+		c.failed[folder] = true
+		k.missedIn(k.vfails, folder)
+		k.log.Warn("version_verdict_failed", "folder", folder, "error", err)
+	case err == nil:
+		k.foundIn(k.vfails, folder)
+	}
 }
 
 // checkEpisode re-checks an episode's version (see the top of this file), under its lock. It
@@ -202,20 +315,52 @@ func (k *Keeper) checkEpisode(ctx context.Context, rec store.Version, o checkOpt
 	}
 	v := o.sonarr.seriesOf(ctx, k.series, rec.TitleID)
 	if v.err != nil {
-		return k.failed(ctx, rec, fmt.Errorf("sonarr: %w", v.err))
+		return k.failed(ctx, rec, sonarrFault{v.err})
 	}
+	k.sonarrAnswers()
 	gone := v.gone
-	ep, known := v.eps[rec.EpisodeID]
-	if gone == "" && !known {
-		gone = fmt.Sprintf("sonarr's series %d has no episode %d", rec.TitleID, rec.EpisodeID)
+	if gone == "" {
+		gone = v.otherShow(rec)
+	}
+	seriesGone := gone != "" // the series, not only the episode
+	ep, byNumber := arr.Episode{}, false
+	if gone == "" {
+		var found bool
+		if ep, found, byNumber = v.episodeFor(rec); !found {
+			gone = fmt.Sprintf("sonarr's series %d has no episode %d, nor one S%02dE%02d", rec.TitleID, rec.EpisodeID, rec.SeasonNumber, rec.EpisodeNumber)
+		}
 	}
 	if gone != "" {
 		// Asked again for each decision: a wrong URL base or proxy answers 404 to it too.
 		if _, why := k.series.Status(ctx); why != nil {
 			return k.failed(ctx, rec, fmt.Errorf("%s, and its status call fails too (%w): not taken for a deleted series", gone, why))
 		}
+		if seriesGone {
+			s, found, err := k.seriesAgain(ctx, rec)
+			if err != nil {
+				return k.failed(ctx, rec, sonarrFault{err})
+			}
+			if found {
+				return k.reattachSeries(ctx, rec, s, o)
+			}
+		}
 		return k.episodeNotice(ctx, rec, store.VersionSeriesDeleted, "version.series_deleted",
 			"Sonarr no longer has the series or the episode ("+gone+"); "+leftAlone(rec.Path))
+	}
+	if byNumber {
+		from := rec.EpisodeID
+		rec.EpisodeID = ep.ID
+		d := k.episodeDetail(rec)
+		d["previousEpisodeId"] = strconv.Itoa(from)
+		out, err := k.store.PutVersion(ctx, rec, k.entry(rec, "version.reattached", d))
+		if err != nil {
+			return out, nil, err
+		}
+		rec = out
+		k.log.Info("version_reattached", "job", rec.JobID, "path", rec.Path, "episode", d["episode"], "from", from, "to", ep.ID)
+	}
+	if rec.TVDBID == 0 && v.series.TVDBID != 0 {
+		rec.TVDBID = v.series.TVDBID // learnt now; written with the record below
 	}
 	sonarrMap := k.cfg.Paths.Mappings.Sonarr
 	seriesDir := fromApp(sonarrMap, v.series.Path)
@@ -260,23 +405,39 @@ func (k *Keeper) checkEpisode(ctx context.Context, rec store.Version, o checkOpt
 	} else if err != nil {
 		return k.failed(ctx, rec, err)
 	}
+
+	// Sonarr's verdict, as prepareEpisode asked it.
+	rejected, note := true, "" // rejected: Sonarr rejects the version (or need not be asked)
 	if k.cfg.Versions.RequireNotUpgradeVerdict && k.verdictDue(rec, ep.FileID) {
-		vd, err := k.episodeVerdict(ctx, rec, o.sonarr)
-		if err != nil {
-			return k.failed(ctx, rec, fmt.Errorf("sonarr's verdict: %w", err))
+		rejected = false
+		switch r, asked := o.sonarr.verdictFor(rec.Path, ep.FileID); {
+		case !asked:
+			if k.backingOffIn(k.vfails, pathmap.To(sonarrMap, filepath.Dir(rec.Path))) {
+				note = "Sonarr's verdict on the version failed lately: it is asked again later"
+			}
+		case r.err != nil:
+			note = fmt.Sprintf("Sonarr's verdict on the version could not be asked (asked again later): %v", r.err)
+		default:
+			k.verdictAsked(rec.Path, ep.FileID)
+			switch r.vd.Code {
+			case flows.CodeVersionUpgrade:
+				return k.episodeNotice(ctx, rec, store.VersionAdoptable, "version.adoptable", r.vd.Reason)
+			case flows.CodeVersionUnchecked: // no verdict: nothing is decided from it
+				k.log.Warn("version_unchecked", "job", rec.JobID, "path", rec.Path, "reason", r.vd.Reason)
+				note = "Sonarr gives no verdict on the version: " + r.vd.Reason
+			default:
+				rejected = true
+			}
 		}
-		k.verdictAsked(rec.Path, ep.FileID)
-		switch vd.Code {
-		case flows.CodeVersionUpgrade:
-			return k.episodeNotice(ctx, rec, store.VersionAdoptable, "version.adoptable", vd.Reason)
-		case flows.CodeVersionUnchecked: // no verdict: nothing is decided from it
-			k.log.Warn("version_unchecked", "job", rec.JobID, "path", rec.Path, "reason", vd.Reason)
-		}
+	}
+	if rec.Status == store.VersionAdoptable && !rejected {
+		// Still adoptable until a verdict rejects the version again.
+		return k.episodeNotice(ctx, rec, store.VersionAdoptable, "version.adoptable", rec.Detail)
 	}
 
 	g, ok := k.server.(Grouper)
 	if k.server == nil || !ok {
-		return k.episodeWaiting(ctx, rec, "no media server that can list an episode's versions is configured", nil)
+		return k.episodeWaiting(ctx, rec, join("no media server that can list an episode's versions is configured", note), nil)
 	}
 	ms := k.cfg.Paths.Mappings.MediaServer
 	look := [2]string{pathmap.To(ms, primary), pathmap.To(ms, rec.Path)}
@@ -285,9 +446,39 @@ func (k *Keeper) checkEpisode(ctx context.Context, rec store.Version, o checkOpt
 		return k.failed(ctx, rec, fmt.Errorf("look for the episode in the media server: %w", err))
 	}
 	if !grouped {
-		return k.episodeWaiting(ctx, rec, fmt.Sprintf("the media server does not list %s as a version of the episode's file %s yet", look[1], look[0]), look[:])
+		return k.episodeWaiting(ctx, rec, join(fmt.Sprintf("the media server does not list %s as a version of the episode's file %s yet", look[1], look[0]), note), look[:])
 	}
-	return k.episodeGrouped(ctx, rec, ep.FileID, primary, item)
+	return k.episodeGrouped(ctx, rec, ep.FileID, primary, item, note)
+}
+
+// seriesAgain looks for the version's show under another series id, by its TVDB id (the
+// series was deleted and added back, or Sonarr was rebuilt). found is false without a TVDB id,
+// a client that can look, or another id.
+func (k *Keeper) seriesAgain(ctx context.Context, rec store.Version) (arr.Series, bool, error) {
+	f, ok := k.series.(arr.SeriesFinder)
+	if !ok || rec.TVDBID == 0 {
+		return arr.Series{}, false, nil
+	}
+	s, found, err := f.SeriesByTVDB(ctx, rec.TVDBID)
+	if err != nil || !found || s.ID == rec.TitleID {
+		return arr.Series{}, false, err
+	}
+	return s, true, nil
+}
+
+// reattachSeries makes the record follow its show to Sonarr's series s (audit
+// version.reattached), and checks it there.
+func (k *Keeper) reattachSeries(ctx context.Context, rec store.Version, s arr.Series, o checkOpts) (store.Version, []string, error) {
+	from := rec.TitleID
+	rec.TitleID = s.ID
+	d := k.episodeDetail(rec)
+	d["previousTitleId"], d["tvdbId"] = strconv.Itoa(from), strconv.Itoa(rec.TVDBID)
+	out, err := k.store.PutVersion(ctx, rec, k.entry(rec, "version.reattached", d))
+	if err != nil {
+		return out, nil, err
+	}
+	k.log.Info("version_reattached", "job", rec.JobID, "path", rec.Path, "from", from, "to", s.ID)
+	return k.checkEpisode(ctx, out, o)
 }
 
 // seriesMoved is the check of a version that is not inside Sonarr's folder for the series,
@@ -434,15 +625,15 @@ func (k *Keeper) verdictAsked(path string, fileID int) {
 	k.verdicts[path] = verdictMark{at: k.now(), fileID: fileID}
 }
 
-// episodeVerdict asks Sonarr's verdict on the version where it is: the proposal of its season
-// folder (once per pass), re-checked for the episode.
-func (k *Keeper) episodeVerdict(ctx context.Context, rec store.Version, c *sonarrCache) (flows.Verdict, error) {
+// episodeVerdict asks Sonarr's verdict on the version where it is, as the episode episodeID:
+// the proposal of its season folder (once per pass), re-checked for the episode.
+func (k *Keeper) episodeVerdict(ctx context.Context, rec store.Version, episodeID int, c *sonarrCache) (flows.Verdict, error) {
 	m := k.cfg.Paths.Mappings.Sonarr
 	items, err := c.proposal(ctx, k.series, pathmap.To(m, filepath.Dir(rec.Path)))
 	if err != nil {
 		return flows.Verdict{}, err
 	}
-	return flows.EpisodeVerdictIn(ctx, k.series, items, pathmap.To(m, rec.Path), rec.TitleID, rec.EpisodeID, rec.SeasonNumber, rec.EpisodeNumber)
+	return flows.EpisodeVerdictIn(ctx, k.series, items, pathmap.To(m, rec.Path), rec.TitleID, episodeID, rec.SeasonNumber, rec.EpisodeNumber)
 }
 
 func (k *Keeper) episodeDetail(rec store.Version) map[string]string {
@@ -494,12 +685,12 @@ func (k *Keeper) episodeWaiting(ctx context.Context, rec store.Version, why stri
 }
 
 // episodeGrouped records the version as grouped with the episode's file fileID (primary, as
-// Fukku sees it) in the media server's item.
-func (k *Keeper) episodeGrouped(ctx context.Context, rec store.Version, fileID int, primary, item string) (store.Version, []string, error) {
+// Fukku sees it) in the media server's item; note is the detail (a verdict not asked).
+func (k *Keeper) episodeGrouped(ctx context.Context, rec store.Version, fileID int, primary, item, note string) (store.Version, []string, error) {
 	was, now := rec.Status, rec.CheckedAt
 	first := rec.GroupedAt.IsZero()
 	changed := rec.PrimaryFileID != 0 && rec.PrimaryFileID != fileID
-	rec.Status, rec.Detail = store.VersionGrouped, ""
+	rec.Status, rec.Detail = store.VersionGrouped, note
 	if first || changed {
 		rec.GroupedAt = now
 	}
@@ -519,6 +710,14 @@ func (k *Keeper) episodeGrouped(ctx context.Context, rec store.Version, fileID i
 		k.log.Info("version_grouped", "job", rec.JobID, "path", rec.Path, "item", item)
 	}
 	return out, nil, err
+}
+
+// join is why, and the note after it when there is one.
+func join(why, note string) string {
+	if note == "" {
+		return why
+	}
+	return why + "; " + note
 }
 
 // fromApp is an app's path as Fukku sees it, cleaned (a Windows app's separators read as /).

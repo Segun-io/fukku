@@ -188,7 +188,7 @@ func runWeb(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	if ms.Server != nil {
 		deps.Proposals.SetMediaServerVersion(ms.Server.Version)
 	}
-	deps.Imports.AddEpisodeVersionStep(&mediaserver.EpisodeVersionStep{Server: ms.Server, Series: deps.Sonarr, Store: st, Config: cfg, Log: log})
+	deps.Imports.AddEpisodeVersionStep(&mediaserver.EpisodeVersionStep{Server: ms.Server, Series: deps.Sonarr, Store: st, Config: cfg, Log: log, Locks: deps.Locks})
 	// The job runner (#29) drives jobs next to the HTTP server and stops with it, before
 	// the store closes.
 	rn := runner.New(cfg, log, st, q, time.Now)

@@ -8,10 +8,12 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/segun-io/fukku/internal/arr"
 	"github.com/segun-io/fukku/internal/config"
 	"github.com/segun-io/fukku/internal/flows"
 	"github.com/segun-io/fukku/internal/mediaserver"
@@ -24,13 +26,14 @@ import (
 // the pinned Sonarr and Jellyfin: a version placed next to S01E02's file (after Sonarr's
 // verdict) is grouped; Sonarr moves the series with its files and the record follows the
 // version; the episode's own file is deleted outside Sonarr (episode_file_missing); Sonarr's
-// rescan adopts the version (adopted); and the series deleted in Sonarr, without its files,
-// gives series_deleted. The keeper runs as the web process runs it (Keeper.Run, a short
+// rescan adopts the version (adopted); the series deleted in Sonarr, without its files,
+// gives series_deleted; and the show added back (a new series id, new episode ids) is found
+// again by its TVDB id, the episode by its season and number. The keeper runs as the web process runs it (Keeper.Run, a short
 // versions.regroupInterval). The show is added through Sonarr's metadata service (online), in
 // a series folder of its own ("Probe Recheck <run>", which the suite's start-up removes).
 func TestM3EpisodeVersionRecheck(t *testing.T) {
-	p := newProbe(t, "M3-episode-version-recheck", "The re-check of episodes' versions against Sonarr: a move of the series, the episode's file deleted, Sonarr's adoption, the series deleted (#96)",
-		"internal/mediaserver's Keeper records a placed episode's version as grouped; follows it when Sonarr moves the series with its files (the version moves with the folder); marks it episode_file_missing once the episode's file is deleted outside Sonarr, adopted once Sonarr's rescan takes it for the episode's file, and series_deleted once the series is deleted in Sonarr; it never touches the file",
+	p := newProbe(t, "M3-episode-version-recheck", "The re-check of episodes' versions against Sonarr: a move of the series, the episode's file deleted, Sonarr's adoption, the series deleted and added back (#96)",
+		"internal/mediaserver's Keeper records a placed episode's version as grouped; follows it when Sonarr moves the series with its files (the version moves with the folder); marks it episode_file_missing once the episode's file is deleted outside Sonarr, adopted once Sonarr's rescan takes it for the episode's file, series_deleted once the series is deleted in Sonarr, and follows the show added back under a new series id by its TVDB id (GET /series?tvdbId=) and the episode by its season and number; Sonarr's proposal with filterExistingFiles=true still lists the version, with the same verdict; it never touches the file",
 		true, "sonarr", "jellyfin")
 	ok := true
 	differ := func(format string, args ...any) {
@@ -90,6 +93,25 @@ func TestM3EpisodeVersionRecheck(t *testing.T) {
 	p.observe("Sonarr's verdict on the placed version, in the season folder: %q %s", vd.Code, vd.Reason)
 	if vd.Code != "" {
 		differ("in place, Sonarr does not reject the version as not an upgrade: %s %s", vd.Code, vd.Reason)
+	}
+	// The keeper asks it of the season folder's untracked files only (filterExistingFiles=true):
+	// the version must be among them, with the same verdict. (Whether the episode's own, tracked file
+	// is left out is observed: Sonarr 4.0.20 still lists it in a season folder.)
+	untracked, err := sc.(arr.UntrackedProposer).UntrackedProposal(p.ctx, season)
+	p.must(err, "untracked proposal")
+	var listed []string
+	for _, it := range untracked {
+		listed = append(listed, filepath.Base(it.Path))
+	}
+	vd, err = flows.EpisodeVerdictIn(p.ctx, sc, untracked, version, sid, testenv.ID(e2), 1, 2)
+	p.must(err, "verdict on the untracked proposal")
+	p.observe("the proposal of the season folder's untracked files lists %v; Sonarr's verdict on the version from it: %q %s", listed, vd.Code, vd.Reason)
+	p.observe("filterExistingFiles=true leaves out the episode's tracked file: %v", !slices.Contains(listed, filepath.Base(own)))
+	if !slices.Contains(listed, name) || vd.Code != "" {
+		differ("filterExistingFiles=true: listed %v, verdict %q %s", listed, vd.Code, vd.Reason)
+	}
+	if s, found, err := sc.(arr.SeriesFinder).SeriesByTVDB(p.ctx, caminandes.tvdb); err != nil || !found || s.ID != sid {
+		differ("GET /series?tvdbId=%d: %+v, %v, %v", caminandes.tvdb, s, found, err)
 	}
 
 	cfg := config.Defaults()
@@ -185,6 +207,47 @@ func TestM3EpisodeVersionRecheck(t *testing.T) {
 	if !exists(movedVersion) {
 		differ("the version was removed with the series deleted without its files")
 	}
+
+	// The show added back to Sonarr, in the same folder: a new series id and new episode ids.
+	// The record follows it by its TVDB id, then the episode by its season and number. (Set
+	// back to grouped again: series_deleted is checked again only hourly.)
+	var lookup []M
+	p.meta(env.Sonarr.Get(p.ctx, "/series/lookup"+testenv.Q("term", fmt.Sprintf("tvdb:%d", caminandes.tvdb)), &lookup), "lookup")
+	p.check(len(lookup) > 0, "lookup found the show")
+	body := lookup[0]
+	body["qualityProfileId"], body["path"], body["seasonFolder"], body["monitored"] = profileID(p, env.Sonarr), movedPath, true, true
+	body["addOptions"] = M{"monitor": "none", "searchForMissingEpisodes": false, "searchForCutoffUnmetEpisodes": false}
+	var again M
+	p.meta(env.Sonarr.Post(p.ctx, "/series", body, &again), "add the show back")
+	oldID := sid
+	sid, deleted = testenv.ID(again), false
+	var eps2 []M
+	p.must(testenv.WaitFor(p.ctx, 2*time.Minute, 2*time.Second, "episodes", func() (bool, error) {
+		err := env.Sonarr.Get(p.ctx, fmt.Sprintf("/episode?seriesId=%d", sid), &eps2)
+		return episode(eps2, 1, 2) != nil, err
+	}), "episodes of the show added back")
+	// Sonarr scans the folder after the add; wait for it to settle.
+	_ = testenv.WaitFor(p.ctx, time.Minute, 2*time.Second, "the scan", func() (bool, error) {
+		return episodeFile(p, sid, episode(eps2, 1, 2)) != nil, nil
+	})
+	e2again := episode(eps2, 1, 2)
+	afterAdd := episodeFile(p, sid, e2again)
+	p.observe("the show added back as series %d (was %d); S01E02 is episode %v (was %d); its file: %v",
+		sid, oldID, e2again["id"], testenv.ID(e2), afterAdd["relativePath"])
+	rec.Status, rec.Detail = store.VersionGrouped, ""
+	_, err = st.PutVersion(p.ctx, rec)
+	p.must(err, "reset the record")
+	stop = keeper()
+	want := store.VersionAdopted
+	if afterAdd == nil {
+		want = store.VersionEpisodeFileMissing
+	}
+	rec = await("show added back", movedVersion, want, time.Minute)
+	stop()
+	if rec.TitleID != sid || rec.EpisodeID != testenv.ID(e2again) || rec.TVDBID != caminandes.tvdb {
+		differ("the record did not follow the show added back: series %d, episode %d, TVDB %d", rec.TitleID, rec.EpisodeID, rec.TVDBID)
+	}
+
 	log2, _ := st.AuditLog(p.ctx, "probe-recheck")
 	var actions []string
 	for _, e := range log2 {

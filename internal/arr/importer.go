@@ -86,6 +86,25 @@ func (c *client) Proposal(ctx context.Context, folder string) ([]Row, error) {
 	return decodeRows(items)
 }
 
+// UntrackedProposer is implemented by a client that can list only the files of a folder that
+// the app does not track (filterExistingFiles=true): the re-check of episodes' versions (#96)
+// asks it of a library's season folder, where the episodes' own files need no verdict.
+type UntrackedProposer interface {
+	UntrackedProposal(ctx context.Context, folder string) ([]Row, error)
+}
+
+var _ UntrackedProposer = (*client)(nil)
+
+// UntrackedProposal is Proposal without the files the app already tracks.
+func (c *client) UntrackedProposal(ctx context.Context, folder string) ([]Row, error) {
+	q := url.Values{"folder": {folder}, "filterExistingFiles": {"true"}}
+	var items []json.RawMessage
+	if err := c.get(ctx, "/manualimport", q, &items); err != nil {
+		return nil, err
+	}
+	return decodeRows(items)
+}
+
 func (c *client) Recheck(ctx context.Context, rows []Row) ([]Row, error) {
 	if len(rows) == 0 {
 		return nil, nil

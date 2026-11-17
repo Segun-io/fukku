@@ -76,6 +76,9 @@ type Version struct {
 	EpisodeID     int
 	SeasonNumber  int
 	EpisodeNumber int
+	// TVDBID is the series' TVDB id (#96), to tell Sonarr's series id answering with another
+	// show and to find the series again under a new id; 0: unknown (and for films).
+	TVDBID int
 }
 
 // Versions is the part of Store that #56 adds.

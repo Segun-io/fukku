@@ -282,9 +282,15 @@ against Sonarr (#96), whatever `versions.enabled` says, and records what it find
 status, with an audit entry and a log event when it changes; admins see them in
 `GET /api/admin/versions`. In that order:
 
-- `series_deleted`: Sonarr answers 404 for the series, or the series no longer has the episode.
-  The version, if still on disk, is left there (remove it by hand). A series added back to Sonarr
-  gets new ids and is not followed.
+- The series first: Sonarr's series id must still be the version's show. Each record keeps the
+  show's TVDB id (from the confirmation, or learnt on the first check). A 404 for the series, or
+  a series with another TVDB id (a restored or rebuilt Sonarr, another instance), is looked for
+  again by the TVDB id (`GET /series?tvdbId=`): a show deleted and added back under a new id is
+  followed (audit `version.reattached`). The episode is found by its id, else by its season and
+  number (Sonarr gives an episode a new id when its metadata is rebuilt; `version.reattached`
+  too). The job's result still finds a record that followed its version or its episode.
+- `series_deleted`: none of that finds the show or the episode. The version, if still on disk,
+  is left there (remove it by hand).
 - `series_moved`: Sonarr's folder for the series is elsewhere and the version is not in it.
   Sonarr moves the whole folder when it moves a series with its files, the version with it: then
   Fukku's record follows the version to its new path (audit `version.followed`) and the check
@@ -297,25 +303,34 @@ status, with an audit entry and a log event when it changes; admins see them in
   Sonarr's next rescan takes the version for the episode's file: import the episode's file
   through Sonarr first to keep the version a second version.
 - `adoptable`: with `versions.requireNotUpgradeVerdict`, Sonarr's verdict on the version, asked
-  of the file where it is (Manual Import's proposal of the season folder, re-checked for the
-  episode, the check made before it was placed), no longer rejects it as not an upgrade: its next
-  rescan takes the version for the episode's file. The verdict is asked when the episode's file
-  changed, every six intervals (at least hourly), and on every pass while the version is
-  `adoptable`.
+  of the file where it is (Manual Import's proposal of the season folder with
+  `filterExistingFiles=true`, re-checked for the episode, the check made before it was placed),
+  no longer rejects it as not an upgrade: its next rescan takes the version for the episode's
+  file. The verdict is asked when the episode's file changed, every six intervals (at least
+  hourly), and on every pass while the version is `adoptable`; once per season folder and pass.
+  A version stays `adoptable` until a verdict rejects it again: Sonarr giving no verdict, or the
+  call failing, changes nothing. A verdict call that fails does not stop the check (the version
+  is grouped or waiting as usual, its detail says the verdict was not asked) and backs off by
+  season folder: 1, 2, 4… passes, up to the hourly recheck.
 
 Otherwise the version is `grouped` once Jellyfin lists both files as one episode, or `waiting`,
 with the same refresh and backoff as films' versions (Jellyfin 12.4.0 was seen to leave a version
 removed and placed again at the same path unlisted for minutes). Fukku never deletes, moves,
 renames or places a library file for any of these, and never asks Sonarr to rescan. A status
 that ends with the problem solved goes back to `grouped` (audit `version.recovered`); `adopted`,
-`series_deleted` and `missing` are checked again every six intervals (at least
-hourly), the others on every pass (`series_moved` too: a move in Sonarr may be under way). As for films, nothing is decided from a passing fault: while a
-`paths.sentinels` file, the library root holding the version (`paths.libraryRoots`) or Sonarr's
-folder for the series (as `paths.mappings.sonarr` maps it) is missing, or Sonarr does not
-answer, the version keeps its status and its detail says why, and `series_deleted`,
-`series_moved` and `adopted` are decided only when Sonarr's own status call answers, asked again
-for each decision. A version whose job is still importing or post-processing is left to the
-job's step.
+`series_deleted` and `missing` are checked again every six intervals (at least hourly), the
+others on every pass (`series_moved` too: a move in Sonarr may be under way). As for films,
+nothing is decided from a passing fault: while a `paths.sentinels` file, the library root
+holding the version (`paths.libraryRoots`) or Sonarr's folder for the series (as
+`paths.mappings.sonarr` maps it) is missing, or Sonarr does not answer, the version keeps its
+status and its detail says why, and `series_deleted`, `series_moved` and `adopted` are decided
+only when Sonarr's own status call answers, asked again for each decision. While Sonarr does not
+answer, `version_check_failed` is logged once (and `version_check_recovered` when it answers
+again); other failures are logged once per version until they change. Sonarr's slow calls are
+made before the version's lock is taken, and checks of films nudged after Fukku's imports run
+between the checks of a long pass. A version whose job is still importing or post-processing,
+or stalled there, is left to the job's step, which writes a version only under its lock and
+never over a status of the re-check.
 
 The file is placed by a hard link from the job's folder, which never replaces an existing file,
 so `versions.root` must be on **the same mount** as the intake root and writable by the web

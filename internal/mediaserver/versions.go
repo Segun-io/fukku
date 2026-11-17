@@ -84,9 +84,12 @@ type Keeper struct {
 	nudges chan int          // Radarr movie ids to check soon
 	series arr.SeriesManager // nil: Sonarr is not configured (episodes' versions, SetSeries)
 
-	mu       sync.Mutex
-	waits    map[string]backoff     // by version path: versions the server still does not list
-	verdicts map[string]verdictMark // by version path: Sonarr's last verdict on an episode's version
+	mu         sync.Mutex
+	waits      map[string]backoff     // by version path: versions the server still does not list
+	verdicts   map[string]verdictMark // by version path: Sonarr's last verdict on an episode's version
+	vfails     map[string]backoff     // by season folder (as Sonarr sees it): verdicts that failed
+	notes      map[string]string      // by version path: the last check failure logged
+	sonarrDown bool                   // a check failed because Sonarr did not answer (logged once)
 }
 
 // SetSeries gives the keeper Sonarr, for the re-check of episodes' versions (#96). Without it
@@ -103,7 +106,8 @@ func NewKeeper(cfg config.Config, log *slog.Logger, st store.Store, movies arr.M
 		locks = flows.NewJobLocks()
 	}
 	return &Keeper{store: st, movies: movies, server: server, cfg: cfg, log: log, now: time.Now,
-		locks: locks, nudges: make(chan int, 64), waits: map[string]backoff{}, verdicts: map[string]verdictMark{}}
+		locks: locks, nudges: make(chan int, 64), waits: map[string]backoff{}, verdicts: map[string]verdictMark{},
+		vfails: map[string]backoff{}, notes: map[string]string{}}
 }
 
 // Run checks every version at once, then every versions.regroupInterval (0: never on a
@@ -178,30 +182,38 @@ type backoff struct {
 	next   time.Time
 }
 
-func (k *Keeper) backingOff(path string) bool {
+func (k *Keeper) backingOff(path string) bool { return k.backingOffIn(k.waits, path) }
+
+func (k *Keeper) backingOffIn(m map[string]backoff, key string) bool {
 	k.mu.Lock()
 	defer k.mu.Unlock()
-	b, ok := k.waits[path]
+	b, ok := m[key]
 	return ok && k.now().Before(b.next)
 }
 
 // missed records that path was still waiting after a pass's attempt.
-func (k *Keeper) missed(path string) {
+func (k *Keeper) missed(path string) { k.missedIn(k.waits, path) }
+
+// missedIn doubles the backoff of key in m (the waits, or the verdicts' failures by season
+// folder).
+func (k *Keeper) missedIn(m map[string]backoff, key string) {
 	k.mu.Lock()
 	defer k.mu.Unlock()
-	b := k.waits[path]
+	b := m[key]
 	b.misses++
 	interval := k.cfg.Versions.RegroupInterval.D()
 	skip := time.Duration(1<<min(b.misses-1, 20) - 1) // passes to skip: 0, 1, 3, 7…
 	// Half a pass of slack, so that the pass after the skipped ones is due on time.
 	b.next = k.now().Add(min(skip*interval+interval/2, finalRecheck(k.cfg)))
-	k.waits[path] = b
+	m[key] = b
 }
 
-func (k *Keeper) found(path string) {
+func (k *Keeper) found(path string) { k.foundIn(k.waits, path) }
+
+func (k *Keeper) foundIn(m map[string]backoff, key string) {
 	k.mu.Lock()
 	defer k.mu.Unlock()
-	delete(k.waits, path)
+	delete(m, key)
 }
 
 // pass checks the due versions: every one, or the film's (titleID ≠ 0). See the top of
@@ -238,9 +250,13 @@ func (k *Keeper) pass(ctx context.Context, titleID int) {
 		if ctx.Err() != nil {
 			return
 		}
+		k.serveNudges(ctx)
+		if rec.App == flows.AppSonarr {
+			k.prepareEpisode(ctx, rec, o) // Sonarr's slow calls, outside the version's lock
+		}
 		got, miss, err := k.check(ctx, rec.Path, o)
-		if err != nil && ctx.Err() == nil {
-			k.log.Warn("version_check_failed", "job", rec.JobID, "title", rec.TitleID, "path", rec.Path, "error", err)
+		if ctx.Err() == nil {
+			k.noteFailure(rec, err)
 		}
 		path := rec.Path
 		if got.Path != "" { // an episode's version that followed its series (#96)
@@ -287,15 +303,64 @@ func (k *Keeper) pass(ctx context.Context, titleID int) {
 		}
 	}
 	for _, path := range again {
-		_, miss, err := k.check(ctx, path, o)
-		if err != nil && ctx.Err() == nil {
-			k.log.Warn("version_check_failed", "path", path, "error", err)
+		got, miss, err := k.check(ctx, path, o)
+		if ctx.Err() == nil {
+			k.noteFailure(store.Version{Path: path, JobID: got.JobID, TitleID: got.TitleID}, err)
 		}
 		if len(miss) > 0 {
 			k.missed(path)
 		} else {
 			k.found(path)
 		}
+	}
+}
+
+// serveNudges runs the film checks nudged meanwhile (after Fukku's own imports), between the
+// checks of a long pass, so that they do not wait for its end.
+func (k *Keeper) serveNudges(ctx context.Context) {
+	for ctx.Err() == nil {
+		select {
+		case id := <-k.nudges:
+			k.pass(ctx, id)
+		default:
+			return
+		}
+	}
+}
+
+// noteFailure logs a check that could not be made (version_check_failed) when it is new: a
+// failure of the record's that is not the one logged before, or the start of an outage of
+// Sonarr (logged once for every record, and version_check_recovered at its end). A check that
+// worked forgets the record's.
+func (k *Keeper) noteFailure(rec store.Version, err error) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	if err == nil {
+		delete(k.notes, rec.Path)
+		return
+	}
+	var down sonarrFault
+	if errors.As(err, &down) {
+		if !k.sonarrDown {
+			k.sonarrDown = true
+			k.log.Warn("version_check_failed", "app", "sonarr", "error", down.err, "note", "logged once until sonarr answers again")
+		}
+		return
+	}
+	if k.notes[rec.Path] == err.Error() {
+		return
+	}
+	k.notes[rec.Path] = err.Error()
+	k.log.Warn("version_check_failed", "job", rec.JobID, "title", rec.TitleID, "path", rec.Path, "error", err)
+}
+
+// sonarrAnswers ends an outage of Sonarr noted by noteFailure.
+func (k *Keeper) sonarrAnswers() {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	if k.sonarrDown {
+		k.sonarrDown = false
+		k.log.Info("version_check_recovered", "app", "sonarr")
 	}
 }
 

@@ -27,7 +27,9 @@ import (
 // its next rescan takes it), episode_file_missing (the episode's own file is gone: Sonarr's
 // next rescan takes the version), series_moved (Sonarr's folder for the series is elsewhere
 // and the version is not in it) or series_deleted (Sonarr no longer has the series or the
-// episode). A version Sonarr moved with its series' folder is listed at its new path.
+// episode). A version Sonarr moved with its series' folder is listed at its new path, and
+// one whose show or episode the re-check found again under a new id (by its TVDB id, by its
+// season and number) with the new titleId and episodeId.
 // primaryChangedAt is when the version was last grouped with another film or episode file
 // than before: Radarr renamed or upgraded the film's, Sonarr upgraded the episode's.
 func (s *Server) versionRoutes(mux *http.ServeMux) {

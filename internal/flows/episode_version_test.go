@@ -332,6 +332,53 @@ func TestEpisodeVersionsArePlacedNextToTheEpisodes(t *testing.T) {
 	}
 }
 
+// The records keep the series' TVDB id (#96), and the job's result still shows each version
+// after the keeper's re-check followed one to a new path (Sonarr moved the series) and
+// re-attached another to a new episode id.
+func TestEpisodeVersionsResultAfterTheRecheck(t *testing.T) {
+	x := newEpvEnv(t, nil)
+	x.series.Library[0].TVDBID = 5000
+	j := x.epvJob()
+	rows := x.rows(j)
+	if _, err := x.confirmEpv(j, ""); err != nil {
+		t.Fatal(err)
+	}
+	if j = x.drive(x.eng, j); j.State != store.Done {
+		t.Fatalf("job %s (%s: %s)", j.State, j.ErrorCode, j.ErrorText)
+	}
+	recs, err := x.st.VersionsOf(x.ctx, j.ID)
+	if err != nil || len(recs) != 2 {
+		t.Fatalf("records %+v, %v", recs, err)
+	}
+	for _, r := range recs {
+		if r.TVDBID != 5000 {
+			t.Fatalf("record without the series' TVDB id: %+v", r)
+		}
+	}
+	followed, reattached := recs[0], recs[1]
+	followed.Path, followed.Status = filepath.Join(x.root, "elsewhere", filepath.Base(followed.Path)), store.VersionGrouped
+	reattached.EpisodeID, reattached.Status = 999, store.VersionAdopted
+	for _, r := range []store.Version{followed, reattached} {
+		if _, err := x.st.PutVersion(x.ctx, r); err != nil {
+			t.Fatal(err)
+		}
+	}
+	iv, rv, err := x.eng.Detail(x.ctx, j, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	results := map[string]string{}
+	for _, r := range iv.Rows {
+		results[r.ID] = r.Result
+	}
+	if results[rows[0].ID] != ResultVersion || results[rows[1].ID] != ResultVersion {
+		t.Fatalf("row results %v", results)
+	}
+	if v := rv.EpisodeVersions.Versions; len(v) != 2 || v[0].Status != store.VersionGrouped || v[1].Status != store.VersionAdopted {
+		t.Fatalf("result %+v", rv.EpisodeVersions)
+	}
+}
+
 // Only versions: nothing is imported, and the job still ends.
 func TestEpisodeVersionsAloneImportNothing(t *testing.T) {
 	x := newEpvEnv(t, nil)

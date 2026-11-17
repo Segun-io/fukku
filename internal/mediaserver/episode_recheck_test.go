@@ -1,16 +1,20 @@
 package mediaserver_test
 
 import (
+	"bytes"
 	"errors"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/segun-io/fukku/internal/arr"
 	"github.com/segun-io/fukku/internal/config"
+	"github.com/segun-io/fukku/internal/flows"
 	"github.com/segun-io/fukku/internal/mediaserver"
 	"github.com/segun-io/fukku/internal/store"
 	"github.com/segun-io/fukku/internal/store/storetest"
@@ -21,12 +25,14 @@ import (
 // the version as not an upgrade, Jellyfin listing the two as one episode, and a clock.
 type renv struct {
 	*eenv
-	k    *mediaserver.Keeper
-	cfg  config.Config
-	lib  string // the library root, which Sonarr sees as /tv
-	own  string // the episode's file
-	now  time.Time
-	vapp string // the version as Sonarr sees it
+	k     *mediaserver.Keeper
+	cfg   config.Config
+	lib   string // the library root, which Sonarr sees as /tv
+	own   string // the episode's file
+	now   time.Time
+	vapp  string // the version as Sonarr sees it
+	locks *flows.JobLocks
+	logs  *syncBuffer // the keeper's log
 }
 
 const (
@@ -53,10 +59,29 @@ func newRecheckEnv(t *testing.T) *renv {
 		{Path: x.vapp, Size: 5, SeriesID: 11, EpisodeIDs: []int{101}, SeasonNumber: 1},
 	}}
 	x.series.Verdicts = map[string][]arr.Rejection{x.vapp: {{Reason: notUpgrade, Permanent: true}}}
-	x.k = mediaserver.NewKeeper(x.cfg, nil, x.st, nil, x.server, nil)
+	x.locks, x.logs = flows.NewJobLocks(), &syncBuffer{}
+	x.k = mediaserver.NewKeeper(x.cfg, slog.New(slog.NewTextHandler(x.logs, nil)), x.st, nil, x.server, x.locks)
 	x.k.SetSeries(x.series)
 	x.k.SetNow(func() time.Time { return x.now })
 	return x
+}
+
+// syncBuffer is a log sink safe for concurrent use.
+type syncBuffer struct {
+	mu sync.Mutex
+	b  bytes.Buffer
+}
+
+func (s *syncBuffer) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.Write(p)
+}
+
+func (s *syncBuffer) String() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.String()
 }
 
 // pass runs one scheduled pass and returns the record of path (the version's, by default).
@@ -278,11 +303,18 @@ func TestRecheckReportsADeletedSeries(t *testing.T) {
 	}
 	x.now = x.now.Add(31 * time.Minute)
 	x.want(x.pass(), store.VersionGrouped, "")
-	// The series answers without the episode (removed upstream, or the id is another show's).
+	// Sonarr gives the episode a new id (its metadata rebuilt): the record follows it by its
+	// season and number.
 	x.series.Eps[11] = []arr.Episode{{ID: 999, SeasonNumber: 1, Number: 1, FileID: 601}}
 	x.now = x.now.Add(10 * time.Minute)
-	x.want(x.pass(), store.VersionSeriesDeleted, "has no episode 101")
-	if got := x.actions(); !slices.Equal(got, []string{"version.grouped", "version.series_deleted", "version.recovered", "version.series_deleted"}) {
+	if rec = x.pass(); rec.Status != store.VersionGrouped || rec.EpisodeID != 999 {
+		t.Fatalf("after the episode's new id: %+v", rec)
+	}
+	// The series answers without the episode at all (removed upstream).
+	x.series.Eps[11] = []arr.Episode{{ID: 998, SeasonNumber: 1, Number: 7, FileID: 601}}
+	x.now = x.now.Add(10 * time.Minute)
+	x.want(x.pass(), store.VersionSeriesDeleted, "has no episode 999, nor one S01E01")
+	if got := x.actions(); !slices.Equal(got, []string{"version.grouped", "version.series_deleted", "version.recovered", "version.reattached", "version.series_deleted"}) {
 		t.Errorf("audit %v", got)
 	}
 	// Sonarr not answering at all decides nothing either.

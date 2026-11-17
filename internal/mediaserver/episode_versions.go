@@ -45,6 +45,9 @@ type EpisodeVersionStep struct {
 	Config config.Config
 	Log    *slog.Logger // nil: the default logger
 	Now    func() time.Time
+	// Locks are the version locks the keeper takes (flows.VersionLock): each write of the
+	// step takes the version's and reads the record again. nil: none (tests).
+	Locks *flows.JobLocks
 }
 
 func (s *EpisodeVersionStep) Name() string { return EpisodeVersionStepName }
@@ -248,62 +251,91 @@ func episodeGrouped(ctx context.Context, server MediaServer, g Grouper, look [2]
 	return "", false, nil
 }
 
+// update writes the step's change to rec's record under the version's lock (Locks, shared
+// with the keeper), onto the record as it is now, so that the step never undoes the keeper's
+// re-check (#96): a record that followed its version to another path, or that has one of the
+// re-check's statuses, is left as it is (wrote false).
+func (s *EpisodeVersionStep) update(ctx context.Context, rec store.Version, change func(cur *store.Version) []store.AuditEntry) (wrote bool, err error) {
+	if s.Locks != nil {
+		defer s.Locks.Lock(flows.VersionLock(rec.Path))()
+	}
+	cur, err := s.Store.VersionByPath(ctx, rec.Path)
+	if errors.Is(err, store.ErrNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	switch cur.Status {
+	case store.VersionLinked, store.VersionWaiting, store.VersionGrouped:
+	default:
+		s.log().Info("version_left_to_recheck", "job", cur.JobID, "path", cur.Path, "status", cur.Status)
+		return false, nil
+	}
+	if cur.ID != rec.ID {
+		return false, nil
+	}
+	entries := change(&cur)
+	_, err = s.Store.PutVersion(ctx, cur, entries...)
+	return err == nil, err
+}
+
 // grouped records the version as grouped (audit version.grouped the first time).
 func (s *EpisodeVersionStep) grouped(ctx context.Context, c *episodeCheck) error {
-	rec := c.rec
-	now := s.now()
-	first := rec.GroupedAt.IsZero()
-	rec.Status, rec.Detail, rec.CheckedAt = store.VersionGrouped, "", now
-	if first || rec.PrimaryFileID != c.fileID {
-		rec.GroupedAt = now
-	}
-	if rec.PrimaryFileID != 0 && rec.PrimaryFileID != c.fileID {
-		rec.PrimaryChangedAt = now
-	}
-	rec.PrimaryFileID, rec.PrimaryPath, rec.PrimaryItemID, rec.ItemID = c.fileID, c.primary, c.itemID, c.itemID
-	var entries []store.AuditEntry
-	if first {
-		entries = append(entries, store.AuditEntry{Actor: "system", Action: "version.grouped", JobID: rec.JobID, Detail: map[string]string{
+	first := false
+	wrote, err := s.update(ctx, c.rec, func(rec *store.Version) []store.AuditEntry {
+		now := s.now()
+		first = rec.GroupedAt.IsZero()
+		rec.Status, rec.Detail, rec.CheckedAt = store.VersionGrouped, "", now
+		if first || rec.PrimaryFileID != c.fileID {
+			rec.GroupedAt = now
+		}
+		if rec.PrimaryFileID != 0 && rec.PrimaryFileID != c.fileID {
+			rec.PrimaryChangedAt = now
+		}
+		rec.PrimaryFileID, rec.PrimaryPath, rec.PrimaryItemID, rec.ItemID = c.fileID, c.primary, c.itemID, c.itemID
+		if !first {
+			return nil
+		}
+		return []store.AuditEntry{{Actor: "system", Action: "version.grouped", JobID: rec.JobID, Detail: map[string]string{
 			"title": rec.Title, "titleId": strconv.Itoa(rec.TitleID), "path": rec.Path, "primary": c.primary,
 			"primaryFileId": strconv.Itoa(c.fileID), "item": c.itemID, "episode": fmt.Sprintf("S%02dE%02d", rec.SeasonNumber, rec.EpisodeNumber),
-		}})
+		}}}
+	})
+	if wrote && first {
+		s.log().Info("version_grouped", "job", c.rec.JobID, "path", c.rec.Path, "item", c.itemID)
 	}
-	if _, err := s.Store.PutVersion(ctx, rec, entries...); err != nil {
-		return err
-	}
-	if first {
-		s.log().Info("version_grouped", "job", rec.JobID, "path", rec.Path, "item", c.itemID)
-	}
-	return nil
+	return err
 }
 
 func (s *EpisodeVersionStep) waiting(ctx context.Context, rec store.Version, why string) error {
-	was := rec.Status
-	rec.Status, rec.Detail, rec.CheckedAt = store.VersionWaiting, why, s.now()
-	if _, err := s.Store.PutVersion(ctx, rec); err != nil {
-		return err
-	}
-	if was != store.VersionWaiting {
+	was := ""
+	wrote, err := s.update(ctx, rec, func(cur *store.Version) []store.AuditEntry {
+		was = cur.Status
+		cur.Status, cur.Detail, cur.CheckedAt = store.VersionWaiting, why, s.now()
+		return nil
+	})
+	if wrote && was != store.VersionWaiting {
 		s.log().Warn("version_waiting", "job", rec.JobID, "path", rec.Path, "reason", why)
 	}
-	return nil
+	return err
 }
 
 func (s *EpisodeVersionStep) final(ctx context.Context, rec store.Version, status, action, why string) error {
-	was := rec.Status
-	rec.Status, rec.Detail, rec.CheckedAt = status, why, s.now()
-	var entries []store.AuditEntry
-	if was != status {
-		entries = append(entries, store.AuditEntry{Actor: "system", Action: action, JobID: rec.JobID, Detail: map[string]string{
-			"title": rec.Title, "titleId": strconv.Itoa(rec.TitleID), "path": rec.Path, "reason": why}})
-	}
-	if _, err := s.Store.PutVersion(ctx, rec, entries...); err != nil {
-		return err
-	}
-	if was != status {
+	was := ""
+	wrote, err := s.update(ctx, rec, func(cur *store.Version) []store.AuditEntry {
+		was = cur.Status
+		cur.Status, cur.Detail, cur.CheckedAt = status, why, s.now()
+		if was == status {
+			return nil
+		}
+		return []store.AuditEntry{{Actor: "system", Action: action, JobID: cur.JobID, Detail: map[string]string{
+			"title": cur.Title, "titleId": strconv.Itoa(cur.TitleID), "path": cur.Path, "reason": why}}}
+	})
+	if wrote && was != status {
 		s.log().Warn("version_"+status, "job", rec.JobID, "path", rec.Path, "reason", why)
 	}
-	return nil
+	return err
 }
 
 // seriesItem is the detail naming the series' item ("item <id>"), or "" when the server
