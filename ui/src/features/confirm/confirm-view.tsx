@@ -14,7 +14,7 @@ import { EpisodeVersionsSection, isVersionRefusal, type VersionRefusal } from ".
 import { hasIssues, hintText, issueSignature } from "./notices";
 import { RowCard } from "./row-card";
 import { hasExistingFile, replacedRow, SeasonDubSection } from "./season-dub";
-import { guessChoices, isLanguage, SubtitlesSection, subtitleFiles } from "./subtitles-section";
+import { choicesFor, isLanguage, SubtitlesSection, subtitleFiles } from "./subtitles-section";
 
 const appName: Record<Proposal["app"], string> = {
   radarr: "Radarr",
@@ -43,7 +43,10 @@ export function ConfirmView({ job, proposal, subtitleManager, refreshing = false
   const form = useRef<HTMLFormElement>(null);
 
   const subs = subtitleManager ? subtitleFiles(job.files) : [];
-  const [choices, setChoices] = useState<SubtitleChoice[]>(() => guessChoices(subs));
+  // The user's own choices; a file that arrived after the page opened (the job is read again
+  // while it is open) starts from what its name says, so every file always has a choice.
+  const [edited, setChoices] = useState<SubtitleChoice[]>([]);
+  const choices = choicesFor(subs, edited);
   // The issues each tick was given for (`issueSignature`).
   const [agreed, setAgreed] = useState<Record<string, string>>({});
   const [missing, setMissing] = useState<string[]>([]);
