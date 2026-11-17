@@ -102,7 +102,6 @@ func within(t *testing.T, f func()) {
 
 func TestFIFOsDoNotBlock(t *testing.T) {
 	d, dir := open(t)
-	ctx := context.Background()
 	for _, p := range []string{"results/fifo.json", "tasks/fifo.json", "running/fifo.json", "elsewhere"} {
 		if err := syscall.Mkfifo(filepath.Join(dir, p), 0o600); err != nil {
 			t.Fatal(err)
@@ -116,9 +115,7 @@ func TestFIFOsDoNotBlock(t *testing.T) {
 	}
 	for _, id := range []string{"fifo", "link"} {
 		within(t, func() {
-			if _, ok, err := d.Result(ctx, id); ok || err == nil {
-				t.Errorf("Result(%s): ok %v, err %v", id, ok, err)
-			}
+			assertBadResult(t, d, id)
 		})
 	}
 	within(t, func() {

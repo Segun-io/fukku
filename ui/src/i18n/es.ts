@@ -383,6 +383,10 @@ const es: Record<keyof typeof en, string> = {
   "refusal.not_text": "Este archivo de subtítulos no es texto legible.",
   "refusal.unreadable": "No se pudo leer el archivo. Puede estar dañado.",
   "refusal.timeout": "La revisión de este archivo tardó demasiado.",
+  "refusal.too_many_streams":
+    "Este archivo tiene más pistas de audio, video y subtítulos de las que acepta el servidor.",
+  "refusal.result_too_large":
+    "El informe de los archivos de esta subida creció demasiado para incluir este archivo. Súbelo en un envío aparte.",
   "refusal.outside_library": "El archivo está fuera de las carpetas que Fukku puede leer.",
   "refusal.unknown": "Se rechazó el archivo (código: {code}).",
 
@@ -419,6 +423,8 @@ const es: Record<keyof typeof en, string> = {
   "errors.file_too_large": "El archivo es más grande de lo que permite el servidor.",
   "errors.extension_not_allowed": "Este tipo de archivo no se acepta.",
   "errors.too_many_uploads": "Demasiadas subidas a la vez. Espera a que termine alguna.",
+  "errors.too_many_jobs":
+    "Tienes demasiados envíos sin terminar. Termina o cancela alguno primero.",
   "errors.in_flight_limit": "El servidor está recibiendo todo lo que puede. Inténtalo más tarde.",
   "errors.insufficient_space": "El servidor no tiene suficiente espacio libre.",
   "errors.storage_unavailable": "El almacenamiento no está disponible ahora. Inténtalo más tarde.",

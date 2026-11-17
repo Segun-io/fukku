@@ -183,6 +183,7 @@ func validateShared(p *problems, cfg Config) {
 		p.add("upload.maxInFlight", "is smaller than upload.maxFileSize, so no file could ever be uploaded")
 	}
 	positive(p, "upload.maxParallelPerUser", int64(u.MaxParallelPerUser))
+	positive(p, "upload.maxOpenJobsPerUser", int64(u.MaxOpenJobsPerUser))
 	nonNegative(p, "upload.freeSpaceMargin", int64(u.FreeSpaceMargin))
 	extensions(p, "upload.videoExtensions", u.VideoExtensions, true)
 	extensions(p, "upload.subtitleExtensions", u.SubtitleExtensions, false)
@@ -282,6 +283,18 @@ func validateShared(p *problems, cfg Config) {
 	positive(p, "worker.heartbeatInterval", int64(w.HeartbeatInterval))
 	if w.HeartbeatMaxAge <= w.HeartbeatInterval {
 		p.add("worker.heartbeatMaxAge", "must be longer than worker.heartbeatInterval")
+	}
+	for _, c := range []struct {
+		key string
+		v   int
+	}{{"worker.maxTrackTitleBytes", w.MaxTrackTitleBytes}, {"worker.maxTrackTagBytes", w.MaxTrackTagBytes},
+		{"worker.maxStreamsPerFile", w.MaxStreamsPerFile}} {
+		if c.v < 1 || c.v > 65536 {
+			p.add(c.key, "must be between 1 and 65536")
+		}
+	}
+	if w.MaxProbeResultBytes < 64<<10 || w.MaxProbeResultBytes > 12<<20 {
+		p.add("worker.maxProbeResultBytes", "must be between 64KiB and 12MiB (the spool reads at most 16MiB of a result)")
 	}
 	validateMergeTrack(p, cfg.Merge)
 }

@@ -131,6 +131,7 @@ type Upload struct {
 	MaxFileSize            ByteSize `yaml:"maxFileSize"`
 	MaxInFlight            ByteSize `yaml:"maxInFlight"`
 	MaxParallelPerUser     int      `yaml:"maxParallelPerUser"`
+	MaxOpenJobsPerUser     int      `yaml:"maxOpenJobsPerUser"`
 	FreeSpaceMargin        ByteSize `yaml:"freeSpaceMargin"`
 	VideoExtensions        []string `yaml:"videoExtensions"`
 	SubtitleExtensions     []string `yaml:"subtitleExtensions"`
@@ -218,4 +219,10 @@ type Worker struct {
 	Nice              int      `yaml:"nice"`
 	HeartbeatInterval Duration `yaml:"heartbeatInterval"`
 	HeartbeatMaxAge   Duration `yaml:"heartbeatMaxAge"`
+	// What a probe keeps of one file; the rest is cut, so a result stays small.
+	MaxTrackTitleBytes int `yaml:"maxTrackTitleBytes"`
+	MaxTrackTagBytes   int `yaml:"maxTrackTagBytes"`
+	MaxStreamsPerFile  int `yaml:"maxStreamsPerFile"`
+	// MaxProbeResultBytes bounds the JSON a probe task reports for all its files together.
+	MaxProbeResultBytes ByteSize `yaml:"maxProbeResultBytes"`
 }

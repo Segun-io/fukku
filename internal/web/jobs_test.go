@@ -675,3 +675,42 @@ func TestMalformedIDIs404BeforeTheStore(t *testing.T) {
 	}
 	e.fail(admin, "GET", "/api/jobs/"+strings.Repeat("a", 32), 404, "not_found")
 }
+
+// upload.maxOpenJobsPerUser: one more job is refused, other users are not affected, and
+// the room comes back when a job ends.
+func TestCreateJobLimit(t *testing.T) {
+	e := newEnv(t)
+	e.srv.cfg.Upload.MaxOpenJobsPerUser = 2
+	var first, second store.Job
+	e.ok(user1, "POST", "/api/jobs", http.StatusCreated, &first)
+	e.ok(user1, "POST", "/api/jobs", http.StatusCreated, &second)
+	e.fail(user1, "POST", "/api/jobs", http.StatusTooManyRequests, "too_many_jobs")
+	if jobs, _ := e.store.Jobs(t.Context(), store.JobFilter{Owner: user1.Name}); len(jobs) != 2 {
+		t.Errorf("%d jobs after the refusal, want 2", len(jobs))
+	}
+	e.ok(user2, "POST", "/api/jobs", http.StatusCreated, nil)
+	e.ok(user1, "POST", "/api/jobs/"+first.ID+"/cancel", http.StatusOK, nil)
+	e.ok(user1, "POST", "/api/jobs", http.StatusCreated, nil)
+	e.fail(user1, "POST", "/api/jobs", http.StatusTooManyRequests, "too_many_jobs")
+}
+
+// Only the jobs a user can still cancel count: one that is past submission, or ended, does
+// not hold the user's room. A retry that would open a job beyond the limit is refused too.
+func TestJobLimitCountsWhatTheUserCanClear(t *testing.T) {
+	e := newEnv(t)
+	e.srv.cfg.Upload.MaxOpenJobsPerUser = 1
+	for _, st := range []store.State{store.Importing, store.Imported, store.PostProcessing, store.Done, store.Cancelled} {
+		e.job("user1", st)
+	}
+	failed := e.job("user1", store.Failed) // resumes in uploaded
+	e.ok(user1, "POST", "/api/jobs", http.StatusCreated, nil)
+	e.fail(user1, "POST", "/api/jobs", http.StatusTooManyRequests, "too_many_jobs")
+	e.fail(user1, "POST", jobPath(failed, "retry"), http.StatusTooManyRequests, "too_many_jobs")
+	if got, _ := e.store.Job(t.Context(), failed.ID); got.State != store.Failed {
+		t.Errorf("the refused retry moved the job to %s", got.State)
+	}
+	// Room again: the retry goes through, and then holds it.
+	e.srv.cfg.Upload.MaxOpenJobsPerUser = 2
+	e.ok(user1, "POST", jobPath(failed, "retry"), http.StatusOK, nil)
+	e.fail(user1, "POST", "/api/jobs", http.StatusTooManyRequests, "too_many_jobs")
+}

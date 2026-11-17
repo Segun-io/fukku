@@ -378,6 +378,10 @@ const en = {
   "refusal.not_text": "This subtitle file is not readable text.",
   "refusal.unreadable": "The file could not be read. It may be damaged.",
   "refusal.timeout": "Checking this file took too long.",
+  "refusal.too_many_streams":
+    "This file has more audio, video and subtitle tracks than the server accepts.",
+  "refusal.result_too_large":
+    "The report for this upload's files grew too large to hold this file. Upload it in a separate job.",
   "refusal.outside_library": "The file is outside the folders Fukku may read.",
   "refusal.unknown": "The file was refused (code: {code}).",
 
@@ -414,6 +418,7 @@ const en = {
   "errors.file_too_large": "The file is larger than the server allows.",
   "errors.extension_not_allowed": "This type of file is not accepted.",
   "errors.too_many_uploads": "Too many uploads at once. Wait for one to finish.",
+  "errors.too_many_jobs": "You have too many unfinished uploads. Finish or cancel one first.",
   "errors.in_flight_limit": "The server is receiving as much as it can. Try again later.",
   "errors.insufficient_space": "The server does not have enough free space.",
   "errors.storage_unavailable": "Storage is not available right now. Try again later.",

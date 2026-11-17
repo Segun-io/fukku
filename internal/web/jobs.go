@@ -40,6 +40,24 @@ var allStates = []store.State{
 	store.Done, store.Failed, store.Stalled, store.Cancelled,
 }
 
+// counted are the states of the jobs that upload.maxOpenJobsPerUser counts: those the user
+// can still cancel, before anything has been submitted to Radarr or Sonarr, and that
+// retention removes. A job past that (importing, imported, post-processing, stalled in an
+// import), or ended (done, failed, cancelled), is not the user's to clear and does not count.
+var counted = []store.State{
+	store.Uploading, store.Uploaded, store.Probing, store.Probed, store.Matched, store.AwaitingConfirmation,
+}
+
+const tooManyJobs = " unfinished jobs (upload.maxOpenJobsPerUser). Cancel one, or wait for one to finish, first."
+
+// atJobLimit reports whether the user has as many counted jobs as upload.maxOpenJobsPerUser
+// allows. The caller holds createMu.
+func (s *Server) atJobLimit(ctx context.Context, owner string) (bool, error) {
+	limit := s.cfg.Upload.MaxOpenJobsPerUser
+	mine, err := s.deps.Store.Jobs(ctx, store.JobFilter{Owner: owner, States: counted, Limit: limit})
+	return len(mine) >= limit, err
+}
+
 // States a job can be cancelled from, and deleted from.
 var (
 	cancellable = []store.State{
@@ -476,6 +494,19 @@ func (s *Server) createJob(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	// The check and the creation are one step, so that parallel requests cannot all pass.
+	s.createMu.Lock()
+	defer s.createMu.Unlock()
+	full, err := s.atJobLimit(r.Context(), u.Name)
+	if err != nil {
+		s.internalError(w, r, err)
+		return
+	}
+	if full {
+		writeError(w, http.StatusTooManyRequests, "too_many_jobs",
+			"You have "+strconv.Itoa(s.cfg.Upload.MaxOpenJobsPerUser)+tooManyJobs)
+		return
+	}
 	j, err := s.deps.Store.CreateJob(r.Context(), u.Name)
 	if err != nil {
 		s.internalError(w, r, err)
@@ -671,6 +702,21 @@ func (s *Server) retryJob(w http.ResponseWriter, r *http.Request) {
 	if j.State != store.Failed || j.Resume == "" {
 		wrongState(w)
 		return
+	}
+	// A retry opens the job again: it counts against upload.maxOpenJobsPerUser like a new one.
+	if slices.Contains(counted, j.Resume) {
+		s.createMu.Lock()
+		defer s.createMu.Unlock()
+		full, err := s.atJobLimit(r.Context(), j.Owner)
+		if err != nil {
+			s.internalError(w, r, err)
+			return
+		}
+		if full {
+			writeError(w, http.StatusTooManyRequests, "too_many_jobs",
+				"You have "+strconv.Itoa(s.cfg.Upload.MaxOpenJobsPerUser)+tooManyJobs)
+			return
+		}
 	}
 	s.move(w, r, u, j, j.Resume, "job.retried")
 }

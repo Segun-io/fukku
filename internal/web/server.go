@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"path"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/segun-io/fukku/internal/config"
@@ -31,6 +32,8 @@ type Server struct {
 	http    *http.Server
 
 	ready readiness
+	// createMu serialises job creation, which checks upload.maxOpenJobsPerUser first.
+	createMu sync.Mutex
 	// now is the clock of the job API's rules that depend on time (a stuck import).
 	now func() time.Time
 }

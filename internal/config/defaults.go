@@ -70,6 +70,7 @@ func Defaults() Config {
 			MaxFileSize:            80 << 30,
 			MaxInFlight:            300 << 30,
 			MaxParallelPerUser:     3,
+			MaxOpenJobsPerUser:     20,
 			FreeSpaceMargin:        100 << 30,
 			VideoExtensions:        []string{".mkv", ".mp4", ".m4v", ".avi", ".mov", ".ts", ".webm"},
 			SubtitleExtensions:     []string{".srt", ".ass", ".ssa"},
@@ -142,6 +143,12 @@ func Defaults() Config {
 			Nice:              10,
 			HeartbeatInterval: Duration(15 * time.Second),
 			HeartbeatMaxAge:   Duration(2 * time.Minute),
+
+			MaxTrackTitleBytes: 256,
+			MaxTrackTagBytes:   64,
+			MaxStreamsPerFile:  256,
+
+			MaxProbeResultBytes: 8 << 20,
 		},
 	}
 }

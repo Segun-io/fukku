@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/segun-io/fukku/internal/config"
+	"github.com/segun-io/fukku/internal/safehttp"
 )
 
 const defaultTimeout = 30 * time.Second
@@ -67,7 +68,7 @@ func newClient(app string, cfg config.Arr) *client {
 		base:    strings.TrimRight(cfg.URL, "/"),
 		key:     cfg.APIKey.Reveal(),
 		timeout: t,
-		http:    &http.Client{},
+		http:    safehttp.NoCrossOriginRedirect(&http.Client{}),
 	}
 }
 
