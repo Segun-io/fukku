@@ -49,12 +49,17 @@ The full guide, with the reasons, is [docs/install.md](docs/install.md). In shor
 
 1. **Copy the examples** [deploy/compose.example.yaml](deploy/compose.example.yaml) and
    [deploy/fukku.example.yaml](deploy/fukku.example.yaml) into one folder as `compose.yaml` and
-   `fukku.yaml`, and create `state/data`, `state/spool` and `secrets/` there as the user that owns
-   your media.
+   `fukku.yaml`, and create `state/data`, `state/spool` and `secrets/` there, and the intake
+   folders `intake/jobs`, `intake/worker` and `intake/.incoming` in your data folder, as the user
+   that owns your media (the commands are in [docs/install.md](docs/install.md), step 1: the
+   containers refuse to start on a missing intake folder).
 2. **Put the API keys in files** under `secrets/` (`radarr_api_key`, `sonarr_api_key`, and
-   `bazarr_api_key` and `jellyfin_api_key` if you use them).
+   `bazarr_api_key` and `jellyfin_api_key`). The compose file needs all four files: for an app
+   you do not use, take it out of both files as [docs/install.md](docs/install.md), step 3, says.
 3. **Edit both files**: the data folder, the user id, the network your apps share, your public
-   address (`server.publicBaseUrl`), the root folders and quality profiles. Check them:
+   address (`server.publicBaseUrl`), the root folders and quality profiles, and who is an admin
+   (`auth.adminGroup`, which your proxy must send in the groups header, or
+   `auth.allUsersAreAdmins`). Check them:
    `docker compose run --rm --no-deps web check-config`.
 4. **Start it**: `docker compose up -d`, and wait for both containers to be `healthy`
    (`docker compose ps`).
@@ -140,6 +145,7 @@ make compat           # write probe results into docs/compatibility.md
 make probes-gate      # CI rule on the results: fail on differs or error, warn on upstream skips
 make dev-up            # run Fukku in the test environment (see "Try it locally")
 make env-reset        # delete the test environment
+make install-test FUKKU_IMAGE=fukku:dev   # clean-room install from these documents (below)
 ```
 
 The test environment uses fixed fake API keys and runs only on 127.0.0.1. The probes refuse
@@ -161,7 +167,28 @@ downloaded.
 | `internal/extract`, `internal/safename` | safe zip extraction in the worker; the file-name cleaner |
 | `ui/` | the React single-page app, embedded in the binary |
 | `test/fixtures` | ffmpeg media and hostile-archive generators |
+| `test/install` | the clean-room install test: the steps of this README and [docs/install.md](docs/install.md), followed literally on a clean Docker-in-Docker host |
 | `test/env`, `test/testenv`, `test/probes` | the local integration environment (including the dev stack, its test proxy and the fake indexer) and the behaviour probes |
+
+## The clean-room install test
+
+`make install-test FUKKU_IMAGE=<image>` checks that the documents are enough. It starts a clean
+host (Docker-in-Docker, `docker:29.9.3-dind` pinned by digest: a container runtime and Compose,
+nothing else), runs the pinned test Radarr, Sonarr and Jellyfin and a forward-authentication stub
+in it, and then runs the install exactly as README.md and [docs/install.md](docs/install.md) say
+([test/install/operator.sh](test/install/operator.sh)), with Caddy as in
+[docs/reverse-proxy.md](docs/reverse-proxy.md). It then checks `/readyz`, sign-in through the
+proxy, and one film (flow 1) and one season archive (flow 3) imported through the HTTP API. The
+media are generated at test time. Seeding the apps is scaffolding, kept apart from the install in
+[test/install/run.sh](test/install/run.sh).
+
+`FUKKU_IMAGE` is a registry reference by digest (the clean host pulls it, as install step 2 says)
+or an image of this machine such as `fukku:dev`, which is copied in with `docker save | docker
+load`. It needs the internet for the apps' metadata services only (they add the free titles the
+probes use) and for image pulls that are not cached, and takes about two minutes once the image
+exists. **Run it by hand before a release**; it is not scheduled, because it needs a privileged
+container host and a full image build ([docs/prerelease.md](docs/prerelease.md)). A step that the
+documents get wrong or leave out makes it fail, and the fix goes into the documents.
 
 ## Licence
 

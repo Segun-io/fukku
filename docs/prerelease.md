@@ -30,6 +30,14 @@ The tag is `ghcr.io/segun-io/fukku:0.0.0-pre.<UTC date>.<short commit>`. There i
 ghcr.io/segun-io/fukku:<tag>@sha256:<digest>
 ```
 
+## Before a release: the clean-room install
+
+Before the maintainer publishes, run `make install-test FUKKU_IMAGE=<reference>` with the
+reference the job summary printed (by digest) or with a locally built image. It installs the
+image on a clean Docker-in-Docker host with only the steps of README.md and
+[install.md](install.md) and checks readiness, sign-in through a proxy and one film and one
+season imported (README, "The clean-room install test"). It is run by hand, not on a schedule.
+
 ## Pulling it
 
 Use a token that can read packages (a personal access token with `read:packages`, or a

@@ -303,3 +303,11 @@ upload, a 16 MiB `PATCH` and a `HEAD` of the upload. Caddy was checked with `cad
 nginx with `nginx -t`. Traefik has no validator and was checked by running it. For the test runs
 only, Caddy got `tls internal`, nginx a self-signed certificate and Traefik its default
 certificate, because `example.com` cannot get a real one.
+
+The Caddy example is also exercised by the clean-room install test (`make install-test`,
+[README](../README.md#the-clean-room-install-test)): the Caddyfile is taken from this page, with
+`tls internal` added, and put in front of a fresh install with a stub forward-auth service, which
+signs a user in and sets the three headers. Through it the test checks the redirect of an
+unauthenticated request, `/api/session` for an admin and an ordinary user, that a client's
+`Remote-Groups` and `Remote-Email` do not count, the 403 of a request that skips the proxy, and
+uploads of several chunks.
