@@ -20,8 +20,8 @@ export function BackToJob({ id, children }: { id: string; children: React.ReactN
 }
 
 type FlowHeaderProps = {
-  /** The step of the import this page is. */
-  step: FlowStep;
+  /** The step of the import this page is; left out for a page that is not one of the three (flow 2). */
+  step?: FlowStep;
   /** The page's `h1`: what the user does here. */
   title: string;
   /** What it is done to: the upload's name, or the chosen title and its app. */
@@ -38,7 +38,7 @@ type FlowHeaderProps = {
 export function FlowHeader({ step, title, subject, children }: FlowHeaderProps) {
   return (
     <header className="grid gap-4">
-      <FlowSteps current={step} />
+      {step && <FlowSteps current={step} />}
       <div className="grid gap-2">
         <h1>{title}</h1>
         {subject && (

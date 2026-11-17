@@ -12,6 +12,7 @@
 //   /jobs?mock=mapping,failing    every change fails to be checked
 //   /jobs?mock=importing      adds an import that is running and one that waits for the app
 //   /jobs?mock=dub            adds a finished import of a dub: unmonitored, one step failed
+//   /jobs?mock=flow2          adds three uploads of a film that has a file: same cut, PAL, different cut
 //
 // The choice is kept for the tab (sessionStorage), so it survives a reload; `?mock=` with
 // nothing after it clears it. Names are made up.
@@ -30,6 +31,7 @@ export const scenarioNames = [
   "failing",
   "importing",
   "dub",
+  "flow2",
 ] as const;
 export type Scenario = (typeof scenarioNames)[number];
 

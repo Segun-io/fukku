@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { useT } from "@/i18n";
 import { hasIssues, hintText, issueSignature } from "./notices";
 import { RowCard } from "./row-card";
+import { hasExistingFile, replacedRow, SeasonDubSection, usableDub } from "./season-dub";
 import { guessChoices, isLanguage, SubtitlesSection, subtitleFiles } from "./subtitles-section";
 
 const appName: Record<Proposal["app"], string> = {
@@ -40,13 +41,26 @@ export function ConfirmView({ job, proposal, subtitleManager }: Props) {
   const [agreed, setAgreed] = useState<Record<string, string>>({});
   const [missing, setMissing] = useState<string[]>([]);
   const [badLanguage, setBadLanguage] = useState(false);
+  // The season-dub choice (#57): asked when the server's policy is `ask`; else it is the server's.
+  const dub = proposal.seasonDub && usableDub(proposal.seasonDub);
+  const [choice, setChoice] = useState("");
+  const [dubMissing, setDubMissing] = useState(false);
+  // Rows whose file holds episodes outside the upload (`shared_file`), and the ones agreed to.
+  const [sharedRows, setSharedRows] = useState<string[]>([]);
+  const [sharedAgreed, setSharedAgreed] = useState<string[]>([]);
 
   const app = appName[proposal.app];
   const titleText = proposal.target
     ? t("confirm.title.name", { title: proposal.target.title, year: String(proposal.target.year) })
     : (job.target?.title ?? "");
-  const rows = proposal.rows;
+  const policy = dub?.ask ? choice : (dub?.decided ?? "");
+  // With `replace`, the rows that have a file are in, and the choice answers what the app says
+  // of replacing it. With `subtitlesOnly` they stay out and the subtitles are all that moves.
+  const rows = proposal.rows.map((r) =>
+    policy === "replace" && hasExistingFile(r) ? replacedRow(r) : r,
+  );
   const leftIn = rows.filter((r) => !r.skip);
+  const subtitlesOnly = policy === "subtitlesOnly";
   const overridable = (id: string) => {
     const row = rows.find((r) => r.id === id);
     return !!row && !row.skip && hasIssues(row) && agreed[id] === issueSignature(row);
@@ -56,7 +70,12 @@ export function ConfirmView({ job, proposal, subtitleManager }: Props) {
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (confirm.isPending || edit.isPending || leftIn.length === 0) return;
+    if (confirm.isPending || edit.isPending || (leftIn.length === 0 && !subtitlesOnly)) return;
+    if (dub?.ask && choice === "") {
+      setDubMissing(true);
+      form.current?.querySelector<HTMLInputElement>("[data-policy]")?.focus();
+      return;
+    }
     if (subtitleManager && choices.some((c) => !isLanguage(c.language))) {
       setBadLanguage(true);
       form.current?.querySelector<HTMLInputElement>('input[type="text"]')?.focus();
@@ -70,10 +89,19 @@ export function ConfirmView({ job, proposal, subtitleManager }: Props) {
     }
     confirm.mutate(
       {
-        overrides: leftIn.filter((r) => hasIssues(r)).map((r) => r.id),
+        overrides: [
+          ...leftIn.filter((r) => hasIssues(r)).map((r) => r.id),
+          ...sharedAgreed.filter((id) => leftIn.some((r) => r.id === id && !hasIssues(r))),
+        ],
         ...(subtitleManager ? { subtitles: choices } : {}),
+        ...(dub?.ask ? { seasonDub: choice } : {}),
       },
-      { onSuccess: () => void navigate({ to: "/jobs/$id", params: { id: job.id } }) },
+      {
+        onSuccess: () => void navigate({ to: "/jobs/$id", params: { id: job.id } }),
+        onError: (err) => {
+          if (err instanceof ApiError && err.code === "shared_file") setSharedRows(err.rows);
+        },
+      },
     );
   }
 
@@ -121,6 +149,26 @@ export function ConfirmView({ job, proposal, subtitleManager }: Props) {
         ),
       )}
 
+      {dub && (
+        <SeasonDubSection
+          dub={dub}
+          app={app}
+          choice={choice}
+          onChoice={(p) => {
+            setChoice(p);
+            setDubMissing(false);
+            setSharedRows([]);
+            setSharedAgreed([]);
+          }}
+          missing={dubMissing}
+          shared={rows.filter((r) => sharedRows.includes(r.id))}
+          agreed={sharedAgreed}
+          onAgree={(id, on) =>
+            setSharedAgreed((cur) => (on ? [...cur, id] : cur.filter((x) => x !== id)))
+          }
+        />
+      )}
+
       <section aria-labelledby="confirm-rows" className="grid gap-3">
         <h2 id="confirm-rows">{t("confirm.rows.title", { count: rows.length })}</h2>
         <ul className="divide-y border-y">
@@ -155,7 +203,7 @@ export function ConfirmView({ job, proposal, subtitleManager }: Props) {
       <div className="grid gap-4">
         {leftIn.length === 0 ? (
           <p role="status" className="max-w-[65ch] text-ink-2">
-            {t("confirm.nothing")}
+            {t(subtitlesOnly ? "confirm.dub.subtitlesOnly.count" : "confirm.nothing")}
           </p>
         ) : (
           <ul aria-label={t("confirm.count.label")} className="flex flex-wrap gap-x-6 gap-y-1">
@@ -183,7 +231,7 @@ export function ConfirmView({ job, proposal, subtitleManager }: Props) {
           <Button
             type="submit"
             size="lg"
-            disabled={leftIn.length === 0}
+            disabled={leftIn.length === 0 && !subtitlesOnly}
             aria-disabled={confirm.isPending}
             aria-busy={confirm.isPending}
           >

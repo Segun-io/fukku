@@ -448,9 +448,6 @@ const en = {
   "match.hit.seasons.one": "{count} season",
   "match.hit.seasons.other": "{count} seasons",
   "match.hit.noOverview": "No description.",
-  "match.exists.title": "This film already has a file",
-  "match.exists.body":
-    "Adding another language to a film that is already in the library arrives in a later version. For now, import it by hand.",
   "match.options.title": "Options",
   "match.options.inLibrary": "{title} is already in {app}. Its settings stay as they are.",
   "match.profile": "Quality profile",
@@ -468,8 +465,6 @@ const en = {
     "Ask whoever runs Fukku to connect one of them. Meanwhile you can import the files by hand.",
   "match.wrongState.title": "This upload cannot be matched now",
   "match.wrongState.body": "A title can only be chosen once the files are checked.",
-  "errors.already_in_library":
-    "This film already has a file. Adding another language arrives in a later version.",
   "errors.title_in_use": "Another upload is already working on this title. Wait for it to finish.",
   "errors.title_busy": "This title is downloading right now. Try again when it has finished.",
   "errors.arr_unavailable": "Radarr or Sonarr cannot be reached right now. Try again in a moment.",
@@ -689,9 +684,12 @@ const en = {
   "import.steps": "Steps after the import",
   "import.post.running": "The files are in the library. These steps finish the job.",
   "import.step.mediaServerRefresh": "Tell the media server about the new files",
+  "import.step.mediaServerVersions": "Group the second version with the film in the media server",
   "import.step.subtitles": "Hand the subtitles to the subtitle manager",
   "import.step.mediaServerRefresh.failed":
     "The media server did not show the title in time. It will show up after its next library scan, or start a scan there by hand.",
+  "import.step.mediaServerVersions.failed":
+    "The media server did not group the version with the film. Fukku tries again by itself; until then the two show as separate entries.",
   "import.step.subtitles.failed":
     "The subtitles were not written. Add them in the subtitle manager by hand. The files stay in this upload until it expires.",
   "import.step.failed":
@@ -710,6 +708,308 @@ const en = {
     "You chose not to replace this file when a better copy appears, so automatic upgrades will not replace it. Pressing the title's own Search button in {app} still can.",
   "import.unmonitored.body":
     "Only a dub was imported, so the title is now unmonitored: automatic upgrades will not replace this file. Pressing the title's own Search button in {app} still can, so do not use it if you want to keep this one.",
+
+  // ---- Flow 2: another language of a film already in the library (#59) ----
+  "match.exists.title": "This film already has a file",
+  "match.exists.body":
+    "If your upload is another language of this film, Fukku compares it with the file in the library. Then you can merge the new audio into that file, or keep your upload as a second version.",
+  "match.exists.action": "Add another language",
+  "errors.already_in_library":
+    "This film already has a file. Choose it again to add another language of it.",
+  "job.flow2": "Compare with the library file",
+  "job.flow2.body":
+    "This film already has a file. Compare your upload with it, then merge the new audio or keep it as a second version.",
+  "flow2.back": "Back to the upload",
+  "flow2.title": "Another language of this film",
+  "flow2.subject": "{title} ({year}) in Radarr",
+  "flow2.intro":
+    "This film already has a file in Radarr. Fukku compares your upload with it, then you choose what to do.",
+  "flow2.error.title": "The comparison could not be shown",
+  "flow2.wrongState.title": "This upload cannot be compared now",
+  "flow2.wrongState.body":
+    "It can be compared once a film that already has a file is chosen, and until you confirm.",
+  "flow2.wrongState.action": "Go to the upload",
+  "flow2.probed.title": "Choose the film again",
+  "flow2.probed.body":
+    "No film is chosen for this upload, or the film’s file in Radarr changed since you chose it. Choose the film again and the comparison is made again.",
+  "flow2.notFlow2.title": "This film has no file in the library",
+  "flow2.notFlow2.body":
+    "There is nothing to compare. Review the files and import them as a new film.",
+  "flow2.pending": "Radarr’s file is being read. This takes a moment.",
+  "flow2.noUpload.title": "There is no video to compare",
+  "flow2.noUpload.body": "No video of this upload could be read. Go back and check its files.",
+  "flow2.changed.action": "Choose the film again",
+  "flow2.compare.title": "Your upload and the library file",
+  "flow2.side.library": "In the library",
+  "flow2.side.upload": "Your upload",
+  "flow2.file": "File",
+  "flow2.size": "Size",
+  "flow2.quality": "Quality",
+  "flow2.languages": "Languages",
+  "flow2.duration": "Length",
+  "flow2.audio": "Audio",
+  "flow2.subtitles": "Subtitles",
+  "flow2.unknown": "Not known",
+  "flow2.seconds": "{value} s",
+  "flow2.finding.match.title": "Same cut",
+  "flow2.finding.match.body":
+    "The two files are the same length, within {delta}. The audio of your upload can be added to the library file.",
+  "flow2.finding.pal.title": "A PAL speed-up",
+  "flow2.finding.pal.body":
+    "The two files differ by {delta}, a ratio of {ratio}: the one of a film sped up from 23.976 to 25 frames a second. Its audio would drift against the library file’s picture, so it cannot be merged. It can be kept as a second version.",
+  "flow2.finding.different.title": "A different cut",
+  "flow2.finding.different.body":
+    "The two files differ by {delta} (a ratio of {ratio}), and not the way a speed-up does. It may be a longer or shorter edit of the film. Its audio cannot be merged, but it can be kept next to the library file as a second version.",
+  "flow2.options.title": "What you can do",
+  "flow2.offer.merge": "Merge the audio into the library file",
+  "flow2.offer.merge.body":
+    "The new audio becomes an extra track of the file in the library. One file stays, and Radarr replaces its file with the merged one.",
+  "flow2.offer.version": "Keep it as a second version",
+  "flow2.offer.version.body":
+    "Your upload is kept next to the film as another version, and the media server lists it with the film. The file in the library is not touched.",
+  "flow2.offer.legend": "How do you want to add it?",
+  "flow2.notOffered.title": "Not offered",
+  "flow2.notOffered.item": "{offer}: {reason}",
+  "flow2.reason.merge_disabled": "merging is switched off on this server.",
+  "flow2.reason.versions_disabled": "second versions are switched off on this server.",
+  "flow2.reason.versions_unsupported":
+    "second versions need a media server that can group them (Jellyfin), and none is set up.",
+  "flow2.reason.runtime_differs": "merging needs the same cut, and this is not.",
+  "flow2.reason.unknown": "not possible here (code: {code}).",
+  "flow2.nothing.title": "Nothing can be done with this upload here",
+  "flow2.nothing.body":
+    "Ask whoever runs Fukku to change this, or import the files by hand. Nothing was changed.",
+  "flow2.sync.title": "Check that the audio is in sync",
+  "flow2.sync.intro":
+    "The same length does not prove the audio lines up. Fukku makes short clips with the film’s picture and the new audio, from the start, the middle and the end. Watch and listen to each one.",
+  "flow2.sync.audio": "Audio track to add",
+  "flow2.sync.track": "{track} ({detail})",
+  "flow2.sync.offset": "Offset in milliseconds",
+  "flow2.sync.offset.hint":
+    "Negative moves the new audio earlier, positive later. If it comes 0.8 seconds late, enter −800. From −60000 to 60000.",
+  "flow2.sync.offset.invalid": "Enter a whole number from −60000 to 60000.",
+  "flow2.sync.make": "Make the clips",
+  "flow2.sync.again": "Make the clips again",
+  "flow2.sync.pending": "Making the clips. This takes a moment and the page updates by itself.",
+  "flow2.sync.failed.title": "The clips could not be made",
+  "flow2.sync.error.outside_library": "The library file is outside the folders Fukku may read.",
+  "flow2.sync.error.library_unreadable": "The library file could not be read.",
+  "flow2.sync.error.upload_unreadable": "The uploaded file could not be read.",
+  "flow2.sync.error.render_failed": "The clips could not be made from these files.",
+  "flow2.sync.error.timeout": "Making a clip took too long.",
+  "flow2.sync.error.too_large": "A clip came out too large.",
+  "flow2.sync.error.task_failed": "The worker could not make the clips.",
+  "flow2.sync.error.task_timeout": "The worker took too long to make the clips.",
+  "flow2.sync.error.unknown": "The clips could not be made (code: {code}).",
+  "flow2.sync.ready": "Made with {track} at an offset of {offset} ms.",
+  "flow2.sync.clips": "Clips",
+  "flow2.sync.clip": "Clip {n} of {total}, from {at}",
+  "flow2.sync.clip.fallback": "Your browser cannot play this clip.",
+  "flow2.sync.stale":
+    "The track or the offset changed after these clips were made. Make the clips again to check it.",
+  "flow2.sync.match": "They match, continue",
+  "flow2.sync.nomatch":
+    "If they do not match, change the offset and make the clips again. A dub that drifts cannot be fixed by an offset: keep it as a second version instead.",
+  "flow2.sync.confirmed": "Checked at an offset of {offset} ms.",
+  "flow2.merge.title": "Merge into the library file",
+  "flow2.merge.intro":
+    "Choose what is added. Everything below is optional: what you leave empty uses the server’s settings.",
+  "flow2.merge.subtitles": "Subtitles to add",
+  "flow2.merge.subtitles.hint": "They get the same offset as the audio.",
+  "flow2.merge.subtitles.none": "The upload has no subtitles inside it.",
+  "flow2.merge.tag": "Language tag",
+  "flow2.merge.tag.hint": "A tag such as es-419. Empty: the server’s default.",
+  "flow2.merge.tag.invalid":
+    "That is not a valid language tag. Use letters and hyphens, such as es-419 or en-US, in lower case for the language.",
+  "flow2.merge.name": "Track name",
+  "flow2.merge.name.hint": "How the track is named in players. Empty: the server’s default.",
+  "flow2.merge.keepDefault": "Keep the original audio as the default track",
+  "flow2.merge.confirm.title": "Merge the audio into the library file?",
+  "flow2.merge.fact.audio": "Audio added",
+  "flow2.merge.fact.offset": "Offset",
+  "flow2.merge.fact.subtitles": "Subtitles added",
+  "flow2.merge.fact.subtitles.none": "None",
+  "flow2.merge.fact.tag": "Language tag",
+  "flow2.merge.fact.name": "Track name",
+  "flow2.merge.fact.default": "Server default",
+  "flow2.merge.fact.file": "The file in the library",
+  "flow2.merge.fact.file.value":
+    "Radarr replaces it with the merged file, which keeps all its tracks and has the new ones too.",
+  "flow2.merge.fact.title": "The film",
+  "flow2.merge.fact.title.value":
+    "It is left unmonitored afterwards, unless the server is set otherwise, so automatic upgrades do not replace the merged file.",
+  "flow2.merge.warning.replace":
+    "The old file is removed from the library. If Radarr has no recycle bin set up, it cannot be brought back.",
+  "flow2.merge.warning.search":
+    "Pressing the film’s own Search button in Radarr can still replace the merged file with a release that has no new audio.",
+  "flow2.merge.submit": "Merge into the library file",
+  "flow2.version.title": "Keep as a second version",
+  "flow2.version.intro":
+    "Your upload is kept next to the film, outside Radarr’s folders, and grouped with the film in the media server.",
+  "flow2.version.label": "Version label",
+  "flow2.version.label.hint":
+    "Shown with the film in the media server, for example Español. Do not use quality words such as 1080p or WEB-DL.",
+  "flow2.version.name": "File name: {name}",
+  "flow2.version.problem.title": "This label cannot be used as it is",
+  "flow2.version.problem.label_empty":
+    "No label could be proposed, because the audio of your upload has no language tag. Type one.",
+  "flow2.version.problem.label_invalid":
+    'The label cannot be part of a file name. Remove slashes and characters such as : * ? " < > |.',
+  "flow2.version.problem.label_too_long": "The label is too long. Use a shorter one.",
+  "flow2.version.problem.label_forbidden":
+    "“{token}” is a word kept out of labels (quality and source words). Remove it.",
+  "flow2.version.problem.label_extra":
+    "The media server takes a file that ends in this word for an extra, such as a trailer, and not for a version. Change the last word.",
+  "flow2.version.problem.label_quality":
+    "Radarr reads “{token}” in the name as a quality. Remove it, or Radarr could take the file for a better copy.",
+  "flow2.version.problem.label_unchecked":
+    "Radarr could not read the name, so the label could not be checked. Try a simpler label.",
+  "flow2.version.problem.unknown": "The label has a problem (code: {code}).",
+  "flow2.version.problem.admin":
+    "You run this server: the words kept out of labels are the setting versions.forbiddenLabelTokens, and the proposed label comes from versions.labelTemplate.",
+  "flow2.version.notices": "Good to know",
+  "flow2.version.notice.outside_radarr":
+    "Radarr does not know this version. It never renames, upgrades or deletes it, and only replaces the film’s own file.",
+  "flow2.version.notice.regrouped_after_changes":
+    "When Radarr renames or upgrades the film’s file, the media server loses the grouping. Fukku groups them again by itself, and until then the two show as separate entries.",
+  "flow2.version.notice.kept_on_delete":
+    "If you delete the film in Radarr, the version stays on disk. Remove it by hand.",
+  "flow2.version.notice.subtitles_not_handed_over":
+    "The subtitle files of this upload are not handed to the subtitle manager, which only knows the film’s own file.",
+  "flow2.version.notice.unknown": "A note from the server (code: {code}).",
+  "flow2.version.confirm.title": "Keep this as a second version?",
+  "flow2.version.fact.label": "Label",
+  "flow2.version.fact.name": "File name",
+  "flow2.version.fact.where": "Where it goes",
+  "flow2.version.fact.where.value":
+    "In the folder the server keeps for versions, not in Radarr’s. The library file is not touched.",
+  "flow2.version.fact.server": "In the media server",
+  "flow2.version.fact.server.value": "Listed with the film, as another version to choose.",
+  "flow2.version.submit": "Keep as a second version",
+  "errors.not_flow2": "This upload is not another language of a film that is in the library.",
+  "errors.merge_not_offered":
+    "This upload cannot be merged into the library file. The comparison says why.",
+  "errors.no_audio": "The upload has no audio track to add.",
+  "errors.preview_required":
+    "The sync clips are out of date. Make them again at the offset you want, check them, then merge.",
+  "errors.library_changed":
+    "The film’s file in Radarr changed since you chose the film. Choose the film again so Fukku compares the new file.",
+  "errors.version_label": "That label cannot be used. Change it and try again.",
+  "errors.version_unavailable":
+    "A second version is not possible right now: it is switched off, or the folder for versions cannot be used. Ask whoever runs Fukku.",
+  "errors.version_exists": "A version with this name already exists. Choose another label.",
+  "errors.season_dub_choice": "Some episodes already have a file. Choose what to do with them.",
+  "errors.shared_file":
+    "Replacing some of these files would also remove the file of episodes that are not in this upload.",
+  "jobError.library_unreadable":
+    "Fukku could not read the film’s file in the library. Tell the person who runs the server.",
+  "jobError.merge_failed":
+    "The merge could not be made. The library was not changed. You can try again.",
+  "jobError.merge_rejected":
+    "Radarr did not take the merged file. The library was not changed. Tell the person who runs the server.",
+  "jobError.version_failed":
+    "The second version could not be placed. The library was not changed. Tell the person who runs the server.",
+  "import.merge.title": "The merge",
+  "import.merge.steps": "Steps of the merge",
+  "import.merge.step.make": "Make the merged file",
+  "import.merge.step.import": "Radarr replaces its file",
+  "import.merge.pending": "The merge is waiting its turn.",
+  "import.merge.running":
+    "The audio is being merged into a copy of the library file. For a large film this takes a few minutes. This page updates by itself.",
+  "import.merge.merged": "The merged file is ready: {name} ({size}).",
+  "import.merge.failed": "The merge did not finish. The library file was not changed.",
+  "import.merge.refusal.library_unreadable": "The library file could not be read.",
+  "import.merge.refusal.upload_unreadable": "The uploaded file could not be read.",
+  "import.merge.refusal.track_not_found": "A chosen track is not in the upload.",
+  "import.merge.refusal.free_space": "There was not enough free space for the merged file.",
+  "import.merge.refusal.mux_failed": "The tool that merges the tracks reported a problem.",
+  "import.merge.refusal.library_changed": "The library file changed while it was being read.",
+  "import.merge.refusal.verify_failed":
+    "The merged file did not pass the checks (the picture, the length or the tracks were not as expected).",
+  "import.merge.refusal.busy": "Another merge was using the same place. Try again.",
+  "import.merge.refusal.unknown": "The merge was refused (code: {code}).",
+  "import.merge.fact.audio": "Audio tracks",
+  "import.merge.fact.subtitles": "Subtitle tracks",
+  "import.merge.fact.offset": "Offset",
+  "import.merge.fact.tag": "Language tag",
+  "import.merge.fact.name": "Track name",
+  "import.merge.fact.original": "Original audio stays the default track",
+  "import.merge.fact.yes": "Yes",
+  "import.merge.fact.no": "No",
+  "import.merge.fact.offset.value": "{offset} ms",
+  "import.merge.done.title": "The merged file is in the library",
+  "import.merge.done.body": "{app} replaced its file with {name}.",
+  "import.merge.warning.search_can_replace.title": "This film is not monitored",
+  "import.merge.warning.search_can_replace":
+    "Automatic upgrades and the Wanted searches leave the merged file alone. But pressing the film’s own Search button in {app} can still replace it with a release that has no new audio, so do not use it if you want to keep this one.",
+  "import.merge.warning.upgrade_can_replace.title": "This film is still monitored",
+  "import.merge.warning.upgrade_can_replace":
+    "A better release without the new audio can replace the merged file. To stop that, stop monitoring the film in {app}.",
+  "import.merge.warning.unknown.title": "The merged file can still be replaced",
+  "import.merge.warning.unknown":
+    "Something in {app} can still replace the merged file (code: {code}).",
+  "import.unmonitored.merged":
+    "A merge replaced the file, so the film is now unmonitored: automatic upgrades will not replace it. Pressing the film’s own Search button in {app} still can, so do not use it if you want to keep this one.",
+  "import.version.running":
+    "Fukku is placing the version next to the film. This page updates by itself.",
+  "import.version.done.title": "The second version of {title} is in place",
+  "import.version.done.body": "It is kept as {name}, labelled {label}.",
+  "import.version.status.placing": "The file is being placed.",
+  "import.version.status.linked": "The file is in place. The media server groups it next.",
+  "import.version.status.grouped": "The media server lists it with the film.",
+  "import.version.status.waiting":
+    "The media server has not grouped it yet. Fukku tries again by itself.",
+  "import.version.status.film_deleted":
+    "Radarr no longer has this film. The version stays on disk.",
+  "import.version.status.missing": "The version file is no longer on disk.",
+  "import.version.status.unknown": "State of the version: {status}.",
+  "import.seasonDub.subtitlesOnly.title": "Nothing was imported",
+  "import.seasonDub.subtitlesOnly":
+    "You chose to only add subtitles for the episodes that already have a file. The subtitles went to the subtitle manager, and the files stay in this upload until it expires.",
+  "import.seasonDub.subtitlesOnly.mixed":
+    "For the episodes that already had a file, you chose to only add subtitles: those files were not replaced.",
+  "import.seasonDub.replace.one":
+    "Your files replaced the ones already in the library for season {seasons}.",
+  "import.seasonDub.replace.other":
+    "Your files replaced the ones already in the library for seasons {seasons}.",
+  "confirm.dub.title": "Episodes that already have a file",
+  "confirm.dub.intro":
+    "Some episodes of this upload are already in the library. Choose what to do with those. The other episodes are imported as usual.",
+  "confirm.dub.season.one":
+    "Season {season}: files already exist for {existing} of {count} episode.",
+  "confirm.dub.season.other":
+    "Season {season}: files already exist for {existing} of {count} episodes.",
+  "confirm.dub.legend": "What should happen to them?",
+  "confirm.dub.replace": "Replace the files",
+  "confirm.dub.replace.body":
+    "Your files are imported over the ones in the library, and the season is left unmonitored so automatic upgrades do not replace them. The Search button of an episode in {app} still can.",
+  "confirm.dub.subtitlesOnly": "Only add subtitles",
+  "confirm.dub.subtitlesOnly.body":
+    "Nothing is imported. The subtitles of your upload go to the subtitle manager for the episodes that already have a file.",
+  "confirm.dub.unknown": "Another option ({policy})",
+  "confirm.dub.unknown.body": "The server offers this, but this page does not know it yet.",
+  "confirm.dub.decided": "This server settles it by itself: {option}.",
+  "confirm.dub.none": "Nothing is offered for these episodes on this server, so they are left out.",
+  "confirm.dub.missing": "Choose what to do with the episodes that already have a file.",
+  "confirm.dub.subtitlesOnly.count":
+    "Nothing will be imported. The subtitles go to the subtitle manager.",
+  "confirm.dub.shared.title": "Replacing these files would remove other episodes’ files",
+  "confirm.dub.shared.body":
+    "These files each hold several episodes, and some of them are not in this upload. Replacing the file removes those episodes from the library too.",
+  "confirm.dub.shared.accept": "Replace {name} anyway",
+  "flow2.reason.media_server_too_old":
+    "the media server is a Jellyfin older than 12.4, which does not group episode versions.",
+  "flow2.reason.media_server_unknown": "the media server’s version could not be read.",
+  "flow2.reason.series_folder_unusable":
+    "Sonarr’s folder name for the series cannot be part of a file name.",
+  "flow2.reason.season_folder_unavailable":
+    "a season folder cannot take the versions (missing, not writable, or on another disk), or a required marker file is missing.",
+  "confirm.dub.name.replace": "Replace the files",
+  "confirm.dub.name.subtitlesOnly": "Only add subtitles",
+  "confirm.dub.name.version": "Keep as second versions",
+  "import.merge.warning.language_unknown_to_radarr.title": "Radarr does not know the new language",
+  "import.merge.warning.language_unknown_to_radarr":
+    "{app} has no language for the added tracks, so it lists the merged file with the existing languages only. The tracks are tagged in the file, but custom formats and searches by language in {app} do not see them.",
 };
 
 export default en;

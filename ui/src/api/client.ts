@@ -7,9 +7,12 @@ import type { ApiErrorBody } from "./types";
 export class ApiError extends Error {
   readonly status: number;
   readonly code: string;
+  /** The rows a refusal is about (`needs_override`, `shared_file`...); empty for the others. */
+  readonly rows: string[];
 
-  constructor(status: number, code: string, message: string) {
+  constructor(status: number, code: string, message: string, rows: string[] = []) {
     super(message);
+    this.rows = rows;
     this.name = "ApiError";
     this.status = status;
     this.code = code;
@@ -82,7 +85,15 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
 
   const body = await readJson(res);
   if (!res.ok) {
-    if (isErrorBody(body)) throw new ApiError(res.status, body.error.code, body.error.message);
+    if (isErrorBody(body)) {
+      const rows = (body.error as { rows?: unknown }).rows;
+      throw new ApiError(
+        res.status,
+        body.error.code,
+        body.error.message,
+        Array.isArray(rows) ? rows.filter((r): r is string => typeof r === "string") : [],
+      );
+    }
     throw new ApiError(res.status, "internal", `The server answered ${res.status}.`);
   }
   if (res.status !== 204 && body === undefined) {

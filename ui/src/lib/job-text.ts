@@ -1,7 +1,7 @@
 // The job pages' rules that need no React: which texts an error code or a refusal reason
 // maps to, how a probe reads, which actions show, and how often to poll (#13).
 
-import type { JobAction, JobFilter, JobState, Probe } from "@/api/types";
+import type { AudioTrack, JobAction, JobFilter, JobState, Probe, SubtitleTrack } from "@/api/types";
 import type { TKey } from "@/i18n";
 
 // ---- Error codes and refusal reasons to text ------------------------------------------
@@ -15,6 +15,35 @@ export const jobErrorCodes = [
   "no_usable_files",
   "import_failed",
   "arr_unavailable",
+  // Flow 2 (#52, #55, #56).
+  "library_unreadable",
+  "merge_failed",
+  "merge_rejected",
+  "version_failed",
+] as const;
+
+/** Refusal codes of the merge task (#54): `import.merge.refusal.<code>`. */
+export const mergeRefusalCodes = [
+  "library_unreadable",
+  "upload_unreadable",
+  "track_not_found",
+  "free_space",
+  "mux_failed",
+  "library_changed",
+  "verify_failed",
+  "busy",
+] as const;
+
+/** Why the clips of the sync check could not be made (#53): `flow2.sync.error.<code>`. */
+export const previewErrorCodes = [
+  "outside_library",
+  "library_unreadable",
+  "upload_unreadable",
+  "render_failed",
+  "timeout",
+  "too_large",
+  "task_failed",
+  "task_timeout",
 ] as const;
 
 /** Refusal codes of a whole archive (#3). */
@@ -75,6 +104,18 @@ export function refusalText(code: string): CodeText {
     return { key: `refusal.${code}` as TKey };
   }
   return { key: "refusal.unknown", params: { code } };
+}
+
+/** Why the merge task refused (`import.merge.refusal.<code>`). */
+export function mergeRefusalText(code: string): CodeText {
+  if (known(mergeRefusalCodes, code)) return { key: `import.merge.refusal.${code}` as TKey };
+  return { key: "import.merge.refusal.unknown", params: { code } };
+}
+
+/** Why the sync check's clips could not be made. */
+export function previewErrorText(code: string): CodeText {
+  if (known(previewErrorCodes, code)) return { key: `flow2.sync.error.${code}` as TKey };
+  return { key: "flow2.sync.error.unknown", params: { code } };
 }
 
 /** Why an entry of an archive was skipped. */
@@ -227,6 +268,36 @@ export type ProbeSummary = {
 
 type ProbeFormat = { formatDuration: (ms: number) => string; lang: string };
 
+/** One line per audio track: language, title, "AC3 5.1". */
+export function audioLines(tracks: readonly AudioTrack[], lang: string): TrackLine[] {
+  return tracks.map((a) => ({
+    key: `a${a.index}`,
+    language: languageName(a.language, lang),
+    title: a.title,
+    detail: [formatCodec(a.codec), a.channels ? formatChannels(a.channels) : undefined]
+      .filter(Boolean)
+      .join(" "),
+    flags: a.default ? ["default"] : [],
+  }));
+}
+
+/** One line per subtitle track. */
+export function subtitleLines(tracks: readonly SubtitleTrack[], lang: string): TrackLine[] {
+  return tracks.map((s) => {
+    const flags: TrackFlag[] = [];
+    if (s.default) flags.push("default");
+    if (s.forced) flags.push("forced");
+    if (s.hearingImpaired) flags.push("hearingImpaired");
+    return {
+      key: `s${s.index}`,
+      language: languageName(s.language, lang),
+      title: s.title,
+      detail: formatCodec(s.codec),
+      flags,
+    };
+  });
+}
+
 /** What the page shows of a probe: duration, resolution, codec, and the tracks. */
 export function summarizeProbe(probe: Probe, fmt: ProbeFormat): ProbeSummary {
   const video = probe.video[0];
@@ -235,29 +306,29 @@ export function summarizeProbe(probe: Probe, fmt: ProbeFormat): ProbeSummary {
     resolution: video ? formatResolution(video.width, video.height) : undefined,
     videoCodec: video ? formatCodec(video.codec) : undefined,
     frameRate: formatFrameRate(video?.frameRate),
-    audio: probe.audio.map((a) => ({
-      key: `a${a.index}`,
-      language: languageName(a.language, fmt.lang),
-      title: a.title,
-      detail: [formatCodec(a.codec), a.channels ? formatChannels(a.channels) : undefined]
-        .filter(Boolean)
-        .join(" "),
-      flags: a.default ? ["default"] : [],
-    })),
-    subtitles: probe.subtitles.map((s) => {
-      const flags: TrackFlag[] = [];
-      if (s.default) flags.push("default");
-      if (s.forced) flags.push("forced");
-      if (s.hearingImpaired) flags.push("hearingImpaired");
-      return {
-        key: `s${s.index}`,
-        language: languageName(s.language, fmt.lang),
-        title: s.title,
-        detail: formatCodec(s.codec),
-        flags,
-      };
-    }),
+    audio: audioLines(probe.audio, fmt.lang),
+    subtitles: subtitleLines(probe.subtitles, fmt.lang),
   };
+}
+
+/** "1:05", "1:02:03": a position in a film. */
+export function formatClock(ms: number): string {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const sec = String(total % 60).padStart(2, "0");
+  return h > 0 ? `${h}:${String(m).padStart(2, "0")}:${sec}` : `${m}:${sec}`;
+}
+
+/** The longest offset the server takes (#53), in either direction. */
+export const maxOffsetMs = 60_000;
+
+/** An offset typed in the field: a whole number of milliseconds in range, else `null`. */
+export function parseOffset(text: string): number | null {
+  const t = text.trim().replace("\u2212", "-");
+  if (!/^[+-]?\d+$/.test(t)) return null;
+  const n = Number(t);
+  return Math.abs(n) <= maxOffsetMs ? n : null;
 }
 
 // ---- Age --------------------------------------------------------------------------------

@@ -5,6 +5,8 @@
 /** The health endpoint (`GET /healthz`), outside `/api/`. */
 export type Health = { status: string; version: string };
 
+import type { Ref } from "./proposal";
+
 // ---- Errors (#5) ----------------------------------------------------------------------
 
 /** The body of every error answer: `{"error": {"code": "...", "message": "..."}}`. */
@@ -46,6 +48,24 @@ export const confirmErrorCodes = [
   "flow2",
 ] as const;
 
+/**
+ * Codes of flow 2 (#52, #53, #55, #56): the preview, the merge and the second version, and the
+ * season-dub choice of the proposal's confirmation (#57). `merge_not_offered`, `preview_required`
+ * and `library_changed` are the merge's (#91; assumed from its description until it is merged).
+ */
+export const flow2ErrorCodes = [
+  "not_flow2",
+  "merge_not_offered",
+  "no_audio",
+  "preview_required",
+  "library_changed",
+  "version_label",
+  "version_unavailable",
+  "version_exists",
+  "season_dub_choice",
+  "shared_file",
+] as const;
+
 /** Refusals of `/api/uploads/` (#10). */
 export const uploadErrorCodes = [
   "bad_name",
@@ -72,6 +92,7 @@ export const knownErrorCodes = [
   ...jobErrorCodes,
   ...matchErrorCodes,
   ...confirmErrorCodes,
+  ...flow2ErrorCodes,
   ...uploadErrorCodes,
   ...clientErrorCodes,
 ] as const;
@@ -260,7 +281,48 @@ export type Target = { app: AppName; titleId: number; title: string; year: numbe
 export type ImportInfo = {
   status: string;
   rows: { id: string; name: string; result: string }[];
+  /** The merge of a flow 2 job (#55); null for every other job. */
+  merge?: MergeInfo | null;
 };
+
+/**
+ * How far a merge is (#55). `failed`: the job failed before the merge was made; `refusal` is
+ * the merge task's own code (`verify_failed`, `free_space`...) or empty.
+ */
+export type MergeInfo = {
+  state: "pending" | "running" | "merged" | "failed";
+  refusal: string;
+  audioTracks: number[];
+  subtitleTracks: number[];
+  offsetMs: number;
+  languageTag: string;
+  trackName: string;
+  keepOriginalDefault: boolean;
+  /** Radarr's language for the tag; null when it has none. */
+  arrLanguage: Ref | null;
+  name: string;
+  size: number;
+};
+
+/** What can still replace a merged file (B6): `search_can_replace` or `upgrade_can_replace` (#55). */
+export type MergeWarning = { code: string; message: string };
+
+export type MergeResult = { name: string; warnings: MergeWarning[] };
+
+/** The second version a flow 2 job placed (#56) and how the media server groups it. */
+export type VersionResult = {
+  name: string;
+  label: string;
+  /** `placing`, `linked`, `grouped`, `waiting`, `film_deleted` or `missing`. */
+  status: string;
+  detail: string;
+  groupedAt: string | null;
+  primaryChangedAt: string | null;
+  notices: string[];
+};
+
+/** What the season-dub choice did (#57): `replace` covers `seasons`; `subtitlesOnly` imported nothing. */
+export type SeasonDubResult = { policy: string; seasons: number[] };
 
 export type PostStepStatus = "pending" | "ok" | "failed" | "skipped";
 export type PostStepInfo = { step: string; status: PostStepStatus; detail: string };
@@ -271,11 +333,73 @@ export type ImportResult = {
   postProcessing: PostStepInfo[];
   /** Null until the monitoring is set. False: automatic upgrades will not replace the file. */
   monitored: boolean | null;
-  /** Why Fukku left the title unmonitored: `dub_only`, `chosen`, or empty. */
-  unmonitorReason: "dub_only" | "chosen" | "";
+  /** Why Fukku left the title unmonitored: `dub_only`, `chosen`, `merged` (#55), or empty. */
+  unmonitorReason: "dub_only" | "chosen" | "merged" | "";
+  /** The season-dub choice that was applied (#57); null otherwise. */
+  seasonDub?: SeasonDubResult | null;
+  /** The second version (#56); null for every other job. */
+  version?: VersionResult | null;
+  /** The merged file (#55), with what can still replace it; null for every other job. */
+  merge?: MergeResult | null;
+};
+
+// ---- Flow 2 (#52, #56) ------------------------------------------------------------------
+
+export type Flow2Finding = "match" | "pal" | "different";
+export type Flow2Offer = "merge" | "version";
+
+/** One side of the comparison. The library's quality and languages are Radarr's; the upload's are empty. */
+export type Flow2File = {
+  fileId: number;
+  name: string;
+  size: number;
+  quality: Ref | null;
+  languages: Ref[];
+  runtimeMs?: number;
+  /** The video stream's duration, the one compared; null until the file is probed. */
+  durationMs: number | null;
+  audio: AudioTrack[];
+  subtitles: SubtitleTrack[];
+};
+
+export type NotOffered = {
+  offer: Flow2Offer;
+  /** `merge_disabled`, `versions_disabled`, `versions_unsupported`, `runtime_differs`. */
+  reason: string;
+};
+
+/** Why a version label cannot be used (`label_empty`, `label_forbidden`...); `message` is English. */
+export type LabelProblem = { reason: string; token?: string; message: string };
+
+export type VersionOffer = {
+  /** The proposed label; empty when none can be proposed. */
+  label: string;
+  language: string;
+  name: string;
+  problem: LabelProblem | null;
+  /** `outside_radarr`, `regrouped_after_changes`, `kept_on_delete`, `subtitles_not_handed_over`. */
+  notices: string[];
+};
+
+/** `flow2` in the job detail: the film already has a file, the comparison and what can be done. */
+export type Flow2 = {
+  state: "pending" | "ready";
+  library: Flow2File;
+  /** Null: the job has no accepted video. */
+  upload: Flow2File | null;
+  finding: Flow2Finding | null;
+  /** Upload minus library, in milliseconds. */
+  deltaMs: number | null;
+  /** The longer duration over the shorter, at least 1. */
+  ratio: number | null;
+  offers: Flow2Offer[];
+  notOffered: NotOffered[];
+  version: VersionOffer | null;
 };
 
 export type JobDetail = Job & {
+  /** Set when the matched film already has a file (#52). */
+  flow2?: Flow2 | null;
   /** From `importing` on (#40). */
   import?: ImportInfo | null;
   result?: ImportResult | null;
@@ -370,4 +494,50 @@ export type SubtitleChoice = {
   hearingImpaired: boolean;
 };
 
-export type ConfirmRequest = { overrides: string[]; subtitles?: SubtitleChoice[] };
+export type ConfirmRequest = {
+  overrides: string[];
+  subtitles?: SubtitleChoice[];
+  /** The season-dub choice (#57), one of the proposal's `seasonDub.offers`. */
+  seasonDub?: string;
+};
+
+/** The merge of a flow 2 job (#55). Every field is optional; the server fills the gaps. */
+export type MergeRequest = {
+  audioTracks?: number[];
+  subtitleTracks?: number[];
+  offsetMs?: number;
+  languageTag?: string;
+  trackName?: string;
+  keepOriginalDefault?: boolean;
+};
+
+/** The confirmation of a flow 2 job (#55, #56): a merge or a second version. */
+export type Flow2ConfirmRequest =
+  | { flow2: "merge"; merge: MergeRequest; subtitles?: SubtitleChoice[] }
+  | { flow2: "version"; version: { label?: string } };
+
+// ---- Sync check (#53) -------------------------------------------------------------------
+
+export type PreviewState = "none" | "pending" | "ready" | "failed";
+
+export type PreviewClip = {
+  n: number;
+  startMs: number;
+  lengthMs: number;
+  size: number;
+  url: string;
+};
+
+export type Preview = {
+  state: PreviewState;
+  /** Null while `state` is `none`. */
+  offsetMs: number | null;
+  audioTrack: number | null;
+  requestedAt: string | null;
+  requestedBy: string | null;
+  error: JobError | null;
+  /** Empty unless `ready`. */
+  clips: PreviewClip[];
+};
+
+export type PreviewRequest = { offsetMs?: number; audioTrack?: number };

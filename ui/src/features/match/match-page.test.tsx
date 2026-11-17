@@ -258,24 +258,45 @@ describe("the match page", () => {
     expect(within(options).getByRole("button", { name: "Use this title" })).toBeEnabled();
   });
 
-  it("explains a film that already has a file and offers the manual fallback", async () => {
+  it("offers another language of a film that already has a file, and the manual fallback", async () => {
     const user = userEvent.setup();
-    open(film);
+    const { router } = open(film);
     await search(user, "sintel");
     await user.click(await screen.findByRole("radio", { name: /Sintel/ }));
     expect(screen.getByRole("heading", { name: "This film already has a file" })).toBeVisible();
-    expect(screen.getByText(/arrives in a later version/)).toBeVisible();
     expect(screen.queryByRole("button", { name: "Use this title" })).not.toBeInTheDocument();
-    const manual = within(screen.getByRole("note")).getByRole("link", {
-      name: "Import it by hand instead",
-    });
-    expect(manual).toHaveAttribute("href", `/jobs/${film}`);
+    const note = screen.getByRole("note");
+    expect(within(note).getByRole("link", { name: "Import it by hand instead" })).toHaveAttribute(
+      "href",
+      `/jobs/${film}`,
+    );
+    await user.click(within(note).getByRole("button", { name: "Add another language" }));
+    await waitFor(() => expect(router.state.location.pathname).toBe(`/jobs/${film}/flow2`));
+  });
+
+  it("shows why choosing a film that already has a file failed", async () => {
+    server.use(
+      http.post("/api/jobs/:id/match", () =>
+        HttpResponse.json({ error: { code: "title_busy", message: "x" } }, { status: 409 }),
+      ),
+    );
+    const user = userEvent.setup();
+    const { router } = open(film);
+    await search(user, "sintel");
+    await user.click(await screen.findByRole("radio", { name: /Sintel/ }));
+    await user.click(screen.getByRole("button", { name: "Add another language" }));
+    expect(
+      await screen.findByText(
+        "This title is downloading right now. Try again when it has finished.",
+      ),
+    ).toBeVisible();
+    expect(router.state.location.pathname).toBe(`/jobs/${film}/match`);
   });
 
   it.each([
     [
       "already_in_library",
-      "This film already has a file. Adding another language arrives in a later version.",
+      "This film already has a file. Choose it again to add another language of it.",
     ],
     ["title_in_use", "Another upload is already working on this title. Wait for it to finish."],
     ["title_busy", "This title is downloading right now. Try again when it has finished."],

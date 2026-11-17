@@ -1,16 +1,18 @@
-import { Ban, Check, ExternalLink, Hourglass, TriangleAlert } from "lucide-react";
-import type { JobDetail, PostStepInfo } from "@/api/types";
+import { Ban, Check, ExternalLink, Hourglass, Info, TriangleAlert } from "lucide-react";
+import type { JobDetail, MergeInfo, PostStepInfo, VersionResult } from "@/api/types";
 import { StatusLabel, type StatusTone } from "@/components/patterns/status-label";
 import { Notice } from "@/components/shell/notice";
 import { Button } from "@/components/ui/button";
 import type { TKey } from "@/i18n";
 import { useT } from "@/i18n";
+import { versionNoticeText } from "@/lib/flow2-text";
+import { mergeRefusalText } from "@/lib/job-text";
 import { cn } from "@/lib/utils";
 
 const appName = { radarr: "Radarr", sonarr: "Sonarr" } as const;
 
 /** The post-processing steps the UI names (`import.step.<name>`); others show their own name. */
-const knownSteps = ["mediaServerRefresh", "subtitles"] as const;
+const knownSteps = ["mediaServerRefresh", "mediaServerVersions", "subtitles"] as const;
 const knownResults = ["imported", "skipped", "failed"] as const;
 
 /** The meaning of each result of a file and of each status of a step (docs/design.md, §3). */
@@ -28,6 +30,149 @@ const stepTone: Record<PostStepInfo["status"], StatusTone> = {
 
 /** Where the state of a row stands, so that the states read down one column. */
 const stateColumn = "shrink-0 sm:w-36";
+
+/** The merge of a flow 2a job (#55): where it stands, then what it adds. */
+function MergeProgress({ merge, job }: { merge: MergeInfo; job: JobDetail }) {
+  const { t, formatBytes } = useT();
+  const failed = merge.state === "failed";
+  const made = merge.state === "merged";
+  const imported = job.import?.rows.some((r) => r.result === "imported") ?? false;
+  // The file was made and the job still failed: Radarr did not take it (`merge_rejected`).
+  const rejected = made && !imported && job.state === "failed";
+  const refusal = mergeRefusalText(merge.refusal);
+  const none = t("import.merge.fact.no");
+  return (
+    <div className="grid gap-4">
+      <h3>{t("import.merge.title")}</h3>
+      <ol aria-label={t("import.merge.steps")} className="divide-y border-y">
+        <li className="flex flex-col gap-x-4 gap-y-1 py-3 sm:flex-row sm:items-baseline sm:justify-between">
+          <span className="font-medium">{t("import.merge.step.make")}</span>
+          <StatusLabel tone={failed ? "error" : made ? "done" : "waiting"} className={stateColumn}>
+            {t(
+              failed
+                ? "import.status.failed"
+                : made
+                  ? "import.status.ok"
+                  : merge.state === "running"
+                    ? "import.status.pending"
+                    : "import.row.waiting",
+            )}
+          </StatusLabel>
+        </li>
+        <li className="flex flex-col gap-x-4 gap-y-1 py-3 sm:flex-row sm:items-baseline sm:justify-between">
+          <span className="font-medium">{t("import.merge.step.import")}</span>
+          <StatusLabel
+            tone={imported ? "done" : rejected ? "error" : "waiting"}
+            icon={failed ? Ban : undefined}
+            className={stateColumn}
+          >
+            {t(
+              imported
+                ? "import.status.ok"
+                : rejected
+                  ? "import.status.failed"
+                  : failed
+                    ? "import.status.skipped"
+                    : "import.row.waiting",
+            )}
+          </StatusLabel>
+        </li>
+      </ol>
+      {merge.state === "pending" && <p role="status">{t("import.merge.pending")}</p>}
+      {merge.state === "running" && (
+        <p role="status" className="max-w-[65ch] text-ink-2">
+          {t("import.merge.running")}
+        </p>
+      )}
+      {made && (
+        <p role="status" className="max-w-[65ch] text-ink-2">
+          {t("import.merge.merged", { name: merge.name, size: formatBytes(merge.size) })}
+        </p>
+      )}
+      {failed && (
+        <Notice role="alert" tone="error" icon={TriangleAlert} title={t("import.merge.failed")}>
+          {merge.refusal !== "" && t(refusal.key, refusal.params)}
+        </Notice>
+      )}
+      <dl className="grid grid-cols-1 gap-x-6 gap-y-2 text-sm sm:grid-cols-[auto_minmax(0,1fr)]">
+        <div className="grid sm:col-span-2 sm:grid-cols-subgrid">
+          <dt className="text-muted-foreground">{t("import.merge.fact.audio")}</dt>
+          <dd className="figure">{merge.audioTracks.length}</dd>
+        </div>
+        <div className="grid sm:col-span-2 sm:grid-cols-subgrid">
+          <dt className="text-muted-foreground">{t("import.merge.fact.subtitles")}</dt>
+          <dd className="figure">{merge.subtitleTracks.length}</dd>
+        </div>
+        <div className="grid sm:col-span-2 sm:grid-cols-subgrid">
+          <dt className="text-muted-foreground">{t("import.merge.fact.offset")}</dt>
+          <dd className="figure">
+            {t("import.merge.fact.offset.value", { offset: String(merge.offsetMs) })}
+          </dd>
+        </div>
+        {merge.languageTag !== "" && (
+          <div className="grid sm:col-span-2 sm:grid-cols-subgrid">
+            <dt className="text-muted-foreground">{t("import.merge.fact.tag")}</dt>
+            <dd translate="no">{merge.languageTag}</dd>
+          </div>
+        )}
+        {merge.trackName !== "" && (
+          <div className="grid sm:col-span-2 sm:grid-cols-subgrid">
+            <dt className="text-muted-foreground">{t("import.merge.fact.name")}</dt>
+            <dd translate="no">{merge.trackName}</dd>
+          </div>
+        )}
+        <div className="grid sm:col-span-2 sm:grid-cols-subgrid">
+          <dt className="text-muted-foreground">{t("import.merge.fact.original")}</dt>
+          <dd>{merge.keepOriginalDefault ? t("import.merge.fact.yes") : none}</dd>
+        </div>
+      </dl>
+    </div>
+  );
+}
+
+const versionStatuses = ["placing", "linked", "grouped", "waiting", "film_deleted", "missing"];
+
+/** Where the second version stands in the media server, and what to know about it. */
+function VersionStatus({ version }: { version: VersionResult }) {
+  const { t } = useT();
+  const known = versionStatuses.includes(version.status);
+  const tone: StatusTone =
+    version.status === "grouped"
+      ? "done"
+      : version.status === "missing" || version.status === "film_deleted"
+        ? "caution"
+        : "waiting";
+  return (
+    <div className="grid gap-2">
+      <StatusLabel tone={tone} role="status" className="text-base">
+        {known
+          ? t(`import.version.status.${version.status}` as TKey)
+          : t("import.version.status.unknown", { status: version.status })}
+      </StatusLabel>
+      {version.detail !== "" && (
+        <p className="font-mono text-sm text-muted-foreground [overflow-wrap:anywhere]">
+          {version.detail}
+        </p>
+      )}
+      {version.notices.length > 0 && (
+        <ul className="grid list-disc gap-1 pl-5 text-sm text-ink-2">
+          {version.notices.map((code) => (
+            <li key={code} className="max-w-[65ch]">
+              {t(versionNoticeText(code).key, versionNoticeText(code).params)}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+/** The merge warnings of B6: what can still replace the merged file. One notice for each. */
+const mergeWarningCodes = [
+  "search_can_replace",
+  "upgrade_can_replace",
+  "language_unknown_to_radarr",
+] as const;
 
 /**
  * What happens after the confirmation, and what it left. While the app imports: how many
@@ -49,6 +194,14 @@ export function ImportSection({ job, className }: { job: JobDetail; className?: 
     imp.rows.length > 0 &&
     (job.state === "importing" || job.state === "failed" || job.state === "stalled");
   const finished = job.state === "done";
+  // A second version is placed by Fukku itself and has no rows of its own in the app.
+  const isVersion = result?.version != null || (job.flow2 != null && !imp?.merge);
+  // `subtitlesOnly` leaves the episodes that have a file alone; the new ones of the same upload
+  // still import, so what the result says depends on what was imported.
+  const subtitlesOnly = result?.seasonDub?.policy === "subtitlesOnly";
+  const anyImported = imp?.rows.some((r) => r.result === "imported") ?? false;
+  const nothingImported = subtitlesOnly && !anyImported;
+  const seasonList = result?.seasonDub?.seasons ?? [];
   const failedSteps = steps.filter((s) => s.status === "failed");
   const imported = imp?.rows.filter((r) => r.result === "imported").length ?? 0;
   const total = imp?.rows.length ?? 0;
@@ -57,9 +210,13 @@ export function ImportSection({ job, className }: { job: JobDetail; className?: 
     <section aria-labelledby="import-title" className={cn("grid gap-4", className)}>
       <h2 id="import-title">{t(finished ? "import.title.done" : "import.title")}</h2>
 
-      {job.state === "importing" && (
+      {imp?.merge && <MergeProgress merge={imp.merge} job={job} />}
+
+      {job.state === "importing" && !imp?.merge && (
         <p role="status" className="max-w-[65ch] text-ink-2">
-          {t("import.running", { app: app || t("import.app") })}
+          {t(isVersion ? "import.version.running" : "import.running", {
+            app: app || t("import.app"),
+          })}
         </p>
       )}
       {job.state === "stalled" && job.error?.code === "arr_unavailable" && (
@@ -72,9 +229,17 @@ export function ImportSection({ job, className }: { job: JobDetail; className?: 
         <div className="grid gap-3">
           <Notice
             tone="done"
-            icon={Check}
+            icon={nothingImported ? Info : Check}
             role="status"
-            title={t("import.done.title", { title: job.target?.title ?? "" })}
+            title={
+              nothingImported
+                ? t("import.seasonDub.subtitlesOnly.title")
+                : result?.version
+                  ? t("import.version.done.title", { title: job.target?.title ?? "" })
+                  : result?.merge
+                    ? t("import.merge.done.title")
+                    : t("import.done.title", { title: job.target?.title ?? "" })
+            }
             action={
               result?.titleLink ? (
                 <Button asChild variant="outline">
@@ -87,21 +252,72 @@ export function ImportSection({ job, className }: { job: JobDetail; className?: 
             }
           >
             <p>
-              {t("import.done.body", { app: app || t("import.app") })}
+              {nothingImported
+                ? t("import.seasonDub.subtitlesOnly")
+                : result?.version
+                  ? t("import.version.done.body", {
+                      name: result.version.name,
+                      label: result.version.label,
+                    })
+                  : result?.merge
+                    ? t("import.merge.done.body", {
+                        app: app || t("import.app"),
+                        name: result.merge.name,
+                      })
+                    : t("import.done.body", { app: app || t("import.app") })}
               {failedSteps.length > 0 && <> {t("import.done.failedSteps")}</>}
             </p>
-            {!result?.titleLink && <p className="mt-1">{t("import.link.none")}</p>}
+            {result?.seasonDub?.policy === "replace" && (
+              <p className="mt-1">
+                {t("import.seasonDub.replace", {
+                  count: seasonList.length,
+                  seasons: seasonList.join(", "),
+                })}
+              </p>
+            )}
+            {subtitlesOnly && anyImported && (
+              <p className="mt-1">{t("import.seasonDub.subtitlesOnly.mixed")}</p>
+            )}
+            {!result?.titleLink && !nothingImported && (
+              <p className="mt-1">{t("import.link.none")}</p>
+            )}
           </Notice>
-          {result?.monitored === false && (
-            <Notice tone="caution" icon={TriangleAlert} title={t("import.unmonitored.title")}>
-              {t(
-                result.unmonitorReason === "chosen"
-                  ? "import.unmonitored.chosen"
-                  : "import.unmonitored.body",
-                { app: app || t("import.app") },
+          {result?.version && <VersionStatus version={result.version} />}
+          {result?.merge && result.merge.warnings.length > 0
+            ? result.merge.warnings.map((w) => {
+                const known = (mergeWarningCodes as readonly string[]).includes(w.code);
+                return (
+                  <Notice
+                    key={w.code}
+                    tone="caution"
+                    icon={TriangleAlert}
+                    title={t(
+                      known
+                        ? (`import.merge.warning.${w.code}.title` as TKey)
+                        : "import.merge.warning.unknown.title",
+                    )}
+                  >
+                    {t(
+                      known
+                        ? (`import.merge.warning.${w.code}` as TKey)
+                        : "import.merge.warning.unknown",
+                      { app: app || t("import.app"), code: w.code },
+                    )}
+                  </Notice>
+                );
+              })
+            : result?.monitored === false && (
+                <Notice tone="caution" icon={TriangleAlert} title={t("import.unmonitored.title")}>
+                  {t(
+                    result.unmonitorReason === "chosen"
+                      ? "import.unmonitored.chosen"
+                      : result.unmonitorReason === "merged"
+                        ? "import.unmonitored.merged"
+                        : "import.unmonitored.body",
+                    { app: app || t("import.app") },
+                  )}
+                </Notice>
               )}
-            </Notice>
-          )}
         </div>
       )}
 

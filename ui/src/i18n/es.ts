@@ -455,7 +455,7 @@ const es: Record<keyof typeof en, string> = {
   "match.hit.noOverview": "Sin descripción.",
   "match.exists.title": "Esta película ya tiene un archivo",
   "match.exists.body":
-    "Añadir otro idioma a una película que ya está en la biblioteca llegará en una versión posterior. Por ahora, impórtala a mano.",
+    "Si tu envío es otro idioma de esta película, Fukku lo compara con el archivo de la biblioteca. Después puedes fusionar el audio nuevo en ese archivo o conservar tu envío como segunda versión.",
   "match.options.title": "Opciones",
   "match.options.inLibrary": "{title} ya está en {app}. Sus ajustes se quedan como están.",
   "match.profile": "Perfil de calidad",
@@ -474,7 +474,7 @@ const es: Record<keyof typeof en, string> = {
   "match.wrongState.title": "Esta subida no se puede asociar ahora",
   "match.wrongState.body": "Solo se puede elegir un título cuando los archivos están revisados.",
   "errors.already_in_library":
-    "Esta película ya tiene un archivo. Añadir otro idioma llegará en una versión posterior.",
+    "Esta película ya tiene un archivo. Elígela otra vez para añadir otro idioma.",
   "errors.title_in_use": "Otra subida ya está trabajando con este título. Espera a que termine.",
   "errors.title_busy": "Este título se está descargando ahora. Inténtalo de nuevo cuando termine.",
   "errors.arr_unavailable":
@@ -698,9 +698,13 @@ const es: Record<keyof typeof en, string> = {
   "import.steps": "Pasos después de la importación",
   "import.post.running": "Los archivos ya están en la biblioteca. Estos pasos terminan el trabajo.",
   "import.step.mediaServerRefresh": "Avisar al servidor multimedia de los archivos nuevos",
+  "import.step.mediaServerVersions":
+    "Agrupar la segunda versión con la película en el servidor multimedia",
   "import.step.subtitles": "Pasar los subtítulos al gestor de subtítulos",
   "import.step.mediaServerRefresh.failed":
     "El servidor multimedia no mostró el título a tiempo. Aparecerá tras su próximo escaneo de la biblioteca, o inicia uno allí a mano.",
+  "import.step.mediaServerVersions.failed":
+    "El servidor multimedia no agrupó la versión con la película. Fukku lo intenta de nuevo solo; mientras tanto aparecen como entradas separadas.",
   "import.step.subtitles.failed":
     "Los subtítulos no se escribieron. Añádelos a mano en el gestor de subtítulos. Los archivos siguen en esta subida hasta que caduque.",
   "import.step.failed":
@@ -719,6 +723,309 @@ const es: Record<keyof typeof en, string> = {
     "Elegiste no reemplazar este archivo cuando aparezca una copia mejor, así que las mejoras automáticas no lo reemplazarán. El botón de búsqueda del propio título en {app} sí puede hacerlo.",
   "import.unmonitored.body":
     "Solo se importó un doblaje, así que el título ya no está monitorizado: las mejoras automáticas no reemplazarán este archivo. El botón de búsqueda del propio título en {app} sí puede hacerlo, así que no lo uses si quieres conservar este.",
+
+  // ---- Flow 2: otro idioma de una película que ya está en la biblioteca (#59) ----
+  "match.exists.action": "Añadir otro idioma",
+  "job.flow2": "Comparar con el archivo de la biblioteca",
+  "job.flow2.body":
+    "Esta película ya tiene un archivo. Compara tu envío con él y después fusiona el audio nuevo o consérvalo como segunda versión.",
+  "flow2.back": "Volver al envío",
+  "flow2.title": "Otro idioma de esta película",
+  "flow2.subject": "{title} ({year}) en Radarr",
+  "flow2.intro":
+    "Esta película ya tiene un archivo en Radarr. Fukku compara tu envío con él y después eliges qué hacer.",
+  "flow2.error.title": "No se pudo mostrar la comparación",
+  "flow2.wrongState.title": "Este envío no se puede comparar ahora",
+  "flow2.wrongState.body":
+    "Se puede comparar cuando se elige una película que ya tiene un archivo, y hasta que lo confirmes.",
+  "flow2.wrongState.action": "Ir al envío",
+  "flow2.probed.title": "Elige la película otra vez",
+  "flow2.probed.body":
+    "No hay ninguna película elegida para este envío, o el archivo de la película en Radarr cambió desde que la elegiste. Elígela otra vez y se hará de nuevo la comparación.",
+  "flow2.notFlow2.title": "Esta película no tiene archivo en la biblioteca",
+  "flow2.notFlow2.body":
+    "No hay nada que comparar. Revisa los archivos e impórtalos como una película nueva.",
+  "flow2.pending": "Se está leyendo el archivo de Radarr. Tarda un momento.",
+  "flow2.noUpload.title": "No hay ningún vídeo que comparar",
+  "flow2.noUpload.body":
+    "No se pudo leer ningún vídeo de este envío. Vuelve y revisa sus archivos.",
+  "flow2.changed.action": "Elegir la película otra vez",
+  "flow2.compare.title": "Tu envío y el archivo de la biblioteca",
+  "flow2.side.library": "En la biblioteca",
+  "flow2.side.upload": "Tu envío",
+  "flow2.file": "Archivo",
+  "flow2.size": "Tamaño",
+  "flow2.quality": "Calidad",
+  "flow2.languages": "Idiomas",
+  "flow2.duration": "Duración",
+  "flow2.audio": "Audio",
+  "flow2.subtitles": "Subtítulos",
+  "flow2.unknown": "No se sabe",
+  "flow2.seconds": "{value} s",
+  "flow2.finding.match.title": "El mismo montaje",
+  "flow2.finding.match.body":
+    "Los dos archivos duran lo mismo, con una diferencia de {delta}. El audio de tu envío se puede añadir al archivo de la biblioteca.",
+  "flow2.finding.pal.title": "Una aceleración PAL",
+  "flow2.finding.pal.body":
+    "Los dos archivos se diferencian en {delta}, una proporción de {ratio}: la de una película acelerada de 23,976 a 25 fotogramas por segundo. Su audio se iría desfasando respecto a la imagen del archivo de la biblioteca, así que no se puede fusionar. Se puede conservar como segunda versión.",
+  "flow2.finding.different.title": "Un montaje distinto",
+  "flow2.finding.different.body":
+    "Los dos archivos se diferencian en {delta} (una proporción de {ratio}) y no del modo en que lo hace una aceleración. Puede ser un montaje más largo o más corto de la película. Su audio no se puede fusionar, pero se puede conservar junto al archivo de la biblioteca como segunda versión.",
+  "flow2.options.title": "Qué puedes hacer",
+  "flow2.offer.merge": "Fusionar el audio en el archivo de la biblioteca",
+  "flow2.offer.merge.body":
+    "El audio nuevo pasa a ser una pista más del archivo de la biblioteca. Queda un solo archivo, y Radarr reemplaza el suyo por el fusionado.",
+  "flow2.offer.version": "Conservarlo como segunda versión",
+  "flow2.offer.version.body":
+    "Tu envío se guarda junto a la película como otra versión, y el servidor multimedia la muestra con la película. El archivo de la biblioteca no se toca.",
+  "flow2.offer.legend": "¿Cómo quieres añadirlo?",
+  "flow2.notOffered.title": "No se ofrece",
+  "flow2.notOffered.item": "{offer}: {reason}",
+  "flow2.reason.merge_disabled": "la fusión está desactivada en este servidor.",
+  "flow2.reason.versions_disabled": "las segundas versiones están desactivadas en este servidor.",
+  "flow2.reason.versions_unsupported":
+    "las segundas versiones necesitan un servidor multimedia que pueda agruparlas (Jellyfin), y no hay ninguno configurado.",
+  "flow2.reason.runtime_differs": "fusionar exige el mismo montaje, y este no lo es.",
+  "flow2.reason.unknown": "no es posible aquí (código: {code}).",
+  "flow2.nothing.title": "Aquí no se puede hacer nada con este envío",
+  "flow2.nothing.body":
+    "Pide a quien administra Fukku que lo cambie, o importa los archivos a mano. No se cambió nada.",
+  "flow2.sync.title": "Comprueba que el audio está sincronizado",
+  "flow2.sync.intro":
+    "Que duren lo mismo no demuestra que el audio encaje. Fukku hace clips cortos con la imagen de la película y el audio nuevo, del principio, de la mitad y del final. Mira y escucha cada uno.",
+  "flow2.sync.audio": "Pista de audio que añadir",
+  "flow2.sync.track": "{track} ({detail})",
+  "flow2.sync.offset": "Desfase en milisegundos",
+  "flow2.sync.offset.hint":
+    "Un número negativo adelanta el audio nuevo y uno positivo lo retrasa. Si llega 0,8 segundos tarde, escribe −800. De −60000 a 60000.",
+  "flow2.sync.offset.invalid": "Escribe un número entero de −60000 a 60000.",
+  "flow2.sync.make": "Hacer los clips",
+  "flow2.sync.again": "Hacer los clips otra vez",
+  "flow2.sync.pending":
+    "Se están haciendo los clips. Tarda un momento y la página se actualiza sola.",
+  "flow2.sync.failed.title": "No se pudieron hacer los clips",
+  "flow2.sync.error.outside_library":
+    "El archivo de la biblioteca está fuera de las carpetas que Fukku puede leer.",
+  "flow2.sync.error.library_unreadable": "No se pudo leer el archivo de la biblioteca.",
+  "flow2.sync.error.upload_unreadable": "No se pudo leer el archivo subido.",
+  "flow2.sync.error.render_failed": "No se pudieron hacer los clips con estos archivos.",
+  "flow2.sync.error.timeout": "Hacer un clip tardó demasiado.",
+  "flow2.sync.error.too_large": "Un clip salió demasiado grande.",
+  "flow2.sync.error.task_failed": "El proceso de trabajo no pudo hacer los clips.",
+  "flow2.sync.error.task_timeout": "El proceso de trabajo tardó demasiado en hacer los clips.",
+  "flow2.sync.error.unknown": "No se pudieron hacer los clips (código: {code}).",
+  "flow2.sync.ready": "Hechos con {track} y un desfase de {offset} ms.",
+  "flow2.sync.clips": "Clips",
+  "flow2.sync.clip": "Clip {n} de {total}, desde {at}",
+  "flow2.sync.clip.fallback": "Tu navegador no puede reproducir este clip.",
+  "flow2.sync.stale":
+    "La pista o el desfase cambiaron después de hacer estos clips. Hazlos otra vez para comprobarlo.",
+  "flow2.sync.match": "Coinciden, continuar",
+  "flow2.sync.nomatch":
+    "Si no coinciden, cambia el desfase y haz los clips otra vez. Un doblaje que se va desfasando no se arregla con un desfase fijo: consérvalo como segunda versión.",
+  "flow2.sync.confirmed": "Comprobado con un desfase de {offset} ms.",
+  "flow2.merge.title": "Fusionar en el archivo de la biblioteca",
+  "flow2.merge.intro":
+    "Elige qué se añade. Todo lo que sigue es opcional: lo que dejes vacío usa los ajustes del servidor.",
+  "flow2.merge.subtitles": "Subtítulos que añadir",
+  "flow2.merge.subtitles.hint": "Reciben el mismo desfase que el audio.",
+  "flow2.merge.subtitles.none": "El envío no trae subtítulos dentro.",
+  "flow2.merge.tag": "Etiqueta de idioma",
+  "flow2.merge.tag.hint": "Una etiqueta como es-419. Vacío: la del servidor.",
+  "flow2.merge.tag.invalid":
+    "Esa no es una etiqueta de idioma válida. Usa letras y guiones, como es-419 o en-US, con el idioma en minúsculas.",
+  "flow2.merge.name": "Nombre de la pista",
+  "flow2.merge.name.hint": "Cómo se llama la pista en los reproductores. Vacío: el del servidor.",
+  "flow2.merge.keepDefault": "Mantener el audio original como pista por defecto",
+  "flow2.merge.confirm.title": "¿Fusionar el audio en el archivo de la biblioteca?",
+  "flow2.merge.fact.audio": "Audio que se añade",
+  "flow2.merge.fact.offset": "Desfase",
+  "flow2.merge.fact.subtitles": "Subtítulos que se añaden",
+  "flow2.merge.fact.subtitles.none": "Ninguno",
+  "flow2.merge.fact.tag": "Etiqueta de idioma",
+  "flow2.merge.fact.name": "Nombre de la pista",
+  "flow2.merge.fact.default": "El del servidor",
+  "flow2.merge.fact.file": "El archivo de la biblioteca",
+  "flow2.merge.fact.file.value":
+    "Radarr lo reemplaza por el archivo fusionado, que conserva todas sus pistas y tiene también las nuevas.",
+  "flow2.merge.fact.title": "La película",
+  "flow2.merge.fact.title.value":
+    "Después queda sin monitorizar, salvo que el servidor esté configurado de otro modo, para que las mejoras automáticas no reemplacen el archivo fusionado.",
+  "flow2.merge.warning.replace":
+    "El archivo anterior se elimina de la biblioteca. Si Radarr no tiene papelera de reciclaje, no se puede recuperar.",
+  "flow2.merge.warning.search":
+    "El botón de búsqueda de la propia película en Radarr aún puede reemplazar el archivo fusionado por una versión sin el audio nuevo.",
+  "flow2.merge.submit": "Fusionar en el archivo de la biblioteca",
+  "flow2.version.title": "Conservar como segunda versión",
+  "flow2.version.intro":
+    "Tu envío se guarda junto a la película, fuera de las carpetas de Radarr, y el servidor multimedia lo agrupa con ella.",
+  "flow2.version.label": "Etiqueta de la versión",
+  "flow2.version.label.hint":
+    "Se muestra con la película en el servidor multimedia, por ejemplo Español. No uses palabras de calidad como 1080p o WEB-DL.",
+  "flow2.version.name": "Nombre del archivo: {name}",
+  "flow2.version.problem.title": "Esta etiqueta no se puede usar tal cual",
+  "flow2.version.problem.label_empty":
+    "No se pudo proponer ninguna etiqueta, porque el audio de tu envío no tiene etiqueta de idioma. Escribe una.",
+  "flow2.version.problem.label_invalid":
+    'La etiqueta no puede formar parte del nombre de un archivo. Quita las barras y caracteres como : * ? " < > |.',
+  "flow2.version.problem.label_too_long": "La etiqueta es demasiado larga. Usa una más corta.",
+  "flow2.version.problem.label_forbidden":
+    "«{token}» es una palabra que no se admite en las etiquetas (palabras de calidad y de origen). Quítala.",
+  "flow2.version.problem.label_extra":
+    "El servidor multimedia toma por un extra, como un tráiler, un archivo que acaba en esta palabra, y no por una versión. Cambia la última palabra.",
+  "flow2.version.problem.label_quality":
+    "Radarr lee «{token}» en el nombre como una calidad. Quítala, o Radarr podría tomar el archivo por una copia mejor.",
+  "flow2.version.problem.label_unchecked":
+    "Radarr no pudo leer el nombre, así que no se pudo comprobar la etiqueta. Prueba con una más sencilla.",
+  "flow2.version.problem.unknown": "La etiqueta tiene un problema (código: {code}).",
+  "flow2.version.problem.admin":
+    "Administras este servidor: las palabras que no se admiten en las etiquetas son el ajuste versions.forbiddenLabelTokens, y la etiqueta propuesta sale de versions.labelTemplate.",
+  "flow2.version.notices": "Conviene saber",
+  "flow2.version.notice.outside_radarr":
+    "Radarr no conoce esta versión. Nunca la renombra, la mejora ni la elimina, y solo reemplaza el archivo propio de la película.",
+  "flow2.version.notice.regrouped_after_changes":
+    "Cuando Radarr renombra o mejora el archivo de la película, el servidor multimedia pierde la agrupación. Fukku las agrupa otra vez solo, y mientras tanto aparecen como entradas separadas.",
+  "flow2.version.notice.kept_on_delete":
+    "Si eliminas la película en Radarr, la versión sigue en el disco. Quítala a mano.",
+  "flow2.version.notice.subtitles_not_handed_over":
+    "Los archivos de subtítulos de este envío no se entregan al gestor de subtítulos, que solo conoce el archivo propio de la película.",
+  "flow2.version.notice.unknown": "Una nota del servidor (código: {code}).",
+  "flow2.version.confirm.title": "¿Conservar esto como segunda versión?",
+  "flow2.version.fact.label": "Etiqueta",
+  "flow2.version.fact.name": "Nombre del archivo",
+  "flow2.version.fact.where": "Dónde se guarda",
+  "flow2.version.fact.where.value":
+    "En la carpeta que el servidor reserva para versiones, no en la de Radarr. El archivo de la biblioteca no se toca.",
+  "flow2.version.fact.server": "En el servidor multimedia",
+  "flow2.version.fact.server.value":
+    "Aparece con la película, como otra versión que se puede elegir.",
+  "flow2.version.submit": "Conservar como segunda versión",
+  "errors.not_flow2": "Este envío no es otro idioma de una película que esté en la biblioteca.",
+  "errors.merge_not_offered":
+    "Este envío no se puede fusionar en el archivo de la biblioteca. La comparación explica por qué.",
+  "errors.no_audio": "El envío no tiene ninguna pista de audio que añadir.",
+  "errors.preview_required":
+    "Los clips de sincronización están desactualizados. Hazlos otra vez con el desfase que quieras, compruébalos y luego fusiona.",
+  "errors.library_changed":
+    "El archivo de la película en Radarr cambió desde que la elegiste. Elige la película otra vez para que Fukku compare el archivo nuevo.",
+  "errors.version_label": "Esa etiqueta no se puede usar. Cámbiala e inténtalo de nuevo.",
+  "errors.version_unavailable":
+    "Ahora no es posible una segunda versión: está desactivada, o la carpeta de versiones no se puede usar. Pregunta a quien administra Fukku.",
+  "errors.version_exists": "Ya existe una versión con este nombre. Elige otra etiqueta.",
+  "errors.season_dub_choice": "Algunos episodios ya tienen un archivo. Elige qué hacer con ellos.",
+  "errors.shared_file":
+    "Reemplazar algunos de estos archivos también eliminaría el archivo de episodios que no están en este envío.",
+  "jobError.library_unreadable":
+    "Fukku no pudo leer el archivo de la película en la biblioteca. Avisa a quien administra el servidor.",
+  "jobError.merge_failed":
+    "No se pudo hacer la fusión. La biblioteca no se cambió. Puedes volver a intentarlo.",
+  "jobError.merge_rejected":
+    "Radarr no aceptó el archivo fusionado. La biblioteca no se cambió. Avisa a quien administra el servidor.",
+  "jobError.version_failed":
+    "No se pudo guardar la segunda versión. La biblioteca no se cambió. Avisa a quien administra el servidor.",
+  "import.merge.title": "La fusión",
+  "import.merge.steps": "Pasos de la fusión",
+  "import.merge.step.make": "Hacer el archivo fusionado",
+  "import.merge.step.import": "Radarr reemplaza su archivo",
+  "import.merge.pending": "La fusión espera su turno.",
+  "import.merge.running":
+    "Se está fusionando el audio en una copia del archivo de la biblioteca. En una película grande tarda unos minutos. Esta página se actualiza sola.",
+  "import.merge.merged": "El archivo fusionado está listo: {name} ({size}).",
+  "import.merge.failed": "La fusión no terminó. El archivo de la biblioteca no se cambió.",
+  "import.merge.refusal.library_unreadable": "No se pudo leer el archivo de la biblioteca.",
+  "import.merge.refusal.upload_unreadable": "No se pudo leer el archivo subido.",
+  "import.merge.refusal.track_not_found": "Una pista elegida no está en el envío.",
+  "import.merge.refusal.free_space": "No había espacio libre suficiente para el archivo fusionado.",
+  "import.merge.refusal.mux_failed": "La herramienta que une las pistas avisó de un problema.",
+  "import.merge.refusal.library_changed": "El archivo de la biblioteca cambió mientras se leía.",
+  "import.merge.refusal.verify_failed":
+    "El archivo fusionado no pasó las comprobaciones (la imagen, la duración o las pistas no eran las esperadas).",
+  "import.merge.refusal.busy": "Otra fusión estaba usando el mismo lugar. Inténtalo de nuevo.",
+  "import.merge.refusal.unknown": "Se rechazó la fusión (código: {code}).",
+  "import.merge.fact.audio": "Pistas de audio",
+  "import.merge.fact.subtitles": "Pistas de subtítulos",
+  "import.merge.fact.offset": "Desfase",
+  "import.merge.fact.tag": "Etiqueta de idioma",
+  "import.merge.fact.name": "Nombre de la pista",
+  "import.merge.fact.original": "El audio original sigue como pista por defecto",
+  "import.merge.fact.yes": "Sí",
+  "import.merge.fact.no": "No",
+  "import.merge.fact.offset.value": "{offset} ms",
+  "import.merge.done.title": "El archivo fusionado está en la biblioteca",
+  "import.merge.done.body": "{app} reemplazó su archivo por {name}.",
+  "import.merge.warning.search_can_replace.title": "Esta película no está monitorizada",
+  "import.merge.warning.search_can_replace":
+    "Las mejoras automáticas y las búsquedas de Wanted no tocan el archivo fusionado. Pero el botón de búsqueda de la propia película en {app} aún puede reemplazarlo por una versión sin el audio nuevo, así que no lo uses si quieres conservar este.",
+  "import.merge.warning.upgrade_can_replace.title": "Esta película sigue monitorizada",
+  "import.merge.warning.upgrade_can_replace":
+    "Una versión mejor sin el audio nuevo puede reemplazar el archivo fusionado. Para evitarlo, deja de monitorizar la película en {app}.",
+  "import.merge.warning.unknown.title": "El archivo fusionado aún puede reemplazarse",
+  "import.merge.warning.unknown":
+    "Algo en {app} aún puede reemplazar el archivo fusionado (código: {code}).",
+  "import.unmonitored.merged":
+    "Una fusión reemplazó el archivo, así que la película ya no está monitorizada: las mejoras automáticas no lo reemplazarán. El botón de búsqueda de la propia película en {app} sí puede hacerlo, así que no lo uses si quieres conservar este.",
+  "import.version.running":
+    "Fukku está guardando la versión junto a la película. Esta página se actualiza sola.",
+  "import.version.done.title": "La segunda versión de {title} está guardada",
+  "import.version.done.body": "Se conserva como {name}, con la etiqueta {label}.",
+  "import.version.status.placing": "El archivo se está guardando.",
+  "import.version.status.linked":
+    "El archivo está en su sitio. Ahora lo agrupa el servidor multimedia.",
+  "import.version.status.grouped": "El servidor multimedia la muestra con la película.",
+  "import.version.status.waiting":
+    "El servidor multimedia aún no la ha agrupado. Fukku lo intenta de nuevo solo.",
+  "import.version.status.film_deleted":
+    "Radarr ya no tiene esta película. La versión sigue en el disco.",
+  "import.version.status.missing": "El archivo de la versión ya no está en el disco.",
+  "import.version.status.unknown": "Estado de la versión: {status}.",
+  "import.seasonDub.subtitlesOnly.title": "No se importó nada",
+  "import.seasonDub.subtitlesOnly":
+    "Elegiste añadir solo subtítulos para los episodios que ya tienen un archivo. Los subtítulos fueron al gestor de subtítulos, y los archivos siguen en este envío hasta que caduque.",
+  "import.seasonDub.subtitlesOnly.mixed":
+    "En los episodios que ya tenían un archivo elegiste añadir solo los subtítulos: esos archivos no se reemplazaron.",
+  "import.seasonDub.replace.one":
+    "Tus archivos reemplazaron a los que ya estaban en la biblioteca en la temporada {seasons}.",
+  "import.seasonDub.replace.other":
+    "Tus archivos reemplazaron a los que ya estaban en la biblioteca en las temporadas {seasons}.",
+  "confirm.dub.title": "Episodios que ya tienen un archivo",
+  "confirm.dub.intro":
+    "Algunos episodios de este envío ya están en la biblioteca. Elige qué hacer con ellos. Los demás episodios se importan como siempre.",
+  "confirm.dub.season.one":
+    "Temporada {season}: ya hay archivos para {existing} de {count} episodio.",
+  "confirm.dub.season.other":
+    "Temporada {season}: ya hay archivos para {existing} de {count} episodios.",
+  "confirm.dub.legend": "¿Qué debe pasar con ellos?",
+  "confirm.dub.replace": "Reemplazar los archivos",
+  "confirm.dub.replace.body":
+    "Tus archivos se importan sobre los de la biblioteca, y la temporada queda sin monitorizar para que las mejoras automáticas no los reemplacen. El botón de búsqueda de un episodio en {app} sí puede hacerlo.",
+  "confirm.dub.subtitlesOnly": "Añadir solo los subtítulos",
+  "confirm.dub.subtitlesOnly.body":
+    "No se importa nada. Los subtítulos de tu envío van al gestor de subtítulos para los episodios que ya tienen un archivo.",
+  "confirm.dub.unknown": "Otra opción ({policy})",
+  "confirm.dub.unknown.body": "El servidor la ofrece, pero esta página todavía no la conoce.",
+  "confirm.dub.decided": "Este servidor lo decide por sí mismo: {option}.",
+  "confirm.dub.none":
+    "En este servidor no se ofrece nada para estos episodios, así que se dejan fuera.",
+  "confirm.dub.missing": "Elige qué hacer con los episodios que ya tienen un archivo.",
+  "confirm.dub.subtitlesOnly.count":
+    "No se importará nada. Los subtítulos van al gestor de subtítulos.",
+  "confirm.dub.shared.title": "Reemplazar estos archivos quitaría los de otros episodios",
+  "confirm.dub.shared.body":
+    "Cada uno de estos archivos contiene varios episodios, y algunos no están en este envío. Reemplazar el archivo también quita esos episodios de la biblioteca.",
+  "confirm.dub.shared.accept": "Reemplazar {name} de todos modos",
+  "flow2.reason.media_server_too_old":
+    "el servidor multimedia es un Jellyfin anterior a la 12.4, que no agrupa versiones de episodios.",
+  "flow2.reason.media_server_unknown": "no se pudo leer la versión del servidor multimedia.",
+  "flow2.reason.series_folder_unusable":
+    "el nombre de la carpeta de la serie en Sonarr no puede formar parte del nombre de un archivo.",
+  "flow2.reason.season_folder_unavailable":
+    "una carpeta de temporada no puede recibir las versiones (no existe, no se puede escribir en ella o está en otro disco), o falta un archivo marcador necesario.",
+  "confirm.dub.name.replace": "Reemplazar los archivos",
+  "confirm.dub.name.subtitlesOnly": "Añadir solo los subtítulos",
+  "confirm.dub.name.version": "Conservar como segundas versiones",
+  "import.merge.warning.language_unknown_to_radarr.title": "Radarr no conoce el idioma nuevo",
+  "import.merge.warning.language_unknown_to_radarr":
+    "{app} no tiene un idioma para las pistas añadidas, así que muestra el archivo fusionado solo con los idiomas que ya tenía. Las pistas están etiquetadas en el archivo, pero los formatos personalizados y las búsquedas por idioma de {app} no las ven.",
 };
 
 export default es;

@@ -8,7 +8,7 @@ export type Hit = {
   year: number;
   overview: string;
   inLibrary: boolean;
-  /** A film that already has a file (M2 refuses it until M3). */
+  /** A film that already has a file: the upload may be another language of it (flow 2). */
   hasFile: boolean;
   seasons: number[];
 };
