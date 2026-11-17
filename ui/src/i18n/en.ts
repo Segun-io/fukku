@@ -524,6 +524,9 @@ const en = {
   "mapping.quality.none": "Not offered",
   "mapping.skip.for": "Skip {name}",
   "mapping.skip.label": "Skip",
+  "mapping.skip.server": "Skipped by the server",
+  "mapping.skip.server.hint":
+    "The server skips this row because its episode already has a file. Tick the box to skip it yourself.",
   "mapping.checking": "Checking…",
   "mapping.failed": "The change was not checked.",
   "mapping.failed.wrongState":
@@ -1066,6 +1069,22 @@ const en = {
   "confirm.version.only.other":
     "Nothing new will be imported. {count} episodes are kept as second versions.",
   "confirm.version.refused.title": "These files cannot be kept as second versions",
+  "confirm.version.refused.leaveOut.hint.one":
+    "You can leave this file out. It gets no second version and its episode keeps its own file. Then press Import again to confirm the rest.",
+  "confirm.version.refused.leaveOut.hint.other":
+    "You can leave these files out. They get no second version and their episodes keep their own files. Then press Import again to confirm the rest.",
+  "confirm.version.leavingOut": "Leaving the files out…",
+  "confirm.version.leftOut.done.one": "{count} file left out. Press Import to confirm again.",
+  "confirm.version.leftOut.done.other": "{count} files left out. Press Import to confirm again.",
+  "confirm.version.refused.leaveOut.one": "Leave out {count} file",
+  "confirm.version.refused.leaveOut.other": "Leave out {count} files",
+  "confirm.state.version": "Second version",
+  "confirm.version.kept":
+    "This episode already has a file. Your file is kept next to it as a second version.",
+  "confirm.version.leaveOut": "Leave out of the second versions",
+  "confirm.version.takeBack": "Keep as a second version again",
+  "confirm.version.leftOut":
+    "No second version is made for this episode. Its own file stays as it is.",
   "confirm.version.refused.hint":
     "Choose another option above, change the label, or go back and change the match.",
   "confirm.version.refused.hint.fixed":

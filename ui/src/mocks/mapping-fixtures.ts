@@ -260,6 +260,7 @@ function view(p: MockProposal, s: Stored): ProposalRow {
     warnings,
     importable: false,
   };
+  if (row.skip) row.skippedBy = s.skip ? "user" : "server";
   if (show) {
     if (s.seasonNumber !== undefined) row.seasonNumber = s.seasonNumber;
     row.episodes = eps.map(rowEpisode);
@@ -293,6 +294,11 @@ function proposalOf(p: MockProposal): Proposal {
   };
   if (p.app === "sonarr") out.episodes = seriesEpisodes;
   if (p.seasonDub) out.seasonDub = structuredClone(p.seasonDub);
+  // A row the user left out is no longer kept as a version (the server's `existing` skips it).
+  const version = out.seasonDub?.version;
+  if (version) {
+    version.rows = version.rows.filter((v) => !p.rows.some((s) => s.id === v.row && s.skip));
+  }
   const mismatched = rows.filter((r) => r.warnings.some((w) => w.code === "runtime_mismatch"));
   if (rows.length > 1 && mismatched.length > rows.length / 2) out.hints.push({ code: "dvd_order" });
   return out;

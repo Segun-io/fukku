@@ -389,6 +389,18 @@ func TestSubtitlesOnlyGoesToTheEpisodesThatHaveAFile(t *testing.T) {
 	if _, _, err := h.run(); err == nil || !strings.Contains(err.Error(), "Show.S01E02.es.srt") || !strings.Contains(err.Error(), "no file in the library") {
 		t.Fatalf("an episode without a file: %v", err)
 	}
+	// A row the user left out says so, not that its episode has no file.
+	for i := range h.rows {
+		if h.rows[i].ID != "rShow.S01E01.mkv" {
+			h.rows[i].Edit = json.RawMessage(`{"skip":true}`)
+		}
+	}
+	if _, _, err := h.run(); err == nil || !strings.Contains(err.Error(), "left out by the user") {
+		t.Fatalf("a row the user left out: %v", err)
+	}
+	for i := range h.rows {
+		h.rows[i].Edit = nil
+	}
 	if n := len(h.fake.Sent()); n != 2 {
 		t.Errorf("%d uploads, want only the first file's", n)
 	}

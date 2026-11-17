@@ -1,6 +1,6 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { HttpResponse, http } from "msw";
+import { delay, HttpResponse, http } from "msw";
 import { afterEach, describe, expect, it } from "vitest";
 import type { Proposal, ProposalRow, SeasonDub } from "@/api/proposal";
 import type { ConfirmRequest, JobDetail } from "@/api/types";
@@ -32,6 +32,7 @@ const existing: ProposalRow = {
   name: "Lighthouse.Letters.S01E07.Spanish.mkv",
   durationMs: 1_320_000,
   skip: true,
+  skippedBy: "server",
   seasonNumber: 1,
   episodes: [episode(107, 7, true)],
   quality,
@@ -498,5 +499,185 @@ describe("the season-dub choice: second versions", () => {
     expect(
       screen.queryByText("These files cannot be kept as second versions"),
     ).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * A server that keeps the rows: an edit changes them, as the proposal's does, and the
+ * confirmation refuses `version_upgrade` for r1 until the user has left it out.
+ */
+function serveKeeping(dub: SeasonDub) {
+  const rows: ProposalRow[] = [{ ...existing }, { ...fresh }];
+  serve(rows, dub);
+  const edits: unknown[] = [];
+  const proposal = () => ({
+    state: "ready",
+    app: "sonarr",
+    target: { titleId: 12, title: "Lighthouse Letters", year: 2019 },
+    rows,
+    hints: [],
+    seasonDub: {
+      ...dub,
+      version: dub.version && {
+        ...dub.version,
+        rows: dub.version.rows.filter(
+          (v) => rows.find((r) => r.id === v.row)?.skippedBy !== "user",
+        ),
+      },
+    },
+    qualities: [quality],
+    languages: [english],
+  });
+  server.use(
+    http.get("/api/jobs/:id/proposal", () => HttpResponse.json(proposal())),
+    http.patch("/api/jobs/:id/proposal/rows/:rowId", async ({ params, request }) => {
+      const edit = (await request.json()) as { skip?: boolean };
+      edits.push(edit);
+      const i = rows.findIndex((r) => r.id === params.rowId);
+      const old = rows[i] as ProposalRow;
+      const hasFile = old.warnings.some((w) => w.code === "existing_file");
+      const skip = edit.skip === true || hasFile;
+      const next: ProposalRow = { ...old, skip, skippedBy: edit.skip ? "user" : "server" };
+      if (!skip) delete next.skippedBy;
+      rows[i] = next;
+      return HttpResponse.json(next);
+    }),
+    http.post("/api/jobs/:id/confirm", () =>
+      rows[0]?.skippedBy === "user"
+        ? HttpResponse.json({ state: "importing" }, { status: 202 })
+        : HttpResponse.json(
+            { error: { code: "version_upgrade", message: "x", rows: ["r1"] } },
+            { status: 409 },
+          ),
+    ),
+  );
+  return edits;
+}
+
+const fixed = () =>
+  versionDub({ policy: "version", ask: false, decided: "version", offers: ["version"] });
+
+describe("leaving out the rows a refusal names (#102)", () => {
+  it("leaves them out in one step, and the job can be confirmed again without them", async () => {
+    const user = userEvent.setup();
+    const edits = serveKeeping(fixed());
+    const bodies = recordConfirm();
+    const { router } = open();
+    await labelField();
+    await user.click(await importButton());
+    const notice = await refusedNotice();
+    expect(within(notice).getByText(/You can leave this file out/)).toBeVisible();
+    expect(within(notice).getByText(/Then press Import again/)).toBeVisible();
+    await user.click(within(notice).getByRole("button", { name: "Leave out 1 file" }));
+    // The refusal is gone, the row is out for good (its own choice), and nothing else moved.
+    await waitFor(() =>
+      expect(
+        screen.queryByText("These files cannot be kept as second versions"),
+      ).not.toBeInTheDocument(),
+    );
+    expect(edits).toEqual([{ skip: true }]);
+    const card = (await screen.findByText(existing.name, { selector: "h3" })).closest(
+      "li",
+    ) as HTMLElement;
+    await waitFor(() => expect(within(card).getByText("Left out")).toBeVisible());
+    expect(within(card).getByText(/Its own file stays as it is/)).toBeVisible();
+
+    // The result is announced, and focus is on Import, where the refusal's button was.
+    expect(
+      await screen.findByText("1 file left out. Press Import to confirm again."),
+    ).toBeVisible();
+    expect(await importButton()).toHaveFocus();
+
+    await user.click(await importButton());
+    await waitFor(() => expect(router.state.location.pathname).toBe(`/jobs/${mappingJobId}`));
+    expect(bodies).toHaveLength(2);
+    expect(bodies[1]).toMatchObject({ overrides: [], version: { label: "Español" } });
+    expect(bodies[1]).not.toHaveProperty("seasonDub");
+  });
+
+  it("does not confirm while the proposal is read again after leaving a row out", async () => {
+    const user = userEvent.setup();
+    serveKeeping(fixed());
+    const bodies = recordConfirm();
+    open();
+    await labelField();
+    await user.click(await importButton());
+    const notice = await refusedNotice();
+    // From now on the proposal is slow to come back.
+    server.use(
+      http.get("/api/jobs/:id/proposal", async () => {
+        await delay(400);
+        return HttpResponse.json({
+          state: "ready",
+          app: "sonarr",
+          target: { titleId: 12, title: "Lighthouse Letters", year: 2019 },
+          rows: [{ ...existing, skippedBy: "user" }, fresh],
+          hints: [],
+          seasonDub: fixed(),
+          qualities: [quality],
+          languages: [english],
+        });
+      }),
+    );
+    await user.click(within(notice).getByRole("button", { name: "Leave out 1 file" }));
+    await screen.findByText("1 file left out. Press Import to confirm again.");
+    const sent = bodies.length;
+    await user.click(await importButton());
+    expect(bodies).toHaveLength(sent); // not sent while the rows may be stale
+    await waitFor(async () =>
+      expect(await importButton()).not.toHaveAttribute("aria-disabled", "true"),
+    );
+    await user.click(await importButton());
+    await waitFor(() => expect(bodies).toHaveLength(sent + 1));
+  });
+
+  it("lets the user leave out a row that has a file, and take it back", async () => {
+    const user = userEvent.setup();
+    const edits = serveKeeping(versionDub());
+    open();
+    await chooseVersion(user);
+    const card = () =>
+      screen.getByText(existing.name, { selector: "h3" }).closest("li") as HTMLElement;
+    await waitFor(() => expect(within(card()).getByText("Second version")).toBeVisible());
+    expect(within(card()).getByText(/kept next to it as a second version/)).toBeVisible();
+    await user.click(
+      within(card()).getByRole("button", { name: "Leave out of the second versions" }),
+    );
+    await waitFor(() => expect(within(card()).getByText("Left out")).toBeVisible());
+    await user.click(
+      within(card()).getByRole("button", { name: "Keep as a second version again" }),
+    );
+    await waitFor(() => expect(within(card()).getByText("Second version")).toBeVisible());
+    expect(edits).toEqual([{ skip: true }, { skip: false }]);
+  });
+
+  it("offers no leave-out for a row that has a file under another policy", async () => {
+    const user = userEvent.setup();
+    serveKeeping(versionDub());
+    open();
+    await user.click(await screen.findByRole("radio", { name: /Only add subtitles/ }));
+    const card = screen.getByText(existing.name, { selector: "h3" }).closest("li") as HTMLElement;
+    expect(within(card).queryByRole("button")).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ["label_forbidden", "bluray", /“bluray” is a word kept out of labels/],
+    ["label_episode", "", /season or episode number/],
+  ])("says why the label is refused: %s", async (reason, token, text) => {
+    const user = userEvent.setup();
+    serve([existing, fresh], versionDub());
+    open();
+    await chooseVersion(user);
+    server.use(
+      http.post("/api/jobs/:id/confirm", () =>
+        HttpResponse.json(
+          { error: { code: "version_label", message: "x", reason, ...(token ? { token } : {}) } },
+          { status: 409 },
+        ),
+      ),
+    );
+    await user.click(await importButton());
+    expect(await screen.findByRole("alert")).toHaveTextContent(text);
+    expect(screen.queryByText("That label cannot be used. Change it and try again.")).toBeNull();
   });
 });

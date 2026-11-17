@@ -56,7 +56,7 @@ import (
 //
 //	409 version_unavailable  "version" is not among flow2.offers, or versions.root cannot be
 //	                       used (inside a Radarr root folder, say)
-//	409 version_label      the label is refused: a forbidden token, a word Jellyfin takes for
+//	409 version_label      (body with "reason" and "token") the label is refused: a forbidden token, a word Jellyfin takes for
 //	                       an extra, a character that cannot be in a file name, too long, or
 //	                       Radarr reads a quality in the name (versions.requireNotUpgradeVerdict)
 //	409 version_exists     a file of the version's name is already there; nothing is replaced
@@ -86,7 +86,8 @@ import (
 //	409 version_unavailable  rows that cannot be versions (a double episode, a file holding
 //	                       other episodes, a folder outside paths.libraryRoots): "rows" lists them
 //	409 version_exists     a file or a record of a version's name is there: "rows" lists them
-//	409 version_label      the label is refused (as for films, or it holds an SxxEyy)
+//	409 version_label      the label is refused (as for films, or it holds an SxxEyy); the
+//	                       body also has "reason" and "token" of the label problem
 //	409 version_upgrade    Sonarr does not reject these files, under their version names, as
 //	                       "not an upgrade": it would take them for the episodes' files on its
 //	                       next rescan (versions.requireNotUpgradeVerdict); "rows" lists them
@@ -157,6 +158,19 @@ type rowsError struct {
 	Rows    []string `json:"rows"`
 }
 
+// labelErrorBody is the error shape of version_label: the label problem's reason (as the
+// proposal's problem has it) and, when there is one, its token.
+type labelErrorBody struct {
+	Error labelError `json:"error"`
+}
+
+type labelError struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+	Reason  string `json:"reason,omitempty"`
+	Token   string `json:"token,omitempty"`
+}
+
 func (s *Server) confirmJob(w http.ResponseWriter, r *http.Request) {
 	u, j, ok := s.ownJob(w, r)
 	if !ok {
@@ -198,7 +212,9 @@ func (s *Server) confirmError(w http.ResponseWriter, r *http.Request, err error)
 			return
 		}
 		writeError(w, http.StatusConflict, e.Code, e.Message)
-	case flows.CodeNothingToImport, flows.CodeVersionLabel, flows.CodeLibraryChanged, flows.CodeMergeNotOffered, flows.CodePreviewRequired:
+	case flows.CodeVersionLabel:
+		writeJSON(w, http.StatusConflict, labelErrorBody{labelError{Code: e.Code, Message: e.Message, Reason: e.Reason, Token: e.Token}})
+	case flows.CodeNothingToImport, flows.CodeLibraryChanged, flows.CodeMergeNotOffered, flows.CodePreviewRequired:
 		writeError(w, http.StatusConflict, e.Code, e.Message)
 	case flows.CodeStorageUnavailable:
 		writeError(w, http.StatusServiceUnavailable, e.Code, e.Message)

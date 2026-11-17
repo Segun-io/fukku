@@ -107,6 +107,13 @@ func SubtitlesOnlyRows(t store.Target) (rows []string, ok bool) {
 	return c.Rows, true
 }
 
+// LeftOutByUser reports whether the user left the row out (a skip edit), as against a skip
+// the server decides.
+func LeftOutByUser(r store.Row) bool {
+	sk := decodeEdit(r.Edit).Skip
+	return sk != nil && *sk
+}
+
 // SeasonDubResult is what the job's result says of the policy chosen, for the UI's text:
 // replace (with the seasons it covered), or subtitlesOnly (nothing was imported; the user
 // is pointed at the subtitle manager).

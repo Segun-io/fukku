@@ -663,7 +663,7 @@ func (e *Engine) planEpisodeVersions(ctx context.Context, s *session, ex existin
 	}
 	label, problem := checkEpisodeLabel(label, s)
 	if problem != nil {
-		return nil, refuse(CodeVersionLabel, "%s", problem.Message)
+		return nil, refuseLabel(problem)
 	}
 	lib, why, err := s.loadEpvLibrary(ctx)
 	if err != nil {

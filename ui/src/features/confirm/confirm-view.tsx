@@ -22,14 +22,20 @@ const appName: Record<Proposal["app"], string> = {
   "": "Radarr or Sonarr",
 };
 
-type Props = { job: JobDetail; proposal: Proposal; subtitleManager: boolean };
+type Props = {
+  job: JobDetail;
+  proposal: Proposal;
+  subtitleManager: boolean;
+  /** The proposal is being read again (after an edit): what it shows may be out of date. */
+  refreshing?: boolean;
+};
 
 /**
  * The confirmation of flow 1: each file next to the title it goes to, what the app thinks
  * of it, what is against importing it, and the button. A row with a rejection or a warning
  * needs its own "import anyway" tick; the request lists those rows in `overrides`.
  */
-export function ConfirmView({ job, proposal, subtitleManager }: Props) {
+export function ConfirmView({ job, proposal, subtitleManager, refreshing = false }: Props) {
   const { t } = useT();
   const navigate = useNavigate();
   const edit = useEditRow(job.id);
@@ -52,6 +58,9 @@ export function ConfirmView({ job, proposal, subtitleManager }: Props) {
   // The label of the second versions (`version`, #58): the proposed one until the user types.
   const [label, setLabel] = useState(dub?.version?.label ?? "");
   const [refusal, setRefusal] = useState<VersionRefusal | null>(null);
+  // Leaving out the rows a refusal named (#102): under way, and how many were left out.
+  const [leavingOut, setLeavingOut] = useState(false);
+  const [leftOutCount, setLeftOutCount] = useState(0);
 
   const app = appName[proposal.app];
   const titleText = proposal.target
@@ -61,7 +70,7 @@ export function ConfirmView({ job, proposal, subtitleManager }: Props) {
   // With `replace`, the rows that have a file are in, and the choice answers what the app says
   // of replacing it. With `subtitlesOnly` they stay out and the subtitles are all that moves.
   const rows = proposal.rows.map((r) =>
-    policy === "replace" && hasExistingFile(r) ? replacedRow(r) : r,
+    policy === "replace" && hasExistingFile(r) && r.skippedBy !== "user" ? replacedRow(r) : r,
   );
   const leftIn = rows.filter((r) => !r.skip);
   const subtitlesOnly = policy === "subtitlesOnly";
@@ -77,9 +86,33 @@ export function ConfirmView({ job, proposal, subtitleManager }: Props) {
   const needTick = leftIn.filter((r) => hasIssues(r) && !overridable(r.id));
   const checkingId = edit.isPending ? edit.variables?.rowId : undefined;
 
+  /** Leaves out the rows a refusal named, one edit each, so that the user confirms again (#102). */
+  async function leaveOut(ids: string[]) {
+    setLeavingOut(true);
+    setLeftOutCount(0);
+    let done = 0;
+    try {
+      for (const rowId of ids) {
+        await edit.mutateAsync({ rowId, edit: { skip: true } });
+        done++;
+      }
+    } catch {
+      // The failed edit is shown under the rows (`edit.error`); the refusal stays.
+    }
+    setLeavingOut(false);
+    if (done === 0) return;
+    // The refusal was about the rows as they were. Its button is gone: focus goes to Import.
+    setRefusal(null);
+    confirm.reset();
+    setLeftOutCount(done);
+    form.current?.querySelector<HTMLButtonElement>('button[type="submit"]')?.focus();
+  }
+
   function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (confirm.isPending || edit.isPending || (leftIn.length === 0 && !nothingNew)) return;
+    if (confirm.isPending || edit.isPending || refreshing || (leftIn.length === 0 && !nothingNew))
+      return;
+    setLeftOutCount(0);
     if (dub?.ask && choice === "") {
       setDubMissing(true);
       form.current?.querySelector<HTMLInputElement>("[data-policy]")?.focus();
@@ -203,8 +236,14 @@ export function ConfirmView({ job, proposal, subtitleManager }: Props) {
             setRefusal(null);
             confirm.reset();
           }}
-          labelRefused={confirm.error instanceof ApiError && confirm.error.code === "version_label"}
+          labelRefusal={
+            confirm.error instanceof ApiError && confirm.error.code === "version_label"
+              ? { reason: confirm.error.reason, token: confirm.error.token }
+              : null
+          }
           refusal={refusal}
+          onLeaveOut={(ids) => void leaveOut(ids)}
+          leavingOut={leavingOut}
           asks={dub?.ask === true}
         />
       )}
@@ -219,6 +258,7 @@ export function ConfirmView({ job, proposal, subtitleManager }: Props) {
               proposal={proposal}
               file={job.files.find((f) => f.id === row.fileId)}
               title={titleText}
+              version={isVersion}
               checking={checkingId === row.id}
               overridden={overridable(row.id)}
               missing={missing.includes(row.id)}
@@ -277,6 +317,13 @@ export function ConfirmView({ job, proposal, subtitleManager }: Props) {
             )}
           </ul>
         )}
+        <p role="status" className="text-ink-2">
+          {leavingOut
+            ? t("confirm.version.leavingOut")
+            : leftOutCount > 0
+              ? t("confirm.version.leftOut.done", { count: leftOutCount })
+              : ""}
+        </p>
         {missing.length > 0 && needTick.length > 0 && (
           <p role="alert" className="flex items-start gap-2 text-destructive">
             <CircleAlert aria-hidden="true" className="mt-0.5 size-5 shrink-0" />
@@ -288,7 +335,7 @@ export function ConfirmView({ job, proposal, subtitleManager }: Props) {
             type="submit"
             size="lg"
             disabled={leftIn.length === 0 && !nothingNew}
-            aria-disabled={confirm.isPending}
+            aria-disabled={confirm.isPending || refreshing}
             aria-busy={confirm.isPending}
           >
             {confirm.isPending && <LoaderCircle aria-hidden="true" className="animate-spin" />}

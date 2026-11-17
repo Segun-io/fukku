@@ -36,6 +36,12 @@ type TargetView struct {
 	Year    int    `json:"year"`
 }
 
+// Who skipped a row (RowView.SkippedBy).
+const (
+	SkippedByUser   = "user"
+	SkippedByServer = "server"
+)
+
 // RowView is one row: a job file, what the app makes of it, and what Fukku adds.
 type RowView struct {
 	ID         string `json:"id"`
@@ -43,6 +49,12 @@ type RowView struct {
 	Name       string `json:"name"`
 	DurationMs int64  `json:"durationMs"`
 	Skip       bool   `json:"skip"`
+	// SkippedBy says who left the row out while Skip is set: "user" (the user said so, or the
+	// film's extra files start that way) or "server" (the app did not offer the file, or an
+	// episode of it has a file and the season-dub choice does not replace it). The user can
+	// record a skip on a row the server skips: it then keeps its own file under any policy
+	// and gets no version. Absent while the row is not skipped.
+	SkippedBy string `json:"skippedBy,omitempty"`
 	// Shows only: the season (absent while unknown) and the episodes.
 	SeasonNumber      *int           `json:"seasonNumber,omitempty"`
 	Episodes          *[]EpisodeView `json:"episodes,omitempty"`
@@ -346,6 +358,12 @@ func (s *session) view(e rowEval) RowView {
 		Languages: []Ref{}, CustomFormats: []string{}, Rejections: []Rejection{}, Warnings: []Notice{},
 	}
 	v.Warnings = append(v.Warnings, e.warnings...)
+	if e.row.Skip {
+		v.SkippedBy = SkippedByServer
+		if e.edit.Skip != nil && *e.edit.Skip {
+			v.SkippedBy = SkippedByUser
+		}
+	}
 	if s.show() {
 		eps := []EpisodeView{}
 		v.Episodes = &eps

@@ -5,6 +5,7 @@ import { useSession } from "@/api/session";
 import { inputClass } from "@/components/patterns/field";
 import { StatusLabel } from "@/components/patterns/status-label";
 import { Notice } from "@/components/shell/notice";
+import { Button } from "@/components/ui/button";
 import { type TKey, useT } from "@/i18n";
 import { problemText, rowProblemText, versionNoticeText } from "@/lib/flow2-text";
 
@@ -27,9 +28,13 @@ type Props = {
   rows: ProposalRow[];
   label: string;
   onLabel: (label: string) => void;
-  /** The server refused the label (`version_label`). */
-  labelRefused: boolean;
+  /** The server refused the label (`version_label`), with its reason when it gave one. */
+  labelRefusal: { reason: string; token: string } | null;
   refusal: VersionRefusal | null;
+  /** Leave out the rows a refusal names, in one step (#102). */
+  onLeaveOut: (rows: string[]) => void;
+  /** The rows are being left out. */
+  leavingOut: boolean;
   /** The user chooses the policy (there are radios above); else the server fixes it. */
   asks: boolean;
 };
@@ -46,8 +51,10 @@ export function EpisodeVersionsSection({
   rows,
   label,
   onLabel,
-  labelRefused,
+  labelRefusal,
   refusal,
+  onLeaveOut,
+  leavingOut,
   asks,
 }: Props) {
   const { t } = useT();
@@ -57,6 +64,11 @@ export function EpisodeVersionsSection({
   const proposed = view !== undefined && label.trim() === view.label;
   const problem = proposed ? (view?.problem ?? null) : null;
   const shown = problemText(problem?.reason ?? "", problem?.token ?? "");
+  const labelRefused = labelRefusal !== null;
+  const refusedWhy =
+    labelRefusal && labelRefusal.reason !== ""
+      ? problemText(labelRefusal.reason, labelRefusal.token)
+      : null;
   const nameOf = (rowId: string) => rows.find((r) => r.id === rowId)?.name ?? rowId;
   const problemOf = (rowId: string) => view?.rows.find((r) => r.row === rowId)?.problem ?? "";
   const pad = (n: number) => String(n).padStart(2, "0");
@@ -103,7 +115,7 @@ export function EpisodeVersionsSection({
         </p>
         {labelRefused && (
           <p id={`${id}-label-error`} role="alert" className="text-sm text-destructive">
-            {t("errors.version_label")}
+            {refusedWhy ? t(refusedWhy.key, refusedWhy.params) : t("errors.version_label")}
           </p>
         )}
       </div>
@@ -202,7 +214,19 @@ export function EpisodeVersionsSection({
               );
             })}
           </ul>
-          <p className="mt-2 text-sm">
+          <p className="mt-3 max-w-[65ch] text-sm">
+            {t("confirm.version.refused.leaveOut.hint", { count: refusal.rows.length })}
+          </p>
+          <Button
+            type="button"
+            variant="outline"
+            className="mt-2"
+            disabled={leavingOut}
+            onClick={() => onLeaveOut(refusal.rows)}
+          >
+            {t("confirm.version.refused.leaveOut", { count: refusal.rows.length })}
+          </Button>
+          <p className="mt-3 text-sm">
             {t(asks ? "confirm.version.refused.hint" : "confirm.version.refused.hint.fixed")}
           </p>
         </Notice>

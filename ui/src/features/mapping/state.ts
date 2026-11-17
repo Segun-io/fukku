@@ -35,7 +35,13 @@ const episodeOf = (id: number, episodes: readonly SeriesEpisode[]) =>
  */
 export function applyEdit(row: ProposalRow, edit: RowEdit, proposal: Proposal): ProposalRow {
   const out = { ...row };
-  if (edit.skip !== undefined) out.skip = edit.skip;
+  if (edit.skip !== undefined) {
+    // A row whose episode has a file stays skipped by the server when the user takes theirs back.
+    const server = !edit.skip && row.warnings.some((w) => w.code === "existing_file");
+    out.skip = edit.skip || server;
+    if (out.skip) out.skippedBy = edit.skip ? "user" : "server";
+    else delete out.skippedBy;
+  }
   if (edit.episodeIds !== undefined) {
     const eps = edit.episodeIds
       .map((id) => episodeOf(id, proposal.episodes ?? []))

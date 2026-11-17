@@ -77,6 +77,11 @@ func TestVersionThroughTheAPI(t *testing.T) {
 			t.Errorf("confirm %s: %d %s, want %d %s", body, code, got, wantCode, want)
 		}
 	}
+	// The refusal of a label says why, as the proposal's label problem does.
+	_, got := e.call("POST", "/api/jobs/"+j.ID+"/confirm", `{"flow2":"version","version":{"label":"Bluray"}}`)
+	if !strings.Contains(got, `"reason":"label_forbidden"`) || !strings.Contains(got, `"token":"bluray"`) {
+		t.Errorf("version_label body %s", got)
+	}
 	// Without a media server that groups versions, the offer is not made.
 	e2 := newFlow2Env(t, func(c *config.Config) { versionsOn(root)(c); c.MediaServer.Provider = "none" })
 	j2 := e2.readyPAL()

@@ -9,10 +9,21 @@ export class ApiError extends Error {
   readonly code: string;
   /** The rows a refusal is about (`needs_override`, `shared_file`...); empty for the others. */
   readonly rows: string[];
+  /** Why a label was refused (`version_label`): the label problem's reason, and its token. */
+  readonly reason: string;
+  readonly token: string;
 
-  constructor(status: number, code: string, message: string, rows: string[] = []) {
+  constructor(
+    status: number,
+    code: string,
+    message: string,
+    rows: string[] = [],
+    label: { reason?: string; token?: string } = {},
+  ) {
     super(message);
     this.rows = rows;
+    this.reason = label.reason ?? "";
+    this.token = label.token ?? "";
     this.name = "ApiError";
     this.status = status;
     this.code = code;
@@ -86,12 +97,18 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
   const body = await readJson(res);
   if (!res.ok) {
     if (isErrorBody(body)) {
-      const rows = (body.error as { rows?: unknown }).rows;
+      const extra = body.error as { rows?: unknown; reason?: unknown; token?: unknown };
       throw new ApiError(
         res.status,
         body.error.code,
         body.error.message,
-        Array.isArray(rows) ? rows.filter((r): r is string => typeof r === "string") : [],
+        Array.isArray(extra.rows)
+          ? extra.rows.filter((r): r is string => typeof r === "string")
+          : [],
+        {
+          reason: typeof extra.reason === "string" ? extra.reason : "",
+          token: typeof extra.token === "string" ? extra.token : "",
+        },
       );
     }
     throw new ApiError(res.status, "internal", `The server answered ${res.status}.`);

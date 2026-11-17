@@ -244,6 +244,9 @@ export function LanguagesCell({ row }: { row: ProposalRow }) {
 export function SkipCell({ row }: { row: ProposalRow }) {
   const { t } = useT();
   const { edit } = useMapping();
+  // The server skips the row (its episode has a file): the box is the user's own skip.
+  const byServer = row.skip && row.skippedBy === "server" && !isNotOffered(row);
+  const hint = `skip-hint-${row.id}`;
   return (
     <label className="inline-flex min-h-11 items-center gap-2">
       <input
@@ -251,10 +254,19 @@ export function SkipCell({ row }: { row: ProposalRow }) {
         name={`skip-${row.id}`}
         className="size-5 accent-primary"
         aria-label={t("mapping.skip.for", { name: row.name })}
-        checked={row.skip}
+        aria-describedby={byServer ? hint : undefined}
+        checked={row.skip && (row.skippedBy !== "server" || isNotOffered(row))}
         onChange={(e) => edit(row.id, { skip: e.target.checked })}
       />
       <span aria-hidden="true">{t("mapping.skip.label")}</span>
+      {byServer && (
+        <>
+          <span className="text-sm text-muted-foreground">({t("mapping.skip.server")})</span>
+          <span id={hint} className="sr-only">
+            {t("mapping.skip.server.hint")}
+          </span>
+        </>
+      )}
     </label>
   );
 }

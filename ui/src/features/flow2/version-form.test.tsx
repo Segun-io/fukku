@@ -25,4 +25,30 @@ describe("the label field of the film's second version", () => {
     expect(error.id).not.toBe("");
     expect(field).toHaveFocus();
   });
+
+  it("says why the label is refused when the server gives the reason and the token", async () => {
+    const user = userEvent.setup();
+    applyScenarios(["flow2"]);
+    renderApp(`/jobs/${flow2PalJobId}/flow2`);
+    const field = await screen.findByRole("textbox", { name: "Version label" });
+    server.use(
+      http.post("/api/jobs/:id/confirm", () =>
+        HttpResponse.json(
+          {
+            error: {
+              code: "version_label",
+              message: "x",
+              reason: "label_forbidden",
+              token: "bluray",
+            },
+          },
+          { status: 409 },
+        ),
+      ),
+    );
+    await user.click(screen.getByRole("button", { name: "Keep as a second version" }));
+    const error = await screen.findByText(/“bluray” is a word kept out of labels/);
+    expect(field.getAttribute("aria-describedby")).toContain(error.id);
+    expect(screen.queryByText("That label cannot be used. Change it and try again.")).toBeNull();
+  });
 });
