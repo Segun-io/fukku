@@ -217,6 +217,7 @@ type Worker struct {
 	LibraryFormats    []string `yaml:"libraryFormats"`
 	TaskTimeout       Duration `yaml:"taskTimeout"`
 	Nice              int      `yaml:"nice"`
+	ToolMemoryLimit   ByteSize `yaml:"toolMemoryLimit"` // RLIMIT_AS of each ffprobe, ffmpeg and mkvmerge run; 0 is no limit
 	HeartbeatInterval Duration `yaml:"heartbeatInterval"`
 	HeartbeatMaxAge   Duration `yaml:"heartbeatMaxAge"`
 	// What a probe keeps of one file; the rest is cut, so a result stays small.

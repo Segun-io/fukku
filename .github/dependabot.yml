@@ -1,0 +1,20 @@
+# Version updates for the Go modules, the npm packages and the actions (pinned by commit SHA).
+# Images and tools are not listed: both Dockerfiles take their images from `FROM ${ARG}` lines,
+# which Dependabot's docker ecosystem does not read. They are bumped by hand (the bump procedure
+# at the top of tools/dev/Dockerfile; docs/image.md), ffmpeg is followed by the weekly
+# ffmpeg-pin workflow, and the Go image and govulncheck are covered by the vulncheck job. Security advisories are scanned separately
+# (tools/vulncheck.sh, the vulncheck job of workflows/ci.yml). Pull requests only; nothing merges itself.
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directory: /
+    schedule: {interval: weekly}
+  - package-ecosystem: npm
+    directory: /ui
+    schedule: {interval: weekly}
+  - package-ecosystem: npm
+    directory: /test/e2e
+    schedule: {interval: weekly}
+  - package-ecosystem: github-actions
+    directories: [/, /.github/actions/build-image, /.github/actions/dev-image]
+    schedule: {interval: weekly}

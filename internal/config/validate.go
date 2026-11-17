@@ -280,6 +280,9 @@ func validateShared(p *problems, cfg Config) {
 	if w.Nice < 0 || w.Nice > 19 {
 		p.add("worker.nice", "must be between 0 and 19")
 	}
+	if w.ToolMemoryLimit != 0 && w.ToolMemoryLimit < 256<<20 {
+		p.add("worker.toolMemoryLimit", "must be 0 (no limit) or at least 256MiB: the tools do not start in less")
+	}
 	positive(p, "worker.heartbeatInterval", int64(w.HeartbeatInterval))
 	if w.HeartbeatMaxAge <= w.HeartbeatInterval {
 		p.add("worker.heartbeatMaxAge", "must be longer than worker.heartbeatInterval")

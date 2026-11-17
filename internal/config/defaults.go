@@ -141,6 +141,7 @@ func Defaults() Config {
 			LibraryFormats:    []string{"matroska", "webm", "mov", "mp4", "avi", "mpegts", "mpeg", "asf", "flv", "ogg"},
 			TaskTimeout:       Duration(6 * time.Hour),
 			Nice:              10,
+			ToolMemoryLimit:   6 << 30,
 			HeartbeatInterval: Duration(15 * time.Second),
 			HeartbeatMaxAge:   Duration(2 * time.Minute),
 

@@ -75,16 +75,22 @@ jobs:
     permissions:
       contents: read
       packages: write
+      id-token: write # signs the attestations (Sigstore, keyless)
+      attestations: write
     steps:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: fukku-image
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: fukku-amd64.spdx.json # the SBOM of the tested image (image and UI packages)
       - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: push the tested image and print its digest reference
+      - id: push
+        name: push the tested image and print its digest reference
         env:
           TAG: ${{ needs.build.outputs.tag }}
         run: |
@@ -94,6 +100,7 @@ jobs:
           docker push "$ref" | tee push.log
           digest=$(sed -n 's/.*digest: \(sha256:[0-9a-f]\{64\}\).*/\1/p' push.log | tail -n 1)
           [ -n "$digest" ] || { echo "could not read the pushed digest" >&2; exit 1; }
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
           {
             echo "Published. Copy this reference (pinned by digest):"
             echo
@@ -101,3 +108,17 @@ jobs:
             echo "${ref}@${digest}"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+      # Attached to the pushed image in the registry (#127): the SBOM, and the build provenance.
+      # Part of the release work (#66); not yet run: the first publish with the maintainer's OK
+      # shows whether the repository's settings allow attestations.
+      - uses: actions/attest-sbom@c604332985a26aa8cf1bdc465b92731239ec6b9e # v4.1.0
+        with:
+          subject-name: ${{ env.IMAGE_NAME }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          sbom-path: fukku-amd64.spdx.json
+          push-to-registry: true
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ env.IMAGE_NAME }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true

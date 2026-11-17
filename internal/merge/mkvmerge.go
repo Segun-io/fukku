@@ -12,6 +12,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/segun-io/fukku/internal/media"
 )
 
 const (
@@ -91,9 +93,8 @@ func (id identification) ofType(typ string) []track {
 // worker.nice, which is killed when ctx ends and whatever the outcome, so nothing outlives
 // the call.
 type tool struct {
-	bin  string // mkvmerge, resolved
-	nice string // nice, resolved; empty when worker.nice is 0
-	opt  Options
+	bin string // mkvmerge, resolved
+	opt Options
 }
 
 func newTool(opt Options) (tool, error) {
@@ -105,13 +106,14 @@ func newTool(opt Options) (tool, error) {
 	if err != nil {
 		return tool{}, err // a broken install is an error, never a refusal of the files
 	}
-	t := tool{bin: bin, opt: opt}
-	if opt.Nice > 0 {
-		if t.nice, err = exec.LookPath("nice"); err != nil {
-			return tool{}, err
-		}
-	}
-	return t, nil
+	return tool{bin: bin, opt: opt}, nil
+}
+
+// memoryExhausted reports whether a failed run of mkvmerge (its exit code, -1 when a signal
+// ended it, and its messages) may have run out of memory: it said so ("malloc() returned
+// nullptr", bad_alloc), or a signal ended it while worker.toolMemoryLimit was set.
+func (t tool) memoryExhausted(exit int, messages string) bool {
+	return (exit == -1 && t.opt.MemoryLimit > 0) || media.MemoryMessage(messages)
 }
 
 // errNotRun means mkvmerge could not be started or run: not a verdict on the files.
@@ -121,10 +123,9 @@ func (t tool) run(ctx context.Context, files []*os.File, out *limitedBuffer, arg
 	// The UI language keeps the messages in Detail stable; the charsets make a track name
 	// such as "Español (Latino)" arrive and be written as UTF-8 whatever the locale.
 	args = append([]string{"--ui-language", "en_US", "--command-line-charset", "UTF-8", "--output-charset", "UTF-8"}, args...)
-	name := t.bin
-	if t.nice != "" {
-		args = append([]string{"-n", strconv.Itoa(t.opt.Nice), t.bin}, args...)
-		name = t.nice
+	name, args, err := media.Wrap(t.opt.Nice, t.opt.MemoryLimit, t.bin, args)
+	if err != nil {
+		return 0, err
 	}
 	cmd := exec.CommandContext(ctx, name, args...) //nolint:gosec // the binary is configuration, the arguments are built here
 	cmd.SysProcAttr = sysProcAttr()
@@ -136,6 +137,9 @@ func (t tool) run(ctx context.Context, files []*os.File, out *limitedBuffer, arg
 	cmd.Stdout = out
 	cmd.Stderr = out
 	err = cmd.Run()
+	if lerr := media.LimitFailure(out.buf.String()); lerr != nil && err != nil {
+		return 0, lerr // prlimit could not set the limit: the deployment, not the files
+	}
 	if cmd.Process != nil {
 		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 	}
@@ -147,7 +151,7 @@ func (t tool) run(ctx context.Context, files []*os.File, out *limitedBuffer, arg
 	case err == nil:
 		return 0, nil
 	case errors.As(err, &ee) && (ee.ExitCode() == 126 || ee.ExitCode() == 127):
-		// nice could not run mkvmerge: not a verdict on the files
+		// nice or prlimit could not run mkvmerge: not a verdict on the files
 		return 0, fmt.Errorf("%w (exit %d)", errNotRun, ee.ExitCode())
 	case errors.As(err, &ee):
 		return ee.ExitCode(), nil // -1 when a signal ended it

@@ -90,6 +90,7 @@ RUN sed -i \
       mkvtoolnix=92.0-1+deb13u1 \
       tini=0.19.0-3+b8 \
  && rm -rf /var/lib/apt/lists/* \
+ && find / -xdev -perm /6000 -type f -exec chmod a-s {} + \
  && groupadd --system --gid 10001 fukku \
  && useradd --system --uid 10001 --gid fukku --no-create-home --shell /usr/sbin/nologin fukku \
  && mkdir -p /var/lib/fukku /spool /data \

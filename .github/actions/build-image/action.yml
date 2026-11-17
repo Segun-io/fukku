@@ -1,5 +1,5 @@
 # Builds the product image for one platform into the local Docker daemon, smoke-tests it
-# (tools/image-smoke.sh) and writes its SBOM. Used by ci.yml (one job per architecture) and by
+# (tools/image-smoke.sh) and writes its SBOM (image and UI packages, one document). Used by ci.yml (one job per architecture) and by
 # prerelease.yml, so the build and the smoke test have one definition. A platform other than
 # the runner's is built and run under QEMU emulation. Nothing is pushed.
 name: build and smoke-test the image
@@ -47,9 +47,37 @@ runs:
       env:
         PLATFORM: ${{ inputs.platform }}
       run: echo "name=fukku-${PLATFORM#linux/}.spdx.json" >> "$GITHUB_OUTPUT"
+    # The image scan lists the Debian packages, the Go modules and ffmpeg, not the UI's npm
+    # packages (compiled into the binary, no lockfile in the image). A second scan of ui/'s
+    # lockfile adds them, and tools/sbom-merge.sh makes one document of the two.
     - uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
       with:
         image: ${{ inputs.tag }}
         syft-version: v1.57.1
         format: spdx-json
-        artifact-name: ${{ steps.sbom-name.outputs.name }}
+        output-file: ${{ runner.temp }}/sbom-image.spdx.json
+        upload-artifact: false
+        upload-release-assets: false
+    - uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
+      with:
+        path: ui
+        syft-version: v1.57.1
+        format: spdx-json
+        output-file: ${{ runner.temp }}/sbom-ui.spdx.json
+        upload-artifact: false
+        upload-release-assets: false
+    - name: merge the SBOMs, validate the result, check for ffmpeg and the npm packages
+      shell: bash
+      env:
+        SBOM: ${{ steps.sbom-name.outputs.name }}
+      run: |
+        tools/sbom-merge.sh "$RUNNER_TEMP/sbom-image.spdx.json" "$RUNNER_TEMP/sbom-ui.spdx.json" "$RUNNER_TEMP/$SBOM"
+        jq -e '[.packages[] | select(.name == "ffmpeg" and (.versionInfo | startswith("7.1.")))] | length > 0' "$RUNNER_TEMP/$SBOM" >/dev/null \
+          || { echo "the SBOM does not list ffmpeg 7.1.x" >&2; exit 1; }
+        jq -e '[.packages[] | select(.name == "react")] | length > 0' "$RUNNER_TEMP/$SBOM" >/dev/null \
+          || { echo "the SBOM does not list the UI's npm packages" >&2; exit 1; }
+        tools/sbom-validate.sh "$RUNNER_TEMP/$SBOM"
+    - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: ${{ steps.sbom-name.outputs.name }}
+        path: ${{ runner.temp }}/${{ steps.sbom-name.outputs.name }}

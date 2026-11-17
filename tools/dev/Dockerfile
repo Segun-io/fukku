@@ -6,11 +6,17 @@
 ARG GO_IMAGE=golang:1.27.4-trixie@sha256:b54b2639de8c1bfe538ec5ffc45f29b1932235ac5f6d63c059853646677112d9
 ARG NODE_IMAGE=node:26.13.1-trixie-slim@sha256:e6bedef217677b276c591795e169840edd9096dbf13f29df8ef8d1856b8820bc
 ARG GOLANGCI_IMAGE=golangci/golangci-lint:v2.15.0@sha256:fbfcfd12a6f8d7f1b97b3362ca80fc2a244d46863148c73cb88e7793af96c481
+# govulncheck: a Go module, pinned by version (the module proxy's checksum database verifies it).
+ARG GOVULNCHECK_VERSION=v1.9.0
 ARG GITLEAKS_IMAGE=zricethezav/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f
 
 FROM ${NODE_IMAGE} AS node
 FROM ${GOLANGCI_IMAGE} AS golangci
 FROM ${GITLEAKS_IMAGE} AS gitleaks
+
+FROM ${GO_IMAGE} AS govulncheck
+ARG GOVULNCHECK_VERSION
+RUN GOBIN=/out CGO_ENABLED=0 go install golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}
 
 FROM ${GO_IMAGE}
 
@@ -34,6 +40,7 @@ RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
  && ln -s ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx
 COPY --from=golangci /usr/bin/golangci-lint /usr/local/bin/golangci-lint
 COPY --from=gitleaks /usr/bin/gitleaks /usr/local/bin/gitleaks
+COPY --from=govulncheck /out/govulncheck /usr/local/bin/govulncheck
 
 # The image runs as the calling user (make passes -u), so caches live in the mounted repo.
 ENV FUKKU_DEV=1 \

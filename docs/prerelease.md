@@ -21,7 +21,7 @@ Actions tab, workflow `prerelease`, "Run workflow" (or `gh workflow run prerelea
   prints the tag it would use. Nothing is pushed.
 - **Publish (`publish: true`)** does the same, then the `publish` job waits for approval of the
   `prerelease` environment and pushes the very image that passed the smoke test. It signs in
-  with the workflow's own token; no other secret is used.
+  with the workflow's own token; no other secret is used. After the push it attaches the image's SBOM and a build provenance as attestations (docs/image.md, SBOM); the job has id-token and attestations write permission for it.
 
 The tag is `ghcr.io/segun-io/fukku:0.0.0-pre.<UTC date>.<short commit>`. There is never a
 `latest` tag or a plain version. The job summary prints the reference to copy, pinned by digest:
