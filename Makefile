@@ -222,6 +222,13 @@ probes-gate: $(DEV_DEP) ## CI rule on probe results: fail on new differs or erro
 compat: $(DEV_DEP) ## write the latest probe results into docs/compatibility.md
 	$(IN_DEV) go run ./test/probes/cmd/compat -results test/env/.run/results -doc docs/compatibility.md
 
+# Not a probe and not in CI: it needs a library of thousands of films, so it runs its own
+# throwaway Jellyfin (issue #161). SCALE_SIZES, SCALE_RUNS and SCALE_SCANS are passed through.
+.PHONY: refresh-scale
+refresh-scale: $(DEV_DEP) ## by hand: time Jellyfin's library refresh on 200, 2000 and 10000 generated films in a throwaway Jellyfin, write the table into docs/compatibility.md
+	@if [ "$(FUKKU_DEV)" = 1 ]; then echo "refresh-scale runs on the host (needs Docker)"; exit 1; fi
+	test/env/refresh-scale.sh
+
 .PHONY: fixtures
 fixtures: $(DEV_DEP) ## generate sample media and hostile archives into .cache/fixtures, to look at
 	$(IN_DEV) go run ./test/fixtures/cmd/genfixtures -out .cache/fixtures

@@ -453,42 +453,9 @@ func jellyfinKey(ctx context.Context, db string) error {
 
 func seedJellyfin(ctx context.Context, env *testenv.Env) (string, error) {
 	j := env.Jellyfin
-	anon := &testenv.Jellyfin{Client: testenv.NewAnonymous(j.Base)}
-	var info struct {
-		Version                string `json:"Version"`
-		StartupWizardCompleted bool   `json:"StartupWizardCompleted"`
-	}
-	// /System/Info/Public answers before start-up finishes (and then reports the wizard as
-	// not done), so wait for /health first.
-	if err := testenv.WaitFor(ctx, 3*time.Minute, 2*time.Second, "jellyfin", func() (bool, error) {
-		if err := anon.Do(ctx, "GET", "/health", nil, nil); err != nil {
-			return false, err
-		}
-		err := anon.Do(ctx, "GET", "/System/Info/Public", nil, &info)
-		return err == nil, err
-	}); err != nil {
+	version, err := testenv.JellyfinStartup(ctx, j.Base)
+	if err != nil {
 		return "", err
-	}
-
-	if !info.StartupWizardCompleted {
-		steps := []struct {
-			path string
-			body any
-		}{
-			{"/Startup/Configuration", M{"UICulture": "en-US", "MetadataCountryCode": "US", "PreferredMetadataLanguage": "en"}},
-			{"/Startup/User", M{"Name": "probe", "Password": "probe-password-not-a-secret"}},
-			{"/Startup/RemoteAccess", M{"EnableRemoteAccess": true, "EnableAutomaticPortMapping": false}},
-			{"/Startup/Complete", nil},
-		}
-		// GET /Startup/User creates the first user before it can be renamed.
-		if err := anon.Do(ctx, "GET", "/Startup/User", nil, nil); err != nil {
-			return "", err
-		}
-		for _, s := range steps {
-			if err := anon.Do(ctx, "POST", s.path, s.body, nil); err != nil {
-				return "", err
-			}
-		}
 	}
 
 	// The fixed API key: Jellyfin has no setting for one and locks its database while it
@@ -554,7 +521,7 @@ func seedJellyfin(ctx context.Context, env *testenv.Env) (string, error) {
 	if err := primeLibraries(ctx, env); err != nil {
 		return "", err
 	}
-	return info.Version, nil
+	return version, nil
 }
 
 // primeLibraries scans each library once with a file in it. Until a library has been
