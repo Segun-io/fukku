@@ -27,6 +27,8 @@ make probes           # behaviour probes that need no internet
 make probes-online    # all probes (adding titles needs the *arr metadata services)
 make compat           # write probe results into docs/compatibility.md
 make probes-gate      # CI rule on the results: fail on differs or error, warn on upstream skips
+make refresh-scale    # by hand: Jellyfin's library refresh on up to 10000 generated films, in a
+                      # throwaway Jellyfin of its own (docs/compatibility.md)
 make dev-up           # run Fukku in the test environment (see "Try it locally")
 make env-reset        # delete the test environment
 make install-test FUKKU_IMAGE=fukku:dev   # clean-room install from these documents (below)

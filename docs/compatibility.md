@@ -98,3 +98,65 @@ Run of 2026-11-18 02:25 UTC against bazarr 1.6.2, jellyfin 12.4.0, radarr 6.4.4.
 | M3-versions | Second versions of films: Radarr's verdict on the name, and the grouping the keeper re-applies (#56) | Radarr's parse of '<film folder> - <label>' finds no quality for a language label and one for a quality word; internal/mediaserver groups a version outside the root folder with the film's file, and groups it again after the film's file is replaced and after it is renamed | Radarr's parse of 'Probe Versions ROD1Y (2003) - <label>': map[1080p:HDTV-1080p rev 1 Bluray:Bluray-720p rev 1 DVD:DVD rev 1 Español:Unknown rev 1 Latino:Unknown rev 1 Proper:Unknown rev 2 Versión extendida:Unknown rev 1]; with '.mkv' added the language label reads as WEBDL-720p; 'Cam (2018)' reads as CAM, 'Cam (2018) - Español' as CAM; 'Zzz' parses: false; first grouping: the keeper's check took 1m0.4s: status grouped, film item 4fc13f1c2631af0c728ae17456e56deb, version item 706198a27e32407bb8b57f464a8edc0a, film file changed: false; first grouping, after the check: a user's library view shows 1 entr(ies) [Probe Versions ROD1Y (2003) [Probe Versions ROD1Y (2003) WEBDL-1080p.mkv \| Probe Versions ROD1Y (2003) - Español.mkv]]; after the upgrade and a library scan: a user's library view shows 2 entr(ies) [Probe Versions ROD1Y (2003) [Probe Versions ROD1Y (2003) Remux-1080p.mkv] Probe Versions ROD1Y (2003) [Probe Versions ROD1Y (2003) - Español.mkv]]; after the upgrade: the keeper's check took 0s: status grouped, film item 3bbeb2777f364a8bdf18e4d8d86edaa0, version item 706198a27e32407bb8b57f464a8edc0a, film file changed: true; after the upgrade, after the check: a user's library view shows 1 entr(ies) [Probe Versions ROD1Y (2003) [Probe Versions ROD1Y (2003) Remux-1080p.mkv \| Probe Versions ROD1Y (2003) - Español.mkv]]; after the rename and a library scan: a user's library view shows 2 entr(ies) [Probe Versions ROD1Y (2003) [Probe Versions ROD1Y (2003) - Remux-1080p.mkv] Probe Versions ROD1Y (2003) [Probe Versions ROD1Y (2003) - Español.mkv]]; after the rename: the keeper's check took 0s: status grouped, film item 07345d06f2d25ee7313cb8522f4b34fe, version item 706198a27e32407bb8b57f464a8edc0a, film file changed: true; after the rename, after the check: a user's library view shows 1 entr(ies) [Probe Versions ROD1Y (2003) [Probe Versions ROD1Y (2003) - Remux-1080p.mkv \| Probe Versions ROD1Y (2003) - Español.mkv]]; audit entries [version.grouped version.regrouped version.regrouped] | **confirmed** |
 
 <!-- probes:end -->
+
+## Media server refresh on large libraries (#161)
+
+Not a probe: the J1 probes run on a library of about two hundred films, and Jellyfin's library
+refresh lists every folder of the library, so its cost grows with the library. This measurement
+times it on generated libraries of 200, 2 000 and 10 000 films, in a throwaway Jellyfin of its
+own, so the shared test environment and the probe results above are never touched. It runs by
+hand, not in CI and not in `make check`:
+
+```sh
+make dev-image         # once
+make refresh-scale     # SCALE_SIZES=200,2000,10000 SCALE_RUNS=5 SCALE_SCANS=1 are the defaults
+```
+
+`test/env/refresh-scale.sh` starts the Jellyfin image pinned in `test/env/compose.yaml` (same
+tag and digest) as the compose project `fukku-refresh-scale` (`test/env/refreshscale/compose.yaml`,
+`127.0.0.1:18196`, a fixed fake API key), and `test/env/refreshscale` grows its Movies library
+(real-time monitoring off, no internet metadata, as in the test environment) size by size. Each
+library film is a folder with a hard link to one tiny generated video, scanned in with a full
+scan; each measured film is a new folder with a copy of a 10 s 1080p video. For each size it
+uses Fukku's own client (`internal/mediaserver`, default settings): `Refresh` with
+`libraryRefresh` (`POST /Items/{libraryId}/Refresh`), then `Find` every 250 ms until it returns
+the item; then once the fallback's full scan (`Scan`, `POST /Library/Refresh`) in place of the
+refresh. The project and its generated data (under `.cache/refresh-scale`) are removed when it
+ends; the numbers go to `.cache/refresh-scale.json` and into the table below.
+
+<!-- refresh-scale:start -->
+
+Run of 2026-11-18 21:27 UTC against Jellyfin 12.4.0 (`jellyfin/jellyfin:12.4.20261026-211555`), 5 library refreshes and 1 fallback scan(s) per size, Find polled every 250ms, on 12 CPUs with the library on a local disk.
+
+| Films | `libraryRefresh`: visible after (min / median / max) | Runtime and streams at first sight | Runtime and streams after (median) | Fallback scan: visible after (min / median / max) | Fallback scan ran | One `Find` call (median / max) | Items per `Find` answer | Scanning in the generated films |
+| ---: | --- | --- | --- | --- | --- | --- | ---: | --- |
+| 200 | 0.3 / 0.3 / 0.3 s | 4 of 5 | 0.3 s | 0.3 / 0.3 / 0.3 s | 2 s | 0.012 / 0.033 s | 206 | 7 s (200 new) |
+| 2006 | 0.4 / 0.5 / 0.6 s | 1 of 5 | 1.0 s | 0.4 / 0.4 / 0.4 s | 3 s | 0.102 / 0.263 s | 2012 | 48 s (1800 new) |
+| 10012 | 1.7 / 1.7 / 2.0 s | 1 of 5 | 3.1 s | 1.4 / 1.4 / 1.4 s | 10 s | 0.351 / 0.745 s | 10018 | 158 s (8000 new) |
+
+<!-- refresh-scale:end -->
+
+What the numbers of the run of 2026-11-18 mean:
+
+- **The refresh grows with the library, but stays far inside every limit.** A new film is listed
+  0.3 s after the refresh with 200 films, 0.5 s with 2 000 and 1.7 to 2.0 s with 10 000: about
+  0.15 ms per film. The `mediaServerRefresh` step polls every 2 s (`mediaServer.itemPollInterval`),
+  so with 10 000 films it sees the film at its second poll, about 3 s after the refresh. M2's
+  "visible within a minute" holds at every size measured, with a wide margin.
+- **`mediaServer.itemWait` (2 m) stays.** The slowest refresh, 2.0 s, is a sixtieth of it. Even if
+  listing a folder cost ten times more (a network share, folders with artwork, NFO and subtitle
+  files: these generated folders hold one small file on a local disk), a 10 000-film library
+  would show the film in about 20 s.
+- **`mediaServer.refreshFallback` stays on.** Its full scan on these libraries, where nothing else
+  changed, ran 2 to 10 s and listed the film in 0.3 to 1.4 s, well inside the second `itemWait`.
+  A scan that has to take in many new films is slower (the last column: 158 s for 8 000 at once),
+  which is what a never-scanned library full of films would cost; the case the fallback is for,
+  a new library with nothing in it yet (#84), is not.
+- **Runtime and streams come a little later on a large library.** With 2 000 films and more, the
+  item was usually listed before Jellyfin had probed the file; runtime and streams followed
+  a few seconds later (median 1.0 s with 2 000 films, 3.1 s with 10 000). Fukku's step only needs the item's id for the title link, so this changes nothing.
+- **One `Find` call costs more as the library grows** (median 0.01 s with 200 films, 0.35 s with
+  10 000): Jellyfin 12.4.0 ignores the `Path` filter Fukku sends, so each answer lists every film,
+  episode and show of the server, and Fukku picks the item by its path. It works, and is far
+  below `mediaServer.requestTimeout` (30 s) at these sizes, but on a server with tens of
+  thousands of episodes each poll carries all of them.

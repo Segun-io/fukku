@@ -1,0 +1,39 @@
+# A throwaway Jellyfin for the refresh-at-scale measurement (issue #161, make refresh-scale).
+# test/env/refresh-scale.sh starts it, fills it with thousands of generated films and removes it
+# with its data when it ends. It is a project of its own, so the shared test environment
+# (project fukku-test, test/env/compose.yaml) and its probe results are never touched.
+#
+# The Jellyfin image is the one pinned in test/env/compose.yaml: the script reads its tag and
+# digest from there into FUKKU_SCALE_JELLYFIN_IMAGE. The API key is a fixed fake value, valid
+# only inside this project. Generated data lives under FUKKU_SCALE_WORK (.cache/refresh-scale).
+
+name: fukku-refresh-scale
+
+services:
+  jellyfin:
+    # A fixed hostname: the test tools talk only to compose service names (test/testenv).
+    hostname: jellyfin
+    image: ${FUKKU_SCALE_JELLYFIN_IMAGE:?set by test/env/refresh-scale.sh}
+    user: ${PUID:-1000}:${PGID:-1000}
+    volumes:
+      - ${FUKKU_SCALE_WORK:?}/config:/config
+      - ${FUKKU_SCALE_WORK:?}/cache:/cache
+      - ${FUKKU_SCALE_WORK:?}/data:/data
+    # Only to look at it while it runs; the measurement uses the compose network.
+    ports: ["127.0.0.1:${FUKKU_SCALE_PORT:-18196}:8096"]
+
+  # The dev image, on this project's network, with the same /data view as Jellyfin. Not
+  # started by `up`; used through `run`.
+  tools:
+    image: ${DEV_IMAGE:?}
+    profiles: [tools]
+    user: ${PUID:-1000}:${PGID:-1000}
+    working_dir: /src
+    environment:
+      FUKKU_TEST_JELLYFIN_URL: http://jellyfin:8096
+      FUKKU_TEST_JELLYFIN_KEY: "dddddddddddddddddddddddddddddddd"
+      FUKKU_SCALE_JELLYFIN_IMAGE: ${FUKKU_SCALE_JELLYFIN_IMAGE}
+    volumes:
+      - ../../..:/src
+      - ${FUKKU_SCALE_WORK:?}/data:/data
+      - ${FUKKU_SCALE_WORK:?}/config:/jellyfin-config

@@ -14,6 +14,59 @@ type Jellyfin struct {
 	Key string
 }
 
+// NewJellyfin returns a client for the local Jellyfin at base, authenticated with key. Like
+// FromEnv, it refuses any host but a compose service name or the loopback address.
+func NewJellyfin(base, key string) (*Jellyfin, error) {
+	if err := mustBeLocal(base); err != nil {
+		return nil, err
+	}
+	return &Jellyfin{Client: newClient(base, "Authorization", `MediaBrowser Token="`+key+`"`), Key: key}, nil
+}
+
+// JellyfinStartup waits until the Jellyfin at base has started and completes its startup
+// wizard if it has not been (one user, "probe", with a password that is not a secret). It
+// returns the server's version. The API key is inserted afterwards (test/env/seed jellyfin-key).
+func JellyfinStartup(ctx context.Context, base string) (string, error) {
+	anon := NewAnonymous(base)
+	var info struct {
+		Version                string `json:"Version"`
+		StartupWizardCompleted bool   `json:"StartupWizardCompleted"`
+	}
+	// /System/Info/Public answers before start-up finishes (and then reports the wizard as
+	// not done), so wait for /health first.
+	if err := WaitFor(ctx, 3*time.Minute, 2*time.Second, "jellyfin", func() (bool, error) {
+		if err := anon.Do(ctx, "GET", "/health", nil, nil); err != nil {
+			return false, err
+		}
+		err := anon.Do(ctx, "GET", "/System/Info/Public", nil, &info)
+		return err == nil, err
+	}); err != nil {
+		return "", err
+	}
+	if info.StartupWizardCompleted {
+		return info.Version, nil
+	}
+	steps := []struct {
+		path string
+		body any
+	}{
+		{"/Startup/Configuration", M{"UICulture": "en-US", "MetadataCountryCode": "US", "PreferredMetadataLanguage": "en"}},
+		{"/Startup/User", M{"Name": "probe", "Password": "probe-password-not-a-secret"}},
+		{"/Startup/RemoteAccess", M{"EnableRemoteAccess": true, "EnableAutomaticPortMapping": false}},
+		{"/Startup/Complete", nil},
+	}
+	// GET /Startup/User creates the first user before it can be renamed.
+	if err := anon.Do(ctx, "GET", "/Startup/User", nil, nil); err != nil {
+		return "", err
+	}
+	for _, s := range steps {
+		if err := anon.Do(ctx, "POST", s.path, s.body, nil); err != nil {
+			return "", err
+		}
+	}
+	return info.Version, nil
+}
+
 // Item is the part of a Jellyfin item the probes look at.
 type Item struct {
 	ID                  string        `json:"Id"`
