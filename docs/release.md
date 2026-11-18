@@ -80,6 +80,12 @@ Do these in order. Tick each in the release pull request or the release issue.
 
 ### 2. The version bump (one pull request)
 
+A **release candidate** (`vX.Y.Z-rc.N`) goes through the same steps, with `X.Y.Z-rc.N` as the
+version in both places: the `x-image` line and the CHANGELOG heading, which takes the version's
+notes. The workflow marks its draft as a pre-release. Skip step 5's digest pin and the closing of
+issues for a candidate; the final version's bump renames the heading to `## [X.Y.Z] - <date>`
+and leaves a one-line `## [X.Y.Z-rc.N]` section that points to it.
+
 The version is written in **one place**: the `x-image` line of `deploy/compose.example.yaml`
 (`ghcr.io/segun-io/fukku:0.1.0`). The binary's version (the `-X ...internal/version.Version`
 linker flag in the `Dockerfile` and the `Makefile`) comes from the `VERSION` build argument, which
