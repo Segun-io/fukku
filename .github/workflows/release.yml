@@ -313,7 +313,7 @@ jobs:
           grep -q '^## Compatibility$' release-body.md
           # The identity the release body tells people to verify is the one the publish job signs as
           # (the workflow file at the version's tag), spelled out exactly.
-          grep -qF "--certificate-identity 'https://github.com/${GITHUB_REPOSITORY}/.github/workflows/release.yml@refs/tags/v${VERSION}'" release-body.md
+          grep -qF -e "--certificate-identity 'https://github.com/${GITHUB_REPOSITORY}/.github/workflows/release.yml@refs/tags/v${VERSION}'" release-body.md
           test -s release-inputs/compatibility.md
           {
             echo "### Draft release body (dry run)"
