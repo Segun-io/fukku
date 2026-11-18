@@ -154,7 +154,7 @@ What the numbers of the run of 2026-11-18 mean:
   a new library with nothing in it yet (#84), is not.
 - **Runtime and streams come a little later on a large library.** With 2 000 films and more, the
   item was usually listed before Jellyfin had probed the file; runtime and streams followed
-  within 5 s. Fukku's step only needs the item's id for the title link, so this changes nothing.
+  a few seconds later (median 1.0 s with 2 000 films, 3.1 s with 10 000). Fukku's step only needs the item's id for the title link, so this changes nothing.
 - **One `Find` call costs more as the library grows** (median 0.01 s with 200 films, 0.35 s with
   10 000): Jellyfin 12.4.0 ignores the `Path` filter Fukku sends, so each answer lists every film,
   episode and show of the server, and Fukku picks the item by its path. It works, and is far

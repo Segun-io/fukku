@@ -30,8 +30,10 @@ compose=(docker compose -f refreshscale/compose.yaml)
 cleanup() {
   "${compose[@]}" --profile tools down -v --remove-orphans >/dev/null 2>&1 || true
   # Jellyfin runs as the calling user, but remove through the dev image all the same, as env-reset does.
-  docker run --rm -v "$repo/.cache:/c" "$dev_image" rm -rf /c/refresh-scale
+  docker run --rm -v "$repo/.cache:/c" "$dev_image" rm -rf /c/refresh-scale || true
 }
+# Created first, as the calling user: a bind mount of a missing folder would make it root-owned.
+mkdir -p "$repo/.cache"
 trap cleanup EXIT
 cleanup # what an interrupted earlier run left
 mkdir -p "$FUKKU_SCALE_WORK"/{config,cache,data}
