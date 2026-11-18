@@ -9,8 +9,11 @@ describes.
 ## Setting up
 
 The host needs Docker (with Compose), make and git. Every other tool is pinned in the
-development image ([tools/dev/Dockerfile](tools/dev/Dockerfile)). The README's
-[Development](README.md#development) section lists the targets.
+development image ([tools/dev/Dockerfile](tools/dev/Dockerfile)).
+[docs/development.md](docs/development.md) lists the make targets and describes the local test
+environment, the end-to-end tests, the README's screenshots, the source layout and the
+clean-room install test. The plan, the flows and the milestones are in
+[docs/plan.md](docs/plan.md).
 
 ```sh
 make hooks    # the pre-commit hook: gitleaks on staged changes
