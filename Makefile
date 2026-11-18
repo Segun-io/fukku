@@ -147,6 +147,18 @@ e2e: ## Playwright through the UI and API against the dev stack; make e2e ARGS='
 e2e-large: ## the large-upload test at 60GiB (by hand: needs about 65GiB free for test/env/.run/data)
 	$(MAKE) --no-print-directory e2e E2E_LARGE_SIZE=60GiB ARGS='exit-m1-large-upload.spec.ts $(ARGS)'
 
+# The README's screenshots (issue #162): test/e2e/screenshots.ts against the dev stack, with
+# generated media and the test users, then copied to docs/images. Each must stay under 300 KB.
+.PHONY: screenshots
+screenshots: export FUKKU_E2E_ONLINE = 1
+screenshots: ## the README's screenshots into docs/images, from the dev stack (by hand; needs internet for Radarr and Sonarr metadata)
+	$(MAKE) --no-print-directory image env-up dev-up e2e-deps e2e-fixtures
+	rm -rf test/e2e/screenshots
+	test/e2e/run.sh --config screenshots.config.ts $(ARGS)
+	cp test/e2e/screenshots/*.png docs/images/
+	@big=$$(find docs/images -name '*.png' -size +300k); if [ -n "$$big" ]; then echo "over 300 KB: $$big" >&2; exit 1; fi
+	@ls -l docs/images/*.png
+
 ## ---- clean-room install test (issue #67) ----------------------------------------------
 
 .PHONY: install-test

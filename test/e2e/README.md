@@ -162,3 +162,15 @@ directory must have the source's SHA-256 (also checked over 16 MiB around each i
 ## Content-Security-Policy guard
 
 Specs import `test` and `expect` from `./test`, not from `@playwright/test`: that `test` fails any test during which the page raised a `securitypolicyviolation` event or logged a CSP message. The policy (`internal/web/server.go`) allows only what the UI needs, so a violation means the UI and the policy disagree.
+
+## The README's screenshots (`screenshots.ts`)
+
+`make screenshots` runs `screenshots.ts` with its own configuration (`screenshots.config.ts`:
+1200 by 800, English, UTC) in the same runner, and copies the pictures from `screenshots/`
+(never committed) to `docs/images`. `make e2e` does not run it: the main configuration matches
+`*.spec.ts` only. It uploads Big Buck Bunny (the upload page is slowed down with the browser's
+network throttling until the picture is taken) and the Pioneer One season of `m2/`, so it adds
+those two titles through the apps' metadata services and needs the internet; it removes them
+from Radarr, Sonarr and Jellyfin again at the end. With the stack already up,
+`FUKKU_E2E_ONLINE=1 test/e2e/run.sh --config screenshots.config.ts` takes them without the
+setup. See [docs/development.md](../../docs/development.md#the-screenshots).
