@@ -49,7 +49,7 @@ Radarr imports it, and the job ends with a link to the title in your media serve
 
 Administrators see the server's health and the settings it runs with:
 
-![The admin page: every health check passing](docs/images/admin.png)
+![The admin page: the server's health checks](docs/images/admin.png)
 
 ## What it needs
 
