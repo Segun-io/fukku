@@ -10,6 +10,12 @@
 # copied into the clean host with `docker save | docker load` (for an image that is not
 # published yet); the install then finds it there and does not pull.
 #
+# A registry reference to a PRIVATE package (before it is made public): the clean host has no
+# login of the outer machine, so give it a token that can read the package, in a file or the
+# environment, never on the command line. The host logs in with it (scaffolding, like the other
+# host provisioning; the token stays in the throwaway host and goes away with it):
+#   GHCR_TOKEN_FILE=/path/to/file   or   GHCR_TOKEN=<token>      and optionally GHCR_USER=<login>
+#
 # What it does, in four parts. Only part 3 is the operator's install.
 #   1. SCAFFOLDING, outside the clean host: build the test tools, generate the media at test
 #      time, start the clean host (Docker-in-Docker, pinned by digest), and copy the images in.
@@ -59,8 +65,19 @@ phase() { printf '\n######## %s (%ss)\n' "$*" "$((SECONDS - started))"; }
 hx() { docker exec -i "$HOST" "$@"; }                                   # root in the clean host
 as_media() { docker exec -u media -e HOME=/home/media -w /home/media "$@"; }
 
+logged_in=""   # the registry the clean host was logged in to, if any
+
+# The token must not outlive the pull: the clean host is kept with FUKKU_INSTALL_KEEP=1.
+logout() {
+  if [ -n "$logged_in" ]; then
+    as_media "$HOST" docker logout "$logged_in" >/dev/null 2>&1 || true
+    logged_in=""
+  fi
+}
+
 cleanup() {
   local rc=$?
+  logout
   if [ "$rc" -ne 0 ] && docker inspect "$HOST" >/dev/null 2>&1; then
     echo "---- the install failed; state of the clean host:" >&2
     hx docker ps -a --format '{{.Names}}\t{{.Status}}' >&2 || true
@@ -122,6 +139,14 @@ tar -cf - README.md docs deploy | hx tar -xf - -C /home/media/fukku-src
 tar -C "$work/fixtures" -cf - . | hx tar -xf - -C /srv/fixtures
 hx chown -R 1000:1000 /home/media/fukku-src
 docker save "${images[@]}" | hx docker load >/dev/null
+if [ "$preload" = false ] && { [ -n "${GHCR_TOKEN_FILE:-}" ] || [ -n "${GHCR_TOKEN:-}" ]; }; then
+  registry=${FUKKU_IMAGE%%/*}
+  if [ -n "${GHCR_TOKEN_FILE:-}" ]; then token_in() { cat "$GHCR_TOKEN_FILE"; }; else token_in() { printf '%s' "$GHCR_TOKEN"; }; fi
+  # The token goes through stdin only: not in an argument list, a log or a trace.
+  token_in | docker exec -i -u media -e HOME=/home/media "$HOST" docker login "$registry" -u "${GHCR_USER:-token}" --password-stdin >/dev/null
+  echo "the clean host is logged in to $registry (token from the environment, not shown)"
+  logged_in=$registry
+fi
 # The pinned images were saved by digest (the id of a single-platform image is its digest):
 # give each its repository and tag, so that the reference repo:tag@sha256:digest, which is what
 # the compose files use, finds it on the host instead of asking a registry. Inspecting the
@@ -150,6 +175,7 @@ as_media -e "FUKKU_IMAGE=$FUKKU_IMAGE" -e "DATA_DIR=$DATA_DIR" -e "APPS_NETWORK=
   -e "CADDY_IMAGE=$CADDY_IMAGE" -e "RADARR_API_KEY=$RADARR_API_KEY" -e "SONARR_API_KEY=$SONARR_API_KEY" \
   -e JELLYFIN_KEY_FILE=/srv/scaffold/jellyfin_api_key -e SRC=/home/media/fukku-src \
   "$HOST" sh /srv/scaffold/operator.sh
+logout   # the image is pulled; the token is not needed again
 
 # ---- 4. THE CHECKS ---------------------------------------------------------------------------
 phase "the checks"

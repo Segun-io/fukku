@@ -13,8 +13,10 @@ on:
 permissions:
   contents: read
 
+# The event is part of the group: a push to main must not cancel the weekly scheduled run (the
+# schedule runs on the default branch, the same ref), nor the other way round.
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -152,3 +154,38 @@ jobs:
         uses: ./.github/actions/dev-image
       - if: github.event_name != 'pull_request' || steps.changed.outputs.scan == 'true'
         run: make vulncheck
+
+  # Makes the weekly online probes visible (#66): opens one issue when a verdict differs from the
+  # committed docs/compatibility.md or the gate fails, and comments on that issue instead of
+  # opening another when the findings change (tools/probe-report.sh has the dedupe rules). Only
+  # this job may write issues, with the workflow's own token. A manual run prints what it would
+  # do and writes nothing.
+  probe-report:
+    name: probe report (issue on a changed verdict or a failed gate)
+    # Also when `check` failed and the probes never ran: the scheduled run is then reported, not silent.
+    if: ${{ always() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && needs.probes.result != 'cancelled' && needs.check.result != 'cancelled' }}
+    needs: [check, probes]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        continue-on-error: true # a run that never got to the results has none: the report says so
+        with:
+          name: probe-results
+          path: probe-results
+      - name: open or update the issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          DRY_RUN: ${{ github.event_name == 'schedule' && '0' || '1' }}
+          GATE: ${{ needs.probes.result == 'skipped' && format('not run (check {0})', needs.check.result) || needs.probes.result }}
+        run: |
+          # The artifact keeps the repository-relative paths of what the probes job uploaded.
+          tools/probe-report.sh docs/compatibility.md probe-results/docs/compatibility.md "$GATE" | tee -a "$GITHUB_STEP_SUMMARY"

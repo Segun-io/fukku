@@ -2,7 +2,7 @@
 
 `.github/workflows/prerelease.yml` builds the product image and can publish it to GHCR as a
 private pre-release, so a real host can pull it by digest (plan D5). Releases proper, with
-signing and public images, are M4 (#66). CI builds and smoke-tests both architectures ([image.md](image.md)); this workflow still publishes `linux/amd64` only until the release workflow (#66) pushes a multi-arch manifest.
+signing and public images, are made by `release.yml` ([release.md](release.md)). CI builds and smoke-tests both architectures ([image.md](image.md)); this workflow publishes `linux/amd64` only; the release workflow pushes the multi-arch manifest.
 
 **Every actual publish needs the maintainer's explicit OK.** The workflow starts only by hand
 (`workflow_dispatch`); nothing triggers it from a push, tag, schedule or pull request.

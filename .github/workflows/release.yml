@@ -1,0 +1,544 @@
+# Release (plan §15 M4, issue #66). Started by a version tag `v*` that the MAINTAINER pushes, or by
+# hand (workflow_dispatch). EVERY ACTUAL RELEASE NEEDS THE MAINTAINER'S EXPLICIT OK: pushing the
+# tag, and approving the `release` environment. This workflow never tags anything itself.
+#
+#   prepare            version and commit, the checks that tie the tag to the repository,
+#                      the release notes from CHANGELOG.md
+#   build (x2)         the shared build-image action: build, smoke test and SBOM per architecture;
+#                      the tested image is saved as an artifact
+#   environment-check  refuses to go on to publish unless the `release` environment exists, has a
+#                      required reviewer and deploys only from `v*` tags (GitHub creates a
+#                      missing environment on first use WITHOUT a reviewer, so the environment's
+#                      own gate would be absent)
+#   dry run jobs       (publish=false) the saved images reload intact, and a cosign and
+#                      release-body check; both publish nothing
+#   publish            (tag push, or publish=true on a tag) behind the `release` environment:
+#                      push the tested images by digest (no rebuild), assemble the index,
+#                      smoke-test the pushed digests, cosign sign, provenance and SBOM
+#                      attestations, verify, and only then create the version tag
+#   release            a DRAFT GitHub release; the maintainer publishes it by hand
+#
+# A manual run on a branch (the default publish=false) runs every step that publishes nothing.
+# See docs/release.md. Actions are pinned by commit SHA; cosign by version and SHA-256.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish (needs a version tag as the ref, the maintainer's OK and approval of the release environment). false runs every step that publishes nothing.
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+# A dry run must never cancel (or replace) a waiting publish run: they are separate groups.
+concurrency:
+  group: release-${{ (github.event_name == 'push' || inputs.publish) && 'publish' || 'dry-run' }}
+  cancel-in-progress: false
+
+env:
+  IMAGE_NAME: ghcr.io/segun-io/fukku
+  # What a signature must say: this repository's release workflow, run for the version's tag.
+  SIGNER_ISSUER: https://token.actions.githubusercontent.com
+
+jobs:
+  prepare:
+    name: version, checks and release notes
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      image_version: ${{ steps.meta.outputs.image_version }}
+      commit: ${{ steps.meta.outputs.commit }}
+      publish: ${{ steps.meta.outputs.publish }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # the tag's commit must be an ancestor of main
+          persist-credentials: false
+      - id: meta
+        env:
+          EVENT: ${{ github.event_name }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+          PUBLISH_INPUT: ${{ inputs.publish }}
+        run: |
+          set -euo pipefail
+          commit=$(git rev-parse HEAD)
+          # The version in the compose example is the one place the release version is written.
+          compose_version=$(sed -n 's|^x-image: &image ghcr.io/segun-io/fukku:\([^@ ]*\).*|\1|p' deploy/compose.example.yaml)
+          [ -n "$compose_version" ] || { echo "::error::no x-image line in deploy/compose.example.yaml"; exit 1; }
+          semver='^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'
+
+          publish=false
+          if [ "$REF_TYPE" = tag ]; then
+            # A real tag (pushed, or chosen for a manual run): every check is strict.
+            version=${REF_NAME#v}
+            [[ $REF_NAME == v* && $version =~ $semver ]] || { echo "::error::tag '$REF_NAME' is not v<major>.<minor>.<patch>[-prerelease]"; exit 1; }
+            if [ "$compose_version" != "$version" ]; then
+              echo "::error::deploy/compose.example.yaml says $compose_version but the tag is $REF_NAME: bump the x-image line before tagging (docs/release.md)"
+              exit 1
+            fi
+            git merge-base --is-ancestor "$commit" origin/main \
+              || { echo "::error::the tag's commit is not on main: release only what main has (and CI checked)"; exit 1; }
+            if ! grep -Eq "^## \\[$version\\] - [0-9]{4}-[0-9]{2}-[0-9]{2}\\s*$" CHANGELOG.md; then
+              echo "::error::CHANGELOG.md has no dated section '## [$version] - YYYY-MM-DD' (still Unreleased, or missing): date it in the version bump"
+              exit 1
+            fi
+            image_version=$version
+            if [ "$EVENT" = push ] || [ "$PUBLISH_INPUT" = true ]; then publish=true; fi
+          else
+            # A branch: a dry run, whatever the input says. The version is the one in the compose
+            # example, so the notes and the build use real values.
+            if [ "$PUBLISH_INPUT" = true ]; then
+              echo "::error::publish=true needs a version tag as the ref, not the branch '$REF_NAME'"
+              exit 1
+            fi
+            [[ $compose_version =~ $semver ]] || { echo "::error::x-image version '$compose_version' is not a version"; exit 1; }
+            version=$compose_version
+            image_version="${version}-dryrun.${commit:0:7}"
+          fi
+          {
+            echo "version=$version"
+            echo "image_version=$image_version"
+            echo "commit=$commit"
+            echo "publish=$publish"
+          } >> "$GITHUB_OUTPUT"
+          {
+            echo "### Release $version"
+            echo
+            echo "- ref: \`$REF_TYPE $REF_NAME\`, commit \`$commit\`"
+            echo "- image version (build argument): \`$image_version\`"
+            if [ "$publish" = true ]; then
+              echo "- **publish requested**: the publish job waits for approval of the \`release\` environment"
+            else
+              echo "- dry run: nothing is pushed, signed or released"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: release notes from CHANGELOG.md and the compatibility table as of this commit
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          mkdir release-inputs
+          tools/release-notes.sh "$VERSION" > release-inputs/release-notes.md
+          cp docs/compatibility.md release-inputs/compatibility.md
+          {
+            echo
+            echo "<details><summary>Release notes for $VERSION (from CHANGELOG.md)</summary>"
+            echo
+            cat release-inputs/release-notes.md
+            echo
+            echo "</details>"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-inputs
+          path: release-inputs
+          retention-days: 7
+
+  build:
+    name: build, smoke test and SBOM (${{ matrix.arch }})
+    needs: prepare
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: true
+      matrix:
+        arch: [amd64, arm64] # arm64 runs under QEMU emulation and takes about an hour
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/build-image
+        with:
+          tag: fukku:release-${{ matrix.arch }}
+          version: ${{ needs.prepare.outputs.image_version }}
+          commit: ${{ needs.prepare.outputs.commit }}
+          platform: linux/${{ matrix.arch }}
+      # The image that passed the smoke test, and that the SBOM describes, is the one that is
+      # pushed: publish loads these files instead of building again.
+      - name: save the tested image and its id
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: |
+          mkdir images
+          docker save "fukku:release-$ARCH" -o "images/image-$ARCH.tar"
+          docker image inspect --format '{{.Id}}' "fukku:release-$ARCH" > "images/image-$ARCH.id"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: image-${{ matrix.arch }}
+          path: images
+          retention-days: 7 # the publish job may wait a while for approval
+
+  # Reads the environment's settings before anything that publishes. GitHub creates an
+  # environment that does not exist when a job first names it, with no required reviewer, so
+  # the publish job's approval gate would silently be missing. This job has no environment of its
+  # own, so it fails first. It refuses unless `release` exists, has a required reviewer and
+  # deploys only from tags that start with v. A dry run only reports (a warning when it would
+  # refuse).
+  environment-check:
+    name: release environment check
+    needs: prepare
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: check the release environment
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PUBLISH: ${{ needs.prepare.outputs.publish }}
+        run: |
+          set -uo pipefail
+          # Prints what it finds; returns 0 only for an environment with a required reviewer that
+          # deploys only from v* tags.
+          check() {
+            local name=$1 json reviewers policies
+            if ! json=$(gh api "repos/${GITHUB_REPOSITORY}/environments/${name}" 2>&1); then
+              echo "environment '$name': not readable or missing (${json%%$'\n'*})"
+              return 1
+            fi
+            reviewers=$(jq '[.protection_rules[]? | select(.type == "required_reviewers") | .reviewers | length] | add // 0' <<<"$json")
+            if [ "$reviewers" -lt 1 ]; then
+              echo "environment '$name': exists but has no required reviewer"
+              return 1
+            fi
+            if [ "$(jq -r '.deployment_branch_policy.custom_branch_policies // false' <<<"$json")" != true ]; then
+              echo "environment '$name': has $reviewers required reviewer(s) but no custom deployment policy: restrict it to selected tags 'v*'"
+              return 1
+            fi
+            if ! policies=$(gh api "repos/${GITHUB_REPOSITORY}/environments/${name}/deployment-branch-policies" 2>&1); then
+              echo "environment '$name': its deployment policies are not readable (${policies%%$'\n'*})"
+              return 1
+            fi
+            if ! jq -e '(.branch_policies | length) > 0 and all(.branch_policies[]; .type == "tag" and (.name | startswith("v")))' <<<"$policies" >/dev/null; then
+              echo "environment '$name': its deployment policies are not all tag patterns starting with v: $(jq -c '[.branch_policies[] | {type, name}]' <<<"$policies")"
+              return 1
+            fi
+            echo "environment '$name': ok, $reviewers required reviewer(s), tags only: $(jq -c '[.branch_policies[].name]' <<<"$policies")"
+          }
+          status=0
+          result=$(check release) || status=1
+          echo "$result" | tee -a "$GITHUB_STEP_SUMMARY"
+          if [ "$PUBLISH" = true ]; then
+            if [ "$status" -ne 0 ]; then
+              echo "::error::refusing to publish: the 'release' environment must exist with the maintainer as required reviewer and deploy only from v* tags (docs/release.md)"
+              exit 1
+            fi
+          elif [ "$status" -ne 0 ]; then
+            echo "::warning title=release environment::a publish run would be refused: $result"
+            echo "A publish run would REFUSE (dry run: not failing)." | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            echo "A publish run would pass this check." | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
+
+  # ---- dry run: everything that publishes nothing --------------------------------------------
+
+  # What publish will do with the build jobs' output, without a registry: each saved image
+  # reloads with the id it had when it was tested, and for the architecture it was built for.
+  handoff-dryrun:
+    name: dry run, the tested images reload intact (${{ matrix.arch }})
+    if: ${{ needs.prepare.outputs.publish != 'true' }}
+    needs: [prepare, build]
+    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        arch: [amd64, arm64]
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: image-${{ matrix.arch }}
+          path: images
+      - name: load the saved image and compare
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          docker load -i "images/image-$ARCH.tar"
+          id=$(docker image inspect --format '{{.Id}}' "fukku:release-$ARCH")
+          [ "$id" = "$(cat "images/image-$ARCH.id")" ] || { echo "::error::the reloaded image is not the tested one"; exit 1; }
+          arch=$(docker image inspect --format '{{.Architecture}}' "fukku:release-$ARCH")
+          [ "$arch" = "$ARCH" ] || { echo "::error::image is $arch, expected $ARCH"; exit 1; }
+          echo "image-$ARCH: reloaded with the tested id $id ($arch)" | tee -a "$GITHUB_STEP_SUMMARY"
+
+  signing-dry-check:
+    name: dry run, cosign, attestation inputs and release body
+    if: ${{ needs.prepare.outputs.publish != 'true' }}
+    needs: [prepare, build]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/install-cosign
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: fukku-*.spdx.json
+          path: sboms
+          merge-multiple: true
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-inputs
+          path: release-inputs
+      # Nothing here signs with the workflow's identity or writes to a public log (keyless
+      # signing records in the public Sigstore log: that is publishing). The pinned cosign signs
+      # and verifies an SBOM with a throwaway key and no log entry, which proves the binary and
+      # the files.
+      - name: cosign sign and verify with a throwaway key (no log, no registry)
+        env:
+          COSIGN_PASSWORD: ""
+        run: |
+          set -euo pipefail
+          work=$RUNNER_TEMP/cosign-dry
+          mkdir -p "$work"
+          cd "$work"
+          cosign generate-key-pair >/dev/null
+          for sbom in "$GITHUB_WORKSPACE"/sboms/fukku-*.spdx.json; do
+            test -s "$sbom"
+            name=$(basename "$sbom")
+            jq -e '.spdxVersion and (.packages | length > 0)' "$sbom" >/dev/null # what attest-sbom will take as the predicate
+            cosign sign-blob --yes --key cosign.key --tlog-upload=false --use-signing-config=false --bundle "$name.bundle" "$sbom" >/dev/null
+            cosign verify-blob --key cosign.pub --bundle "$name.bundle" --insecure-ignore-tlog "$sbom"
+            echo "signed and verified $name (throwaway key, nothing published)" | tee -a "$GITHUB_STEP_SUMMARY"
+          done
+      - name: the draft release body, with a placeholder digest
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          tools/release-body.sh "$VERSION" "$IMAGE_NAME" dry-run release-inputs/release-notes.md > release-body.md
+          grep -q '^## Image$' release-body.md
+          grep -q '^## Compatibility$' release-body.md
+          # The identity the release body tells people to verify is the one the publish job signs as
+          # (the workflow file at the version's tag), spelled out exactly.
+          grep -qF "--certificate-identity 'https://github.com/${GITHUB_REPOSITORY}/.github/workflows/release.yml@refs/tags/v${VERSION}'" release-body.md
+          test -s release-inputs/compatibility.md
+          {
+            echo "### Draft release body (dry run)"
+            echo
+            echo "Attached files: \`fukku-amd64.spdx.json\`, \`fukku-arm64.spdx.json\`, \`compatibility.md\`."
+            echo
+            echo '````markdown'
+            cat release-body.md
+            echo '````'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ---- publish: only with the maintainer's explicit OK --------------------------------------
+
+  publish:
+    name: publish to GHCR, sign and attest
+    if: ${{ needs.prepare.outputs.publish == 'true' }}
+    needs: [prepare, build, environment-check]
+    runs-on: ubuntu-24.04
+    environment: release # the maintainer's per-run approval (required reviewer)
+    timeout-minutes: 120
+    permissions:
+      contents: read
+      packages: write # push the images and their signatures to GHCR
+      id-token: write # keyless signing and the attestations (Sigstore)
+      attestations: write
+    outputs:
+      digest: ${{ steps.index.outputs.digest }}
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+      STAGING: staging-${{ github.run_id }} # a neutral tag, only because a push needs a name
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: fukku-*.spdx.json
+          path: sboms
+          merge-multiple: true
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: image-*
+          path: images
+          merge-multiple: true
+      - uses: ./.github/actions/install-cosign
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+        with:
+          image: docker.io/tonistiigi/binfmt:qemu-v10.2.3@sha256:400a4873b838d1b89194d982c45e5fb3cda4593fbfd7e08a02e76b03b21166f0
+          platforms: linux/arm64
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        with:
+          driver-opts: image=docker.io/moby/buildkit:v0.34.2@sha256:c5f8862f52499773af85bc07695b2379ef08e8002352b0df2c4864c91d78dabe
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      # A published version tag is never moved: "re-run all jobs" after a successful run must not
+      # push again. Only a clear "not found" lets the run go on.
+      - name: refuse when the version tag already exists
+        run: |
+          set -uo pipefail
+          if out=$(docker buildx imagetools inspect "${IMAGE_NAME}:${VERSION}" 2>&1); then
+            echo "::error::${IMAGE_NAME}:${VERSION} already exists: a published version is never replaced; use the next version"
+            exit 1
+          fi
+          if ! grep -Eqi 'not found|manifest unknown|name unknown|404' <<<"$out"; then
+            echo "::error::could not tell whether ${IMAGE_NAME}:${VERSION} exists: ${out%%$'\n'*}"
+            exit 1
+          fi
+          echo "${IMAGE_NAME}:${VERSION} does not exist yet"
+      # No rebuild: the images the build jobs tested (and the SBOMs describe) are loaded, checked
+      # against the id they had then, and pushed. The pushes use a neutral staging tag only because
+      # a push needs a name; they are referred to by digest from here on, and the version tag
+      # is created at the very end, after the tests, the signatures and the verification.
+      - id: push
+        name: push the tested images
+        run: |
+          set -euo pipefail
+          for arch in amd64 arm64; do
+            docker load -i "images/image-$arch.tar"
+            id=$(docker image inspect --format '{{.Id}}' "fukku:release-$arch")
+            [ "$id" = "$(cat "images/image-$arch.id")" ] || { echo "::error::the $arch image is not the one that was tested"; exit 1; }
+            ref="${IMAGE_NAME}:${STAGING}-${arch}"
+            docker tag "fukku:release-$arch" "$ref"
+            docker push "$ref" | tee "push-$arch.log"
+            digest=$(sed -n 's/.*digest: \(sha256:[0-9a-f]\{64\}\).*/\1/p' "push-$arch.log" | tail -n 1)
+            [[ $digest =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::could not read the pushed $arch digest"; exit 1; }
+            echo "$arch=$digest" >> "$GITHUB_OUTPUT"
+          done
+      - id: index
+        name: assemble the multi-arch index
+        env:
+          AMD64: ${{ steps.push.outputs.amd64 }}
+          ARM64: ${{ steps.push.outputs.arm64 }}
+        run: |
+          set -euo pipefail
+          docker buildx imagetools create -t "${IMAGE_NAME}:${STAGING}" "${IMAGE_NAME}@${AMD64}" "${IMAGE_NAME}@${ARM64}"
+          manifest=$(docker buildx imagetools inspect "${IMAGE_NAME}:${STAGING}" --format '{{json .Manifest}}')
+          digest=$(jq -r .digest <<<"$manifest")
+          [[ $digest =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::no digest for the index"; exit 1; }
+          # The index lists exactly the two pushed images.
+          jq -e --arg a "$AMD64" --arg b "$ARM64" '([.manifests[].digest] | sort) == ([$a, $b] | sort)' <<<"$(docker buildx imagetools inspect "${IMAGE_NAME}@${digest}" --raw)" >/dev/null \
+            || { echo "::error::the index does not list the pushed images"; exit 1; }
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+      # Each pushed per-architecture digest is pulled for its own platform and tested, arm64
+      # emulated: tools/image-smoke.sh refuses an image of another architecture.
+      - name: smoke test each pushed image by digest
+        env:
+          AMD64: ${{ steps.push.outputs.amd64 }}
+          ARM64: ${{ steps.push.outputs.arm64 }}
+        run: |
+          set -euo pipefail
+          for pair in "amd64 $AMD64" "arm64 $ARM64"; do
+            read -r arch digest <<<"$pair"
+            docker pull --platform "linux/$arch" "${IMAGE_NAME}@${digest}"
+            # What the registry gave back is the image that was tested.
+            got=$(docker image inspect -f '{{.Id}}' "${IMAGE_NAME}@${digest}")
+            [ "$got" = "$(cat "images/image-$arch.id")" ] || { echo "::error::the pushed $arch image ($got) is not the tested one"; exit 1; }
+            tools/image-smoke.sh "${IMAGE_NAME}@${digest}" "$arch"
+            docker image rm "${IMAGE_NAME}@${digest}" >/dev/null
+          done
+      # --recursive signs the index and each per-architecture image it lists.
+      - name: sign with cosign (keyless)
+        env:
+          DIGEST: ${{ steps.index.outputs.digest }}
+        run: cosign sign --yes --recursive "${IMAGE_NAME}@${DIGEST}"
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ env.IMAGE_NAME }}
+          subject-digest: ${{ steps.index.outputs.digest }}
+          push-to-registry: true
+      - uses: actions/attest-sbom@c604332985a26aa8cf1bdc465b92731239ec6b9e # v4.1.0
+        with:
+          subject-name: ${{ env.IMAGE_NAME }}
+          subject-digest: ${{ steps.push.outputs.amd64 }}
+          sbom-path: sboms/fukku-amd64.spdx.json
+          push-to-registry: true
+      - uses: actions/attest-sbom@c604332985a26aa8cf1bdc465b92731239ec6b9e # v4.1.0
+        with:
+          subject-name: ${{ env.IMAGE_NAME }}
+          subject-digest: ${{ steps.push.outputs.arm64 }}
+          sbom-path: sboms/fukku-arm64.spdx.json
+          push-to-registry: true
+      # The checks anyone will run (docs/release.md), run here before the version tag exists.
+      - name: verify the signatures and the attestations
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DIGEST: ${{ steps.index.outputs.digest }}
+          AMD64: ${{ steps.push.outputs.amd64 }}
+          ARM64: ${{ steps.push.outputs.arm64 }}
+        run: |
+          set -euo pipefail
+          identity="https://github.com/${GITHUB_REPOSITORY}/.github/workflows/release.yml@${GITHUB_REF}"
+          for d in "$DIGEST" "$AMD64" "$ARM64"; do
+            cosign verify --certificate-oidc-issuer "$SIGNER_ISSUER" --certificate-identity "$identity" \
+              "${IMAGE_NAME}@${d}" >/dev/null
+            echo "signature verified on ${d}"
+          done
+          gh attestation verify "oci://${IMAGE_NAME}@${DIGEST}" --repo "$GITHUB_REPOSITORY"
+          # The SBOM attestations of each architecture's image. attest-sbom names the predicate
+          # type after the SPDX document ("https://spdx.dev/Document", versioned in newer
+          # releases), so the check accepts either.
+          for d in "$AMD64" "$ARM64"; do
+            found=""
+            for type in https://spdx.dev/Document/v2.3 https://spdx.dev/Document; do
+              if gh attestation verify "oci://${IMAGE_NAME}@${d}" --repo "$GITHUB_REPOSITORY" --predicate-type "$type" >/dev/null 2>&1; then
+                found=$type
+                break
+              fi
+            done
+            [ -n "$found" ] || { echo "::error::no verifiable SBOM attestation on ${d}"; exit 1; }
+            echo "SBOM attestation verified on ${d} (${found})"
+          done
+      # Only now does the version appear: a tag on the index that was tested, signed and verified.
+      - name: create the version tag on the verified index
+        env:
+          DIGEST: ${{ steps.index.outputs.digest }}
+        run: |
+          set -euo pipefail
+          docker buildx imagetools create -t "${IMAGE_NAME}:${VERSION}" "${IMAGE_NAME}@${DIGEST}"
+          got=$(docker buildx imagetools inspect "${IMAGE_NAME}:${VERSION}" --format '{{json .Manifest}}' | jq -r .digest)
+          [ "$got" = "$DIGEST" ] || { echo "::error::${IMAGE_NAME}:${VERSION} is $got, expected $DIGEST"; exit 1; }
+          {
+            echo "Published. Copy this reference (pinned by digest):"
+            echo
+            echo '```'
+            echo "${IMAGE_NAME}:${VERSION}@${DIGEST}"
+            echo '```'
+            echo
+            echo "Signatures and attestations verified before the tag was created. The staging tags \`${STAGING}\`, \`${STAGING}-amd64\` and \`${STAGING}-arm64\` are aliases of the released digests: leave them, and never delete one (deleting a tag on GHCR deletes the digest it points to). Next: make install-test with the reference, then the draft release (docs/release.md)."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  release:
+    name: draft GitHub release
+    needs: [prepare, publish]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write # create the draft release; nothing here publishes it
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: fukku-*.spdx.json
+          path: assets
+          merge-multiple: true
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-inputs
+          path: release-inputs
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          path: src # for tools/release-body.sh only; the notes and the table come from prepare
+      - name: create the draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+          DIGEST: ${{ needs.publish.outputs.digest }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          src/tools/release-body.sh "$VERSION" "$IMAGE_NAME" "$DIGEST" release-inputs/release-notes.md > release-body.md
+          cp release-inputs/compatibility.md assets/compatibility.md
+          flags=(--draft --verify-tag --title "Fukku $VERSION" --notes-file release-body.md)
+          case $VERSION in *-*) flags+=(--prerelease) ;; esac
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" "${flags[@]}" \
+            assets/fukku-amd64.spdx.json assets/fukku-arm64.spdx.json assets/compatibility.md
+          echo "A DRAFT release for $TAG was created. Publishing it is the maintainer's step (docs/release.md)." >> "$GITHUB_STEP_SUMMARY"
