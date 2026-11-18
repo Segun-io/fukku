@@ -8,9 +8,10 @@ how a release is made is in [docs/release.md](docs/release.md).
 
 ## [Unreleased]
 
-## [0.1.0] - Unreleased
+## [0.1.0-rc.1] - 2026-11-18
 
-The first release. Nothing here has been published yet; the date is added when the release is.
+The release candidate of 0.1.0, the first release. It runs the whole release path (publish,
+sign, attest) once before 0.1.0 itself, which follows with these same changes.
 
 ### Upgrade notes
 
@@ -108,5 +109,5 @@ prepared, and matter to anyone who ran a pre-release image (`0.0.0-pre.*`) or th
   source maps and directory listings removed.
 - Report vulnerabilities privately, as `SECURITY.md` describes.
 
-[Unreleased]: https://github.com/Segun-io/fukku/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/Segun-io/fukku/releases/tag/v0.1.0
+[Unreleased]: https://github.com/Segun-io/fukku/compare/v0.1.0-rc.1...HEAD
+[0.1.0-rc.1]: https://github.com/Segun-io/fukku/releases/tag/v0.1.0-rc.1

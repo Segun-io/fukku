@@ -13,7 +13,7 @@
 
 name: fukku
 
-x-image: &image ghcr.io/segun-io/fukku:0.1.0
+x-image: &image ghcr.io/segun-io/fukku:0.1.0-rc.1
 
 x-hardening: &hardening
   image: *image
