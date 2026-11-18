@@ -25,7 +25,7 @@ home-directory paths, and the maintainer's name. The list stays out of the repos
 | gitleaks, full history of `main` | done | `gitleaks git --log-opts=origin/main` (dev image, `.gitleaks.toml`): 87 commits, no leaks |
 | gitleaks, every pull-request head | done | `--log-opts="--remotes=origin/pr/*"`: 169 commits, no leaks |
 | Binary blobs gitleaks cannot read | accepted (#151) | Five core dumps were committed: two on `main` (added in `e499437`, #139; deleted in `a148688`, #148) and three more on the heads of #139 and #147. All are of `sh -c kill -SEGV $$` in the dev container. Their strings hold only that container's environment (container ids, `/src` and `/go` paths, the dev image's variables): no key, token, address, name or host path |
-| Test API keys | done | fixed fakes only (`test/env`), documented in the README |
+| Test API keys | done | fixed fakes only (`test/env`), documented in `docs/development.md` |
 | Repository secrets and variables | done | none (`/actions/secrets`, `/actions/variables`) |
 | CI logs and artifacts | done | a full CI log of `main` holds only the login and noreply addresses. The artifacts (build records, SBOMs, probe results, end-to-end traces) come from GitHub-hosted runners and the local test environment |
 | Published images | done | no package on GHCR yet (`ghcr.io/segun-io/fukku`: name unknown), no tag or release |

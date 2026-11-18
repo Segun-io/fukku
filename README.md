@@ -3,8 +3,6 @@
 **Status: first release.** It is ready to run against a real library, behind a reverse proxy that
 authenticates your users. Back up your library as you always do: Radarr and Sonarr stay the
 only writers of it, but a merge replaces a film's file (see [docs/install.md](docs/install.md)).
-The version is the image tag in [deploy/compose.example.yaml](deploy/compose.example.yaml), the
-only place it is written.
 
 Fukku (フック, "hook") is a small self-hosted web app for adding video that no indexer will
 ever provide (a ripped disc, a home recording, another language of a film you already have,
@@ -25,12 +23,33 @@ a normal download.
 - **Easy to run:** one OCI image, two containers, configuration by environment variables or
   one YAML file, behind any reverse proxy.
 
-The plan, the three flows and the milestones are in [docs/plan.md](docs/plan.md). How the
-pinned versions of Radarr, Sonarr, Bazarr and Jellyfin behave is in
-[docs/compatibility.md](docs/compatibility.md). How the UI looks and sounds, and which
-component or token to use, is in [docs/design.md](docs/design.md). What Fukku defends
-against, and what it accepts, is in [docs/threat-model.md](docs/threat-model.md); how to
-report a vulnerability is in [SECURITY.md](SECURITY.md).
+How the tested versions of Radarr, Sonarr, Bazarr and Jellyfin behave is in
+[docs/compatibility.md](docs/compatibility.md). What Fukku defends against, and what it
+accepts, is in [docs/threat-model.md](docs/threat-model.md); how to report a vulnerability is in
+[SECURITY.md](SECURITY.md).
+
+## What it looks like
+
+Upload one or more files, or a zip of a season, in the browser:
+
+![The upload page: a film halfway through its upload, its subtitle file done](docs/images/upload.png)
+
+Fukku asks Sonarr what it makes of each file of a season and shows it, with what needs a look:
+a file that may hold two episodes, a dub, a file Sonarr refuses. Correct what is wrong:
+
+![Check the files: each episode of a season with Sonarr's reading and Fukku's warnings](docs/images/review.png)
+
+Confirm what Radarr will import, with the subtitles' languages:
+
+![Confirm the import: the film, its quality and languages, and its Spanish subtitle file](docs/images/confirm.png)
+
+Radarr imports it, and the job ends with a link to the title in your media server:
+
+![A finished job: the film is in the library, with a link to open it in the media server](docs/images/done.png)
+
+Administrators see the server's health and the settings it runs with:
+
+![The admin page: the server's health checks](docs/images/admin.png)
 
 ## What it needs
 
@@ -66,8 +85,7 @@ The full guide, with the reasons, is [docs/install.md](docs/install.md). In shor
 5. **Put your reverse proxy in front of it**, with worked examples for Caddy, Traefik and nginx
    in [docs/reverse-proxy.md](docs/reverse-proxy.md), then open your address.
 
-The image is `ghcr.io/segun-io/fukku`. Until it is published for the version in the compose
-file, build it yourself (`docker build`, [docs/install.md](docs/install.md)).
+The image is `ghcr.io/segun-io/fukku`, for amd64 and arm64.
 
 ## Your first upload
 
@@ -82,8 +100,9 @@ file or as a second version.
 
 [docs/troubleshooting.md](docs/troubleshooting.md) covers the usual problems (not ready, 403,
 stalled uploads, not the same filesystem, stuck jobs, the manual fallback). Every setting is in
-[docs/settings.md](docs/settings.md). Bugs and questions: the issues of the project's
-repository. Backup and restore: [docs/backup.md](docs/backup.md).
+[docs/settings.md](docs/settings.md). Bugs and questions go to the project's
+[issues](https://github.com/segun-io/fukku/issues). Backup and restore:
+[docs/backup.md](docs/backup.md).
 
 The web process keeps its state in one SQLite file in `server.dataDir` (local disk only).
 Commands, for reference: `fukku web`, `fukku worker`, `fukku combined` (one process, weaker),
@@ -99,98 +118,11 @@ label carries a user, file name or title. Like `/readyz`, it is open to a loopba
 otherwise needs an admin through the reverse proxy, so a scraper on the same host needs no
 credentials; with the setting off the path is a 404. See [docs/settings.md](docs/settings.md).
 
-## Try it locally
+## Contributing
 
-Fukku runs next to a local Radarr, Sonarr, Bazarr and Jellyfin (fake API keys, 127.0.0.1 only)
-behind a small test reverse proxy that signs you in:
-
-```sh
-make image env-up dev-up      # build the image, start and seed the apps, start Fukku
-# open http://127.0.0.1:18080
-make dev-logs                 # follow the logs
-make dev-down                 # stop Fukku; the test environment keeps running
-```
-
-The proxy offers three users, chosen with a cookie: open
-`http://127.0.0.1:18080/__test/login?user=admin1` (or `user1`, `user2`) first. `user1` is the
-default, `user2` a second ordinary user, `admin1` is in the admin group. Their addresses are
-`<name>@example.com`. If `172.30.77.0/24` is taken on your host, set `FUKKU_DEV_SUBNET` to
-another /24 before `make dev-up`. The full contract of the stack, including the proxy's control
-API for tests, is in [test/env/compose.yaml](test/env/compose.yaml).
-
-Browser tests (Playwright, in a pinned image) run against this stack with `make e2e`; see
-[test/e2e/README.md](test/e2e/README.md). They include a 5 GiB upload that survives a reload,
-a restart and dropped connections; `make e2e-large` runs it at 60 GiB (by hand, it needs about
-65 GiB free under `test/env/.run`). The M2 exit criteria (a film and a season imported through
-the test Radarr and Sonarr, kills of `fukku-web` while importing) add titles through the apps'
-metadata services, so they need the internet; `make e2e E2E_ONLINE=0` skips them.
-
-## Development
-
-The host needs Docker (with Compose), make and git. Every other tool is pinned in the
-development image ([tools/dev/Dockerfile](tools/dev/Dockerfile)).
-
-```sh
-make hooks            # install the pre-commit hook (gitleaks on staged changes)
-make check            # format, lint, unit tests, UI checks, workflow lint, secret scan
-make build            # bin/fukku, with the UI built in
-make image            # the product image, as fukku:dev
-make fixtures         # look at the generated test media and hostile archives
-
-make env-up           # local Radarr, Sonarr, Bazarr and Jellyfin, seeded with fake keys, a fake
-                      # indexer and blackhole download clients
-make probes           # behaviour probes that need no internet
-make probes-online    # all probes (adding titles needs the *arr metadata services)
-make compat           # write probe results into docs/compatibility.md
-make probes-gate      # CI rule on the results: fail on differs or error, warn on upstream skips
-make dev-up            # run Fukku in the test environment (see "Try it locally")
-make env-reset        # delete the test environment
-make install-test FUKKU_IMAGE=fukku:dev   # clean-room install from these documents (below)
-```
-
-The test environment uses fixed fake API keys and runs only on 127.0.0.1. The probes refuse
-to talk to anything but its services. Test videos and hostile archives are generated at test
-time and never committed. The indexer is a fake built from this repository
-([test/env/indexer](test/env/indexer)): it offers only the generated releases a probe gives it,
-and a grab ends as an NZB file in a blackhole folder under `test/env/.run`; nothing is
-downloaded.
-
-| Path | What |
-| --- | --- |
-| `cmd/fukku` | the binary: `web`, `worker`, `combined`, `check-config`, `healthcheck` |
-| `internal/config` | the settings catalogue, YAML and `FUKKU_*` loading, validation |
-| `internal/web`, `internal/worker` | the two processes |
-| `internal/spool` | the task and result files between the two processes; `spooltest` has an in-memory queue |
-| `internal/store` | the SQLite store: jobs and their state machine, files, uploads, audit log; `storetest` has the in-memory fake and the conformance suite |
-| `internal/jobdir` | the layout of the intake root (`.incoming/`, `jobs/<id>/files`, `archives`, `worker/<id>`), and the checks of a job's file before it is handed over (no symbolic link on the way, regular, moved in from the worker's folder) |
-| `internal/runner` | drives jobs through their states (uploaded → probing → probed), restart-safe |
-| `internal/extract`, `internal/safename` | safe zip extraction in the worker; the file-name cleaner |
-| `ui/` | the React single-page app, embedded in the binary |
-| `test/fixtures` | ffmpeg media and hostile-archive generators |
-| `test/install` | the clean-room install test: the steps of this README and [docs/install.md](docs/install.md), followed literally on a clean Docker-in-Docker host |
-| `test/env`, `test/testenv`, `test/probes` | the local integration environment (including the dev stack, its test proxy and the fake indexer) and the behaviour probes |
-
-## The clean-room install test
-
-`make install-test FUKKU_IMAGE=<image>` checks that the documents are enough. It starts a clean
-host (Docker-in-Docker, `docker:29.9.3-dind` pinned by digest: a container runtime and Compose,
-nothing else), runs the pinned test Radarr, Sonarr and Jellyfin and a forward-authentication stub
-in it, and then runs the install exactly as README.md and [docs/install.md](docs/install.md) say
-([test/install/operator.sh](test/install/operator.sh)), with Caddy as in
-[docs/reverse-proxy.md](docs/reverse-proxy.md). It then checks `/readyz`, sign-in through the
-proxy, and one film (flow 1) and one season archive (flow 3) imported through the HTTP API. The
-media are generated at test time. Seeding the apps is scaffolding, kept apart from the install in
-[test/install/run.sh](test/install/run.sh).
-
-`FUKKU_IMAGE` is a registry reference by digest (the clean host pulls it, as install step 2 says)
-or an image of this machine such as `fukku:dev`, which is copied in with `docker save | docker
-load`. While the package is private, the clean host cannot use the outer machine's login: give
-it a token that can read the package with `GHCR_TOKEN_FILE=<file>` (or `GHCR_TOKEN`, and
-`GHCR_USER`); it logs in with it over stdin and the token is never printed, and it logs out again after the pull, so a host kept with `FUKKU_INSTALL_KEEP=1` holds no token. It needs the internet for the apps' metadata services only (they add the free titles the
-probes use) and for image pulls that are not cached, and takes about two minutes once the image
-exists. **Run it by hand before a release**; it is not scheduled, because it needs a privileged
-container host and a full image build ([docs/prerelease.md](docs/prerelease.md)). A step that the
-documents get wrong or leave out makes it fail, and the fix goes into the documents.
+How to build Fukku, run it next to a local test Radarr, Sonarr, Bazarr and Jellyfin, and test
+it is in [docs/development.md](docs/development.md). The rules for a change are in
+[CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Licence
 

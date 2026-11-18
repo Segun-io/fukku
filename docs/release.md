@@ -70,8 +70,9 @@ Do these in order. Tick each in the release pull request or the release issue.
 - [ ] **The going-public checklist** ([going-public.md](going-public.md), #64) has no open item
   that the maintainer has not accepted.
 - [ ] **The clean-room install passes with a locally built image** (first of two runs: this one
-  before publishing, the second with the released digest in step 4) (#67, README, "The clean-room
-  install test"). It needs Docker-in-Docker and the internet (Radarr and Sonarr metadata):
+  before publishing, the second with the released digest in step 4) (#67,
+  [development.md](development.md#the-clean-room-install-test)). It needs Docker-in-Docker and the
+  internet (Radarr and Sonarr metadata):
 
   ```sh
   make image                              # builds fukku:dev
