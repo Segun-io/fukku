@@ -8,10 +8,9 @@ how a release is made is in [docs/release.md](docs/release.md).
 
 ## [Unreleased]
 
-## [0.1.0-rc.1] - 2026-11-18
+## [0.1.0] - 2026-11-19
 
-The release candidate of 0.1.0, the first release. It runs the whole release path (publish,
-sign, attest) once before 0.1.0 itself, which follows with these same changes.
+The first release.
 
 ### Upgrade notes
 
@@ -94,7 +93,8 @@ prepared, and matter to anyone who ran a pre-release image (`0.0.0-pre.*`) or th
   (keyless) and carry build provenance; verify them as written in docs/release.md.
 - **A compatibility table** (`docs/compatibility.md`) of what Fukku relies on in Radarr, Sonarr,
   Bazarr and Jellyfin, produced by behaviour probes against the pinned versions, and published
-  with each release.
+  with each release. It includes the media server refresh measured on libraries of up to 10 000
+  films: a new film shows up in under 2 s.
 
 ### Security
 
@@ -109,5 +109,11 @@ prepared, and matter to anyone who ran a pre-release image (`0.0.0-pre.*`) or th
   source maps and directory listings removed.
 - Report vulnerabilities privately, as `SECURITY.md` describes.
 
-[Unreleased]: https://github.com/Segun-io/fukku/compare/v0.1.0-rc.1...HEAD
+## [0.1.0-rc.1] - 2026-11-18
+
+The release candidate of 0.1.0, published to test the release path; its changes are those of
+0.1.0 above.
+
+[Unreleased]: https://github.com/Segun-io/fukku/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/Segun-io/fukku/releases/tag/v0.1.0
 [0.1.0-rc.1]: https://github.com/Segun-io/fukku/releases/tag/v0.1.0-rc.1
