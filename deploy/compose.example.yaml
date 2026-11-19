@@ -13,7 +13,7 @@
 
 name: fukku
 
-x-image: &image ghcr.io/segun-io/fukku:0.1.0
+x-image: &image ghcr.io/segun-io/fukku:0.1.0@sha256:1b2346a7209758c57b9b8195d7deae7e93c76a8e374040f4efb44f1d8c02b90c
 
 x-hardening: &hardening
   image: *image
