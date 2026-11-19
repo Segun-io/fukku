@@ -25,7 +25,10 @@ creates a tag and only ever creates a **draft** release.
    ruleset and the required reviewer of the `release` environment, who sees the tag and commit
    before approving.
 3. **Package visibility.** The first push creates `ghcr.io/segun-io/fukku` as a private package.
-   After the first publish, open the package's settings and make it public (and check that it is
+   An organization allows public packages only when its settings say so: Organization settings,
+   Packages, "Package creation", tick Public and save (until then the package's "Change
+   visibility" dialog shows Public as "disabled by organization administrators"). After the
+   first publish, open the package's settings and make it public (and check that it is
    linked to the repository), or `docker pull` needs a token. Changing visibility is a
    maintainer step and is not undone lightly.
 4. **Attestations and signing** need nothing stored: keyless signing uses the run's OIDC token
@@ -167,6 +170,20 @@ gh attestation verify "oci://$IMAGE@<amd64 digest>" --repo Segun-io/fukku \
 
 (The last command's predicate type is the SPDX document version of the SBOM; if it says no
 attestation matches, list them with `gh attestation download` or try `https://spdx.dev/Document`.)
+
+With a `gh` too old for `gh attestation`, cosign checks the same attestations, with the same exact
+identity (`--certificate-identity` and `--certificate-oidc-issuer` as in `cosign verify` above):
+
+```sh
+cosign verify-attestation --type https://slsa.dev/provenance/v1 \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  --certificate-identity 'https://github.com/Segun-io/fukku/.github/workflows/release.yml@refs/tags/vX.Y.Z' \
+  "$IMAGE@$DIGEST" >/dev/null
+cosign verify-attestation --type https://spdx.dev/Document/v2.3 \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  --certificate-identity 'https://github.com/Segun-io/fukku/.github/workflows/release.yml@refs/tags/vX.Y.Z' \
+  "$IMAGE@<amd64 digest>" >/dev/null
+```
 
 - [ ] Signature verified, provenance verified, SBOM attestation verified.
 - [ ] **The clean-room install with the released image**, now by digest:
