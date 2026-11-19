@@ -94,7 +94,7 @@ prepared, and matter to anyone who ran a pre-release image (`0.0.0-pre.*`) or th
 - **A compatibility table** (`docs/compatibility.md`) of what Fukku relies on in Radarr, Sonarr,
   Bazarr and Jellyfin, produced by behaviour probes against the pinned versions, and published
   with each release. It includes the media server refresh measured on libraries of up to 10 000
-  films: a new film shows up in under 2 s.
+  films: a new film shows up within about 2 s.
 
 ### Security
 
