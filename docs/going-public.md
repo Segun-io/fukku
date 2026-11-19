@@ -52,7 +52,7 @@ home-directory paths, and the maintainer's name. The list stays out of the repos
 | --- | --- | --- |
 | `FROM` in `Dockerfile` and `tools/dev/Dockerfile` | done | every base image pinned by version and digest through `ARG` |
 | `image:` in `test/env/compose.yaml` | done | radarr, sonarr, bazarr, jellyfin, playwright: version and digest. The others are images built locally |
-| `deploy/compose.example.yaml` | done | a release placeholder (`ghcr.io/segun-io/fukku:0.1.0`) with an instruction to pin by digest. #66 updates it to the released digest |
+| `deploy/compose.example.yaml` | done | pinned to the released 0.1.0 image by digest (`ghcr.io/segun-io/fukku:0.1.0@sha256:1b2346a7…`) |
 | `uses:` in the workflows and local actions | done | every action pinned by commit SHA with its version as a comment |
 | QEMU and BuildKit images used by the image build | fixed | `setup-qemu-action` and `setup-buildx-action` used their moving default tags (`binfmt:latest`, `buildkit:buildx-stable-1`). Both are now pinned by version and digest in `.github/actions/build-image` |
 | Tools in the Makefile and `tools/*.sh` | done | actionlint and Python images by version and digest. govulncheck by version (Go checksum database). syft by version through the pinned `anchore/sbom-action` |
