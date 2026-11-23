@@ -3,9 +3,9 @@ module github.com/segun-io/fukku
 go 1.27.4
 
 require (
-	github.com/tus/tusd/v2 v2.10.1
+	github.com/tus/tusd/v2 v2.10.2
 	go.yaml.in/yaml/v3 v3.0.6
-	golang.org/x/exp v0.0.0-20260611194520-c48552f49976
+	golang.org/x/exp v0.0.0-20260813180055-c1d0aacb2297
 	golang.org/x/sys v0.50.0
 	golang.org/x/text v0.44.0
 	modernc.org/sqlite v1.62.0
